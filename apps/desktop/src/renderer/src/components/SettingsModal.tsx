@@ -56,6 +56,7 @@ export default function SettingsModal(): React.JSX.Element | null {
             hint="用于对话、续写与设定审校"
             settings={draft.writer}
             onChange={setWriter}
+            withCompaction
           />
           <ModelSection
             title="抽取模型"
@@ -193,12 +194,14 @@ function ModelSection({
   title,
   hint,
   settings,
-  onChange
+  onChange,
+  withCompaction = false
 }: {
   title: string
   hint: string
   settings: ModelSettings
   onChange: (patch: Partial<ModelSettings>) => void
+  withCompaction?: boolean
 }): React.JSX.Element {
   return (
     <div>
@@ -241,6 +244,22 @@ function ModelSection({
           />
         </div>
       </div>
+      {withCompaction && (
+        <div className="field" style={{ marginTop: 8 }}>
+          <label>上下文长度</label>
+          <select
+            value={settings.context_window}
+            onChange={(event) => onChange({ context_window: Number(event.target.value) })}
+          >
+            <option value={500000}>500K</option>
+            <option value={1000000}>1M</option>
+          </select>
+          <div className="field-hint">
+            当前默认 DeepSeek。到窗口 80% 时自动摘要压缩：旧消息交给摘要模型收成一段上下文，
+            原文另存到 /conversation_history 可回读；最后 12 条始终保留原文。
+          </div>
+        </div>
+      )}
     </div>
   )
 }

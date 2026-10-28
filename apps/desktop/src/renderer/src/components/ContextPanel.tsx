@@ -2,6 +2,12 @@ import { useEffect, useState } from 'react'
 import { Brain, Layers, RefreshCw, Sparkles } from 'lucide-react'
 import { useAppStore } from '../store'
 
+function formatTokens(value: number): string {
+  if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(value % 1_000_000 === 0 ? 0 : 1)}M`
+  if (value >= 1000) return `${Math.round(value / 1000)}K`
+  return String(value)
+}
+
 export default function ContextPanel(): React.JSX.Element {
   const context = useAppStore((state) => state.context)
   const memory = useAppStore((state) => state.memory)
@@ -47,6 +53,13 @@ export default function ContextPanel(): React.JSX.Element {
       {context && (
         <div className="ctx-fingerprint">
           {context.domain_id} · {context.expert_id || '域默认人格'} · {context.fingerprint}
+        </div>
+      )}
+      {context?.compaction && (
+        <div className="ctx-compact" title="接近窗口上限时，旧消息会被摘要压缩；原文另存为 conversation_history 可回读">
+          <span>窗口 {formatTokens(context.compaction.window)}</span>
+          <span className="ctx-compact-dot" />
+          <span>{formatTokens(context.compaction.trigger)} 自动压缩</span>
         </div>
       )}
 

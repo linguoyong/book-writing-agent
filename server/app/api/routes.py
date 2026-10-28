@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from .. import db, memory
 from ..agent.checkpointer import drop_thread
+from ..agent.compaction import compaction_plan
 from ..agent.factory import resolve_expert
 from ..agent.runner import approve_stream, chat_stream
 from ..agent import steering
@@ -16,6 +17,7 @@ from ..config import load_settings, save_settings
 from ..context import assemble
 from ..domains import list_domains
 from ..experts import delete_expert, get_expert, list_experts, save_expert
+from ..llm import normalize_window
 from ..kb.repository import (
     KINDS,
     delete_entity,
@@ -61,6 +63,9 @@ def put_config(payload: dict[str, Any]) -> dict[str, Any]:
     for key in ("writer", "extractor", "embedding", "sandbox"):
         if key in payload and isinstance(payload[key], dict):
             merged[key].update(payload[key])
+    for role in ("writer", "extractor"):
+        if merged.get(role, {}).get("context_window"):
+            merged[role]["context_window"] = normalize_window(merged[role]["context_window"])
     save_settings(type(settings).model_validate(merged))
     return load_settings().model_dump()
 
@@ -222,7 +227,14 @@ def session_context(session_id: str) -> dict[str, Any]:
         expert=expert,
         readonly=session.get("kind") == "side",
     )
-    return bundle.to_dict()
+    settings = load_settings()
+    payload = bundle.to_dict()
+    payload["model"] = {
+        "name": settings.writer.model,
+        "context_window": settings.writer.context_window,
+    }
+    payload["compaction"] = compaction_plan(settings.writer.context_window)
+    return payload
 
 
 @router.get("/sessions/{session_id}/messages")

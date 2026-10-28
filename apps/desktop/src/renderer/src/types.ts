@@ -132,6 +132,13 @@ export interface ContextItem {
   included: boolean
 }
 
+export interface CompactionPlan {
+  window: number
+  trigger: number
+  truncate: number
+  keep_messages: number
+}
+
 export interface ContextBundle {
   system_prompt: string
   items: ContextItem[]
@@ -139,6 +146,8 @@ export interface ContextBundle {
   domain_id: string
   fingerprint: string
   total_chars: number
+  model?: { name: string; context_window: number }
+  compaction?: CompactionPlan
 }
 
 export interface MemoryFile {
@@ -221,6 +230,7 @@ export interface ModelSettings {
   api_key: string
   model: string
   temperature: number
+  context_window: number
 }
 
 export interface EmbeddingSettings {

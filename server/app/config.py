@@ -22,6 +22,9 @@ class ModelSettings(BaseModel):
     api_key: str = ""
     model: str = "deepseek-flash"
     temperature: float = 0.7
+    # 模型上下文窗口（token）。仅 DeepSeek 两个档位：500K / 1M。
+    # 只影响上下文装配预算与自动压缩阈值，不会改变服务端真实上限。
+    context_window: int = 500_000
 
 
 class EmbeddingSettings(BaseModel):

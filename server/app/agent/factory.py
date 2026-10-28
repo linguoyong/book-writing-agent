@@ -9,10 +9,11 @@ from deepagents.backends import CompositeBackend, FilesystemBackend
 from ..config import GLOBAL_SKILLS_DIR, load_settings
 from ..context import ContextBundle, assemble, tool_context
 from ..domains import get_domain
-from ..llm import build_chat_model
+from ..llm import build_chat_model, normalize_window
 from ..sandbox import compile_permissions
 from .approvals import GATED_TOOLS
 from .checkpointer import get_checkpointer
+from .compaction import build_compaction
 from .steering import SteeringMiddleware
 
 
@@ -64,10 +65,14 @@ def build_agent(
     permissions = None if readonly else compile_permissions(settings.sandbox, mode=mode)
 
     sync_session = (session or {}).get("id", "")
-    middleware = [SteeringMiddleware(sync_session)] if sync_session else []
+    model = build_chat_model("writer")
+    window = normalize_window(settings.writer.context_window)
+    middleware: list[Any] = [build_compaction(model, backend, window=window)]
+    if sync_session:
+        middleware.insert(0, SteeringMiddleware(sync_session))
 
     agent = create_deep_agent(
-        model=build_chat_model("writer"),
+        model=model,
         tools=tools,
         system_prompt=bundle.system_prompt,
         backend=backend,
