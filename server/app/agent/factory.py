@@ -4,11 +4,13 @@ from pathlib import Path
 from typing import Any
 
 from deepagents import create_deep_agent
-from deepagents.backends import FilesystemBackend
+from deepagents.backends import CompositeBackend, FilesystemBackend
 
+from ..config import GLOBAL_SKILLS_DIR
 from ..context import ContextBundle, assemble, tool_context
 from ..domains import get_domain
 from ..llm import build_chat_model
+from .approvals import GATED_TOOLS
 from .checkpointer import get_checkpointer
 
 
@@ -28,6 +30,7 @@ def build_agent(
     readonly: bool = False,
     builder: str = "",
     project_id: str = "",
+    references: list[dict[str, Any]] | None = None,
 ) -> tuple[Any, ContextBundle]:
     """装配一个带持久化会话状态的 agent。
 
@@ -40,6 +43,7 @@ def build_agent(
         expert=expert,
         readonly=readonly,
         builder=builder,
+        references=references,
     )
     domain = get_domain(bundle.domain_id)
     ctx = tool_context(
@@ -49,8 +53,10 @@ def build_agent(
         readonly=readonly,
     )
     tools = domain.build_tools(ctx)
-    backend = FilesystemBackend(root_dir=str(project), virtual_mode=True)
+    backend = _backend(project)
     skills = _skill_sources(project, domain.skills_subdir)
+    # 只读会话没有写工具，无需拦截
+    interrupt_on = None if readonly else {name: True for name in GATED_TOOLS}
 
     agent = create_deep_agent(
         model=build_chat_model("writer"),
@@ -59,17 +65,32 @@ def build_agent(
         backend=backend,
         skills=skills,
         checkpointer=get_checkpointer(),
-        # 逐条审批属于 P1′：前端还没有审批 UI，这里保持直写，避免断流无法恢复
-        interrupt_on={"kb_write": False, "manuscript_write": False},
+        interrupt_on=interrupt_on,
         name=f"agent-{domain.id}",
     )
     return agent, bundle
 
 
+def _backend(project: Path) -> CompositeBackend:
+    """项目根目录为主，另挂全局技能到 /global-skills。"""
+    default = FilesystemBackend(root_dir=str(project), virtual_mode=True)
+    if not GLOBAL_SKILLS_DIR.exists():
+        return CompositeBackend(default=default, routes={})
+    return CompositeBackend(
+        default=default,
+        routes={
+            "/global-skills/": FilesystemBackend(
+                root_dir=str(GLOBAL_SKILLS_DIR), virtual_mode=True
+            )
+        },
+    )
+
+
 def _skill_sources(project: Path, subdir: str) -> list[str] | None:
+    sources: list[str] = []
     root = project / subdir
-    if not root.exists():
-        return None
-    if not any(root.glob("*/SKILL.md")):
-        return None
-    return [f"/{subdir}"]
+    if root.exists() and any(root.glob("*/SKILL.md")):
+        sources.append(f"/{subdir}")
+    if GLOBAL_SKILLS_DIR.exists() and any(GLOBAL_SKILLS_DIR.glob("*/SKILL.md")):
+        sources.append("/global-skills")
+    return sources or None

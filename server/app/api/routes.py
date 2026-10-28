@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from .. import db, memory
 from ..agent.checkpointer import drop_thread
 from ..agent.factory import resolve_expert
-from ..agent.runner import chat_stream
+from ..agent.runner import approve_stream, chat_stream
 from ..config import load_settings, save_settings
 from ..context import assemble
 from ..domains import list_domains
@@ -210,6 +210,7 @@ class ChatRequest(BaseModel):
     message: str
     mode: str = "main"
     expert_id: str | None = None
+    references: list[dict[str, Any]] | None = None
 
 
 @router.post("/chat")
@@ -217,10 +218,115 @@ async def post_chat(req: ChatRequest) -> StreamingResponse:
     if not req.message.strip():
         raise HTTPException(status_code=400, detail="消息不能为空")
     return StreamingResponse(
-        chat_stream(req.session_id, req.message, req.mode, req.expert_id),
+        chat_stream(
+            req.session_id, req.message, req.mode, req.expert_id, req.references
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+class Decision(BaseModel):
+    type: str
+    message: str | None = None
+
+
+class ApproveRequest(BaseModel):
+    session_id: str
+    decisions: list[Decision]
+
+
+@router.post("/chat/approve")
+async def post_approve(req: ApproveRequest) -> StreamingResponse:
+    decisions = [item.model_dump(exclude_none=True) for item in req.decisions]
+    return StreamingResponse(
+        approve_stream(req.session_id, decisions),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.get("/sessions/{session_id}/pending")
+def get_pending(session_id: str) -> dict[str, Any]:
+    if not db.get_session(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    return {"approval": db.pending_approval(session_id)}
+
+
+@router.get("/sessions/{session_id}/approvals")
+def get_approvals(session_id: str) -> list[dict[str, Any]]:
+    return db.approval_history(session_id)
+
+
+# ---------------------------------------------------------------- 引用候选
+
+
+@router.get("/projects/{project_id}/reference-candidates")
+def reference_candidates(
+    project_id: str, q: str = "", limit: int = 20
+) -> dict[str, Any]:
+    project = _require_project(project_id)
+    root = Path(project["path"])
+    keyword = q.strip().lower()
+    items: list[dict[str, Any]] = []
+
+    for kind in KINDS:
+        for entity in list_entities(root, kind):
+            haystack = f"{entity['title']} {entity['id']} {' '.join(map(str, entity['meta'].get('tags') or []))}".lower()
+            if keyword and keyword not in haystack:
+                continue
+            items.append(
+                {
+                    "type": "entity",
+                    "kind": kind,
+                    "id": entity["id"],
+                    "name": entity["title"],
+                    "path": entity["file"],
+                    "hint": KB_KIND_NAMES.get(kind, kind),
+                    "score": 2 if entity["title"].lower().startswith(keyword) else 1,
+                }
+            )
+
+    for sub, ref_type, hint in (
+        ("manuscript", "file", "文稿"),
+        ("chapters", "chapter", "章节"),
+    ):
+        directory = root / sub
+        if not directory.exists():
+            continue
+        for file in sorted(directory.rglob("*.md"))[:800]:
+            relative = str(file.relative_to(root)).replace("\\", "/")
+            if keyword and keyword not in relative.lower():
+                continue
+            items.append(
+                {
+                    "type": ref_type,
+                    "name": file.stem,
+                    "path": relative,
+                    "hint": hint,
+                    "score": 1,
+                }
+            )
+
+    skills_dir = root / "skills"
+    if skills_dir.exists():
+        for file in sorted(skills_dir.glob("*/SKILL.md")):
+            meta, _ = parse_note(file.read_text(encoding="utf-8"))
+            name = meta.get("display_name") or meta.get("name") or file.parent.name
+            if keyword and keyword not in f"{name} {file.parent.name}".lower():
+                continue
+            items.append(
+                {
+                    "type": "skill",
+                    "name": str(name),
+                    "path": str(file.relative_to(root)).replace("\\", "/"),
+                    "hint": "技能",
+                    "score": 1,
+                }
+            )
+
+    items.sort(key=lambda item: (-int(item.get("score", 0)), item["name"]))
+    return {"items": items[:limit]}
 
 
 # ---------------------------------------------------------------- 内核：域包与记忆

@@ -137,6 +137,32 @@ export interface MemoryState {
   scopes: Record<string, string>
 }
 
+export interface ApprovalRequest {
+  name: string
+  args: Record<string, unknown>
+  description: string
+  target: string
+  diff: string
+  note: string
+}
+
+export interface ApprovalBundle {
+  approval_id: string
+  interrupt_id?: string | null
+  requests: ApprovalRequest[]
+  created_at: string
+}
+
+export interface ReferenceItem {
+  type: 'entity' | 'file' | 'chapter' | 'skill'
+  kind?: KbKind
+  id?: string
+  name: string
+  path: string
+  hint: string
+  score?: number
+}
+
 export interface KnowledgeBaseSummary {
   kind: KbKind
   name: string

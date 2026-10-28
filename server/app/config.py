@@ -43,6 +43,8 @@ class Settings(BaseModel):
 def _ensure_home() -> None:
     APP_HOME.mkdir(parents=True, exist_ok=True)
     BOOKS_DIR.mkdir(parents=True, exist_ok=True)
+    MEMORY_DIR.mkdir(parents=True, exist_ok=True)
+    GLOBAL_SKILLS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def load_settings() -> Settings:

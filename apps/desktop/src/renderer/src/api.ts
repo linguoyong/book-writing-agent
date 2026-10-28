@@ -1,5 +1,6 @@
 import type {
   AppConfig,
+  ApprovalBundle,
   ChunkItem,
   ContextBundle,
   Entity,
@@ -11,6 +12,7 @@ import type {
   Message,
   Overview,
   Project,
+  ReferenceItem,
   SearchHit,
   Session,
   Skill,
@@ -88,6 +90,14 @@ export const api = {
   deleteSession: (sessionId: string) =>
     http<{ ok: boolean }>(`/sessions/${sessionId}`, { method: 'DELETE' }),
   messages: (sessionId: string) => http<Message[]>(`/sessions/${sessionId}/messages`),
+  pending: (sessionId: string) =>
+    http<{ approval: ApprovalBundle | null }>(`/sessions/${sessionId}/pending`),
+  approvals: (sessionId: string) =>
+    http<ApprovalBundle[]>(`/sessions/${sessionId}/approvals`),
+  referenceCandidates: (projectId: string, q: string, limit = 20) =>
+    http<{ items: ReferenceItem[] }>(
+      `/projects/${projectId}/reference-candidates?q=${encodeURIComponent(q)}&limit=${limit}`
+    ),
 
   entities: (projectId: string, kind: KbKind) =>
     http<Entity[]>(`/projects/${projectId}/kb/${kind}`),
@@ -165,6 +175,7 @@ export const api = {
 
 interface StreamHandlers {
   onContext?: (bundle: ContextBundle) => void
+  onApproval?: (approval: ApprovalBundle) => void
   onToken: (text: string) => void
   onToolStart: (name: string, input: string) => void
   onToolEnd: (name: string, output: string) => void
@@ -172,10 +183,13 @@ interface StreamHandlers {
   onError: (message: string) => void
 }
 
+export interface StreamHandlerSet extends StreamHandlers {}
+
 export async function streamChat(
   sessionId: string,
   message: string,
   mode: 'main' | 'side' | 'expert_builder' | 'skill_builder',
+  references: ReferenceItem[],
   handlers: StreamHandlers
 ): Promise<void> {
   let response: Response
@@ -183,7 +197,12 @@ export async function streamChat(
     response = await fetch(`${BASE}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId, message, mode })
+      body: JSON.stringify({
+        session_id: sessionId,
+        message,
+        mode,
+        references: references.length ? references : null
+      })
     })
   } catch (error) {
     handlers.onError(`无法连接后端：${(error as Error).message}`)
@@ -197,6 +216,40 @@ export async function streamChat(
     return
   }
 
+  await consumeStream(response, handlers)
+}
+
+export async function approveChat(
+  sessionId: string,
+  decisions: { type: 'approve' | 'reject'; message?: string }[],
+  handlers: StreamHandlers
+): Promise<void> {
+  let response: Response
+  try {
+    response = await fetch(`${BASE}/chat/approve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: sessionId, decisions })
+    })
+  } catch (error) {
+    handlers.onError(`无法连接后端：${(error as Error).message}`)
+    handlers.onDone()
+    return
+  }
+  if (!response.ok || !response.body) {
+    handlers.onError(`审批请求失败：${response.status}`)
+    handlers.onDone()
+    return
+  }
+  await consumeStream(response, handlers)
+}
+
+async function consumeStream(response: Response, handlers: StreamHandlers): Promise<void> {
+  if (!response.body) {
+    handlers.onError('响应没有内容')
+    handlers.onDone()
+    return
+  }
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
@@ -234,6 +287,9 @@ function dispatchEvent(raw: string, handlers: StreamHandlers): void {
   switch (event) {
     case 'context':
       handlers.onContext?.(payload as unknown as ContextBundle)
+      break
+    case 'approval':
+      handlers.onApproval?.(payload as unknown as ApprovalBundle)
       break
     case 'token':
       handlers.onToken(String(payload.text ?? ''))

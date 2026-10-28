@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, ArrowUp, ChevronDown, Sparkles, Wrench } from 'lucide-react'
+import { api } from '../api'
 import { useAppStore } from '../store'
-import type { TimelineItem } from '../types'
+import type { ReferenceItem, TimelineItem } from '../types'
+import ApprovalCard from './ApprovalCard'
 
 const SUGGESTIONS = [
   '根据大纲续写下一章',
@@ -28,6 +30,16 @@ export default function ChatPane(): React.JSX.Element {
   const setPendingComposer = useAppStore((state) => state.setPendingComposer)
 
   const expert = experts.find((item) => item.id === currentExpertId)
+  const project = useAppStore((state) => state.activeProject)
+  const approval = useAppStore((state) => state.approval)
+  const resolveApproval = useAppStore((state) => state.resolveApproval)
+  const references = useAppStore((state) => state.references)
+  const addReference = useAppStore((state) => state.addReference)
+  const removeReference = useAppStore((state) => state.removeReference)
+
+  const [candidates, setCandidates] = useState<ReferenceItem[]>([])
+  const [refOpen, setRefOpen] = useState(false)
+  const refTimer = useRef<number | null>(null)
 
   useEffect(() => {
     const element = scrollRef.current
@@ -47,17 +59,47 @@ export default function ChatPane(): React.JSX.Element {
   }, [activeSessionId])
 
   const submit = (): void => {
-    if (!input.trim() || streaming) return
+    if (refOpen && candidates.length) {
+      selectReference(candidates[0])
+      return
+    }
+    if (!input.trim() || streaming || approval) return
     void sendMessage(input)
     setInput('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
   }
 
+  const selectReference = (item: ReferenceItem): void => {
+    const match = /@([^\s@]*)$/.exec(input)
+    setInput(match ? input.slice(0, match.index) : input)
+    addReference(item)
+    setRefOpen(false)
+    setCandidates([])
+    textareaRef.current?.focus()
+  }
+
   const handleInput = (event: React.ChangeEvent<HTMLTextAreaElement>): void => {
-    setInput(event.target.value)
+    const value = event.target.value
+    setInput(value)
     const element = event.target
     element.style.height = 'auto'
     element.style.height = `${Math.min(element.scrollHeight, 180)}px`
+
+    const match = /@([^\s@]*)$/.exec(value)
+    if (!match || !project) {
+      setRefOpen(false)
+      return
+    }
+    setRefOpen(true)
+    if (refTimer.current) window.clearTimeout(refTimer.current)
+    refTimer.current = window.setTimeout(async () => {
+      try {
+        const result = await api.referenceCandidates(project.id, match[1])
+        setCandidates(result.items)
+      } catch {
+        setCandidates([])
+      }
+    }, 160)
   }
 
   return (
@@ -131,15 +173,61 @@ export default function ChatPane(): React.JSX.Element {
         </div>
       </div>
 
+      {approval && (
+        <div className="approval-wrap">
+          <ApprovalCard
+            approval={approval}
+            streaming={streaming}
+            onSubmit={(decisions) => void resolveApproval(decisions)}
+          />
+        </div>
+      )}
+
       <div className="composer">
         <div className="composer-inner">
+          {refOpen && (
+            <div className="ref-pop">
+              {candidates.length === 0 && <div className="ref-empty">没有匹配的文件、角色或章节</div>}
+              {candidates.map((item) => (
+                <button
+                  key={`${item.type}-${item.path}-${item.id ?? ''}`}
+                  className="ref-item"
+                  onMouseDown={(event) => {
+                    event.preventDefault()
+                    selectReference(item)
+                  }}
+                >
+                  <span className="ref-hint">{item.hint}</span>
+                  <span className="ref-name">{item.name}</span>
+                  <span className="ref-path">{item.path}</span>
+                </button>
+              ))}
+            </div>
+          )}
           <div className="composer-box">
+            {references.length > 0 && (
+              <div className="ref-bar">
+                {references.map((ref, index) => (
+                  <span className="ref-chip" key={`${ref.type}-${ref.path}-${index}`}>
+                    <span className="ref-hint">{ref.hint}</span>
+                    {ref.name}
+                    <button onClick={() => removeReference(index)} title="移除引用">
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
             <textarea
               ref={textareaRef}
               value={input}
-              placeholder="描述你想写的内容，或向 Agent 提问…"
+              placeholder="描述你想写的内容，或向 Agent 提问；输入 @ 引用文件、角色、章节…"
               onChange={handleInput}
               onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  setRefOpen(false)
+                  return
+                }
                 if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
                   event.preventDefault()
                   submit()
@@ -152,8 +240,14 @@ export default function ChatPane(): React.JSX.Element {
                 专家 · {expert?.name ?? '通用'}
                 <ChevronDown size={11} />
               </button>
-              <span className="composer-hint">Enter 发送 · Shift+Enter 换行</span>
-              <button className="send-btn" onClick={submit} disabled={!input.trim() || streaming}>
+              <span className="composer-hint">
+                {approval ? '先处理待审批的写入' : 'Enter 发送 · Shift+Enter 换行 · @ 引用'}
+              </span>
+              <button
+                className="send-btn"
+                onClick={submit}
+                disabled={!input.trim() || streaming || !!approval}
+              >
                 <ArrowUp size={15} />
               </button>
             </div>

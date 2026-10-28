@@ -53,7 +53,7 @@ export default function SidePanel(): React.JSX.Element {
 
     let assistantId: string | null = null
 
-    await streamChat(sid, text, 'side', {
+    await streamChat(sid, text, 'side', [], {
       onToken: (token) => {
         setItems((prev) => {
           const next = [...prev]

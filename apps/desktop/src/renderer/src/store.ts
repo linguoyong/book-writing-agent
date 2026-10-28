@@ -1,8 +1,10 @@
 import { create } from 'zustand'
-import { api, streamChat } from './api'
+import { api, approveChat, streamChat } from './api'
+import type { StreamHandlerSet } from './api'
 import type {
   AppConfig,
   AppView,
+  ApprovalBundle,
   ContextBundle,
   Entity,
   Expert,
@@ -10,6 +12,7 @@ import type {
   MemoryState,
   Overview,
   Project,
+  ReferenceItem,
   SearchHit,
   Session,
   TimelineItem,
@@ -49,6 +52,8 @@ interface AppState {
   diff: string
   context: ContextBundle | null
   memory: MemoryState | null
+  approval: ApprovalBundle | null
+  references: ReferenceItem[]
 
   leftCollapsed: boolean
   rightCollapsed: boolean
@@ -97,6 +102,13 @@ interface AppState {
   refreshContext: () => Promise<void>
   refreshMemory: () => Promise<void>
   distillMemory: () => Promise<{ ok: boolean; added: number; message?: string }>
+  resolveApproval: (
+    decisions: { type: 'approve' | 'reject'; message?: string }[]
+  ) => Promise<void>
+  refreshPending: () => Promise<void>
+  addReference: (item: ReferenceItem) => void
+  removeReference: (index: number) => void
+  clearReferences: () => void
   saveConfig: (config: AppConfig) => Promise<void>
 
   clearError: () => void
@@ -131,8 +143,63 @@ export const KB_LABELS: Record<KbKind, string> = {
   styles: '风格'
 }
 
-export const useAppStore = create<AppState>((set, get) => ({
-  ready: false,
+export const useAppStore = create<AppState>((set, get) => {
+  const makeHandlers = (): StreamHandlerSet => {
+    let assistantId: string | null = null
+    return {
+      onContext: (bundle) => set({ context: bundle }),
+      onApproval: (approval) => set({ approval }),
+      onToken: (token) => {
+        set((state) => {
+          const items = [...state.timeline]
+          const last = items[items.length - 1]
+          if (assistantId && last?.type === 'assistant' && last.id === assistantId) {
+            items[items.length - 1] = { ...last, content: last.content + token }
+          } else {
+            assistantId = uid()
+            items.push({ id: assistantId, type: 'assistant', content: token })
+          }
+          return { timeline: items }
+        })
+      },
+      onToolStart: (name, input) => {
+        assistantId = null
+        set((state) => ({
+          timeline: [
+            ...state.timeline,
+            { id: uid(), type: 'tool', name, input, status: 'running' }
+          ]
+        }))
+      },
+      onToolEnd: (name, output) => {
+        set((state) => {
+          const items = [...state.timeline]
+          for (let index = items.length - 1; index >= 0; index -= 1) {
+            const item = items[index]
+            if (item.type === 'tool' && item.name === name && item.status === 'running') {
+              items[index] = { ...item, output, status: 'done' }
+              break
+            }
+          }
+          return { timeline: items }
+        })
+      },
+      onError: (message) => {
+        set((state) => ({
+          timeline: [...state.timeline, { id: uid(), type: 'error', content: message }]
+        }))
+      },
+      onDone: () => {
+        set({ streaming: false })
+        void get().refreshSessions()
+        void get().refreshOverview()
+        void get().refreshDiff()
+      }
+    }
+  }
+
+  return {
+    ready: false,
   error: null,
   config: null,
   projects: [],
@@ -152,6 +219,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   diff: '',
   context: null,
   memory: null,
+  approval: null,
+  references: [],
   leftCollapsed: false,
   rightCollapsed: false,
   leftWidth: 268,
@@ -304,6 +373,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ error: (error as Error).message })
     }
     void get().refreshContext()
+    void get().refreshPending()
   },
 
   removeSession: async (sessionId) => {
@@ -333,64 +403,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((state) => ({
       timeline: [...state.timeline, { id: uid(), type: 'user', content: message }],
       streaming: true,
-      error: null
+      error: null,
+      approval: null
     }))
-
-    let assistantId: string | null = null
 
     const builder = get().builder
     const mode =
       builder === 'expert' ? 'expert_builder' : builder === 'skill' ? 'skill_builder' : 'main'
 
-    await streamChat(sessionId, message, mode, {
-      onContext: (bundle) => set({ context: bundle }),
-      onToken: (token) => {
-        set((state) => {
-          const items = [...state.timeline]
-          const last = items[items.length - 1]
-          if (assistantId && last?.type === 'assistant' && last.id === assistantId) {
-            items[items.length - 1] = { ...last, content: last.content + token }
-          } else {
-            assistantId = uid()
-            items.push({ id: assistantId, type: 'assistant', content: token })
-          }
-          return { timeline: items }
-        })
-      },
-      onToolStart: (name, input) => {
-        assistantId = null
-        set((state) => ({
-          timeline: [
-            ...state.timeline,
-            { id: uid(), type: 'tool', name, input, status: 'running' }
-          ]
-        }))
-      },
-      onToolEnd: (name, output) => {
-        set((state) => {
-          const items = [...state.timeline]
-          for (let index = items.length - 1; index >= 0; index -= 1) {
-            const item = items[index]
-            if (item.type === 'tool' && item.name === name && item.status === 'running') {
-              items[index] = { ...item, output, status: 'done' }
-              break
-            }
-          }
-          return { timeline: items }
-        })
-      },
-      onError: (errorMessage) => {
-        set((state) => ({
-          timeline: [...state.timeline, { id: uid(), type: 'error', content: errorMessage }]
-        }))
-      },
-      onDone: () => {
-        set({ streaming: false })
-        void get().refreshSessions()
-        void get().refreshOverview()
-        void get().refreshDiff()
-      }
-    })
+    const references = get().references
+    if (references.length) set({ references: [] })
+    await streamChat(sessionId, message, mode, references, makeHandlers())
   },
 
   stopStreaming: () => set({ streaming: false }),
@@ -596,6 +619,41 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  resolveApproval: async (decisions) => {
+    const sessionId = get().activeSessionId
+    if (!sessionId) return
+    set({ streaming: true, approval: null, error: null })
+    await approveChat(sessionId, decisions, makeHandlers())
+  },
+
+  refreshPending: async () => {
+    const sessionId = get().activeSessionId
+    if (!sessionId) {
+      set({ approval: null })
+      return
+    }
+    try {
+      const result = await api.pending(sessionId)
+      set({ approval: result.approval })
+    } catch {
+      /* 忽略待审批读取失败 */
+    }
+  },
+
+  addReference: (item) => {
+    const exists = get().references.some(
+      (ref) => ref.type === item.type && ref.path === item.path && ref.id === item.id
+    )
+    if (exists) return
+    set({ references: [...get().references, item] })
+  },
+
+  removeReference: (index) => {
+    set({ references: get().references.filter((_, i) => i !== index) })
+  },
+
+  clearReferences: () => set({ references: [] }),
+
   saveConfig: async (config) => {
     try {
       const saved = await api.saveConfig(config)
@@ -661,7 +719,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
   setWritingStyle: (style) => set({ writingStyle: style }),
   setPendingComposer: (text) => set({ pendingComposer: text })
-}))
+  }
+})
 
 function firstManuscript(nodes: TreeNode[]): string | null {
   for (const node of nodes) {

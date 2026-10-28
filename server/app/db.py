@@ -44,8 +44,19 @@ CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
     tokenize='unicode61'
 );
 
+CREATE TABLE IF NOT EXISTS approvals (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    interrupt_id TEXT,
+    payload TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL,
+    decided_at TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
+CREATE INDEX IF NOT EXISTS idx_approvals_session ON approvals(session_id, status);
 """
 
 # 旧库升级：sessions 增加 expert_id / domain
@@ -214,6 +225,7 @@ def delete_session(session_id: str) -> None:
             (session_id,),
         )
         conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
+        conn.execute("DELETE FROM approvals WHERE session_id = ?", (session_id,))
         conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
 
 
@@ -310,3 +322,67 @@ def search_messages(query: str, limit: int = 8, project_id: str | None = None) -
         }
         for row in rows
     ]
+
+
+# ---------------------------------------------------------------- approvals
+
+
+def add_approval(
+    session_id: str, interrupt_id: str | None, payload: dict[str, Any]
+) -> dict[str, Any]:
+    approval_id = new_id("apr")
+    ts = now_iso()
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE approvals SET status = 'expired', decided_at = ? "
+            "WHERE session_id = ? AND status = 'pending'",
+            (ts, session_id),
+        )
+        conn.execute(
+            "INSERT INTO approvals (id, session_id, interrupt_id, payload, status, created_at) "
+            "VALUES (?, ?, ?, ?, 'pending', ?)",
+            (
+                approval_id,
+                session_id,
+                interrupt_id,
+                json.dumps(payload, ensure_ascii=False),
+                ts,
+            ),
+        )
+    result = pending_approval(session_id)
+    assert result is not None
+    return result
+
+
+def pending_approval(session_id: str) -> dict[str, Any] | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT * FROM approvals WHERE session_id = ? AND status = 'pending' "
+            "ORDER BY created_at DESC LIMIT 1",
+            (session_id,),
+        ).fetchone()
+    return _decode_approval(row) if row else None
+
+
+def resolve_approvals(session_id: str, status: str) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            "UPDATE approvals SET status = ?, decided_at = ? "
+            "WHERE session_id = ? AND status = 'pending'",
+            (status, now_iso(), session_id),
+        )
+
+
+def approval_history(session_id: str, limit: int = 20) -> list[dict[str, Any]]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM approvals WHERE session_id = ? ORDER BY created_at DESC LIMIT ?",
+            (session_id, limit),
+        ).fetchall()
+    return [_decode_approval(row) for row in rows]
+
+
+def _decode_approval(row: sqlite3.Row) -> dict[str, Any]:
+    item = _row_to_dict(row)
+    item["payload"] = json.loads(item["payload"]) if item["payload"] else {}
+    return item

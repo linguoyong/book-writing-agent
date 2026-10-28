@@ -8,9 +8,10 @@ from pathlib import Path
 from typing import Any
 
 from . import memory
+from .config import GLOBAL_SKILLS_DIR
 from .domains import DomainPack, ToolContext, get_domain
-from .kb.repository import parse_note
-from .workspace import read_book_meta
+from .kb.repository import dump_note, get_entity, parse_note
+from .workspace import read_book_meta, safe_join
 
 IDENTITY = """你是「墨」，一个本地桌面写作 Agent 的内核。
 你能读写用户工作区的文件、检索书稿知识库、维护长期记忆，并在需要时调用工具真正落地修改。
@@ -30,6 +31,7 @@ LIMITS = {
     "user": 1600,
     "long": 2600,
     "project": 3600,
+    "references": 6000,
     "skills": 1600,
     "runtime": 1200,
 }
@@ -41,6 +43,7 @@ LABELS = {
     "user": "用户记忆",
     "long": "长期记忆",
     "project": "项目记忆",
+    "references": "本轮引用",
     "skills": "技能索引",
     "runtime": "运行态",
 }
@@ -91,6 +94,7 @@ def assemble(
     domain: DomainPack | None = None,
     readonly: bool = False,
     builder: str = "",
+    references: list[dict[str, Any]] | None = None,
 ) -> ContextBundle:
     """按层装配 system prompt，并产出可展示的注入清单。"""
     domain = domain or get_domain((session or {}).get("domain") or "book")
@@ -138,6 +142,13 @@ def assemble(
         "AGENTS.md",
         memory.read("project", project),
     )
+    if references:
+        add(
+            "references",
+            LABELS["references"],
+            f"{len(references)} 项",
+            _references_block(project, references),
+        )
     add("skills", LABELS["skills"], str(Path(domain.skills_subdir) / "*" / "SKILL.md"), _skills_index(project, domain))
 
     runtime = _runtime_block(project, session, expert, readonly, builder)
@@ -167,20 +178,61 @@ def _persona_block(expert: dict[str, Any]) -> str:
 
 
 def _skills_index(project: Path, domain: DomainPack) -> str:
-    """只列项目技能：全局技能目录当前未挂载到 backend，列出来会误导模型。"""
+    """列出项目与全局技能；全局目录通过 CompositeBackend 挂在 /global-skills。"""
     lines: list[str] = []
-    root = project / domain.skills_subdir
-    if root.exists():
+    roots = [(project / domain.skills_subdir, "项目"), (GLOBAL_SKILLS_DIR, "全局")]
+    for root, scope in roots:
+        if not root.exists():
+            continue
         for file in sorted(root.glob("*/SKILL.md")):
             meta, body = parse_note(file.read_text(encoding="utf-8"))
             if meta.get("enabled") is False:
                 continue
             name = meta.get("display_name") or meta.get("name") or file.parent.name
             description = meta.get("description") or _WS.sub(" ", body).strip()[:120]
-            lines.append(f"- {name}（{file.parent.name}）：{description}")
+            lines.append(f"- [{scope}] {name}（{file.parent.name}）：{description}")
     if not lines:
         return "（暂无技能。需要时可用 skill_write 创建。）"
     return "\n".join(lines)
+
+
+def _references_block(project: Path, references: list[dict[str, Any]]) -> str:
+    """把 @ 引用的实体/文件/章节/技能整块注入，带出处。"""
+    blocks: list[str] = []
+    for ref in references[:8]:
+        kind = str(ref.get("type") or "")
+        name = str(ref.get("name") or ref.get("id") or "")
+        try:
+            if kind == "entity":
+                entity = get_entity(project, str(ref.get("kind") or ""), str(ref.get("id") or ""))
+                if not entity:
+                    blocks.append(f"<ref type=\"entity\" name=\"{name}\">未找到该条目</ref>")
+                    continue
+                blocks.append(
+                    f'<ref type="entity" name="{entity["title"]}" '
+                    f'source="{entity["file"]}">\n'
+                    f"{dump_note(entity['meta'], entity['body'])}\n</ref>"
+                )
+            elif kind in {"file", "chapter", "skill"}:
+                path = str(ref.get("path") or "")
+                target = safe_join(project, path)
+                if not target.exists():
+                    blocks.append(f'<ref type="{kind}" source="{path}">文件不存在</ref>')
+                    continue
+                text = target.read_text(encoding="utf-8")
+                blocks.append(
+                    f'<ref type="{kind}" source="{path}">\n{_clip_ref(text)}\n</ref>'
+                )
+        except (ValueError, OSError) as exc:
+            blocks.append(f'<ref type="{kind}" name="{name}">引用失败：{exc}</ref>')
+    return "\n\n".join(blocks) or "（引用为空）"
+
+
+def _clip_ref(text: str, limit: int = 4000) -> str:
+    text = text.strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "\n…（引用内容过长，已截断）"
 
 
 def _runtime_block(
