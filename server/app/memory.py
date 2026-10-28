@@ -211,3 +211,64 @@ def distill_session(session_id: str, project: Path) -> dict[str, Any]:
     if added:
         daily_log(f"从会话 {session_id} 沉淀 {added} 条长期记忆", tag="memory")
     return {"ok": True, "added": added, "items": items[:6]}
+
+
+_ENTRY_RE = re.compile(r"^-\s+(.*?)(?:\s*<!--\s*src:(.*?)\s*-->)?\s*$")
+
+
+def entries(scope: str, project: Path | None = None) -> list[dict[str, str]]:
+    """把记忆文件解析成条目（含日期与来源），供管理页展示。"""
+    text = read(scope, project)
+    items: list[dict[str, str]] = []
+    current_date = ""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("## "):
+            candidate = stripped[3:].strip()
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", candidate):
+                current_date = candidate
+            continue
+        match = _ENTRY_RE.match(stripped)
+        if match:
+            items.append(
+                {
+                    "text": match.group(1).strip(),
+                    "date": current_date,
+                    "source": (match.group(2) or "").strip(),
+                }
+            )
+    return items
+
+
+def delete_entry(scope: str, text: str, project: Path | None = None) -> bool:
+    file = memory_path(scope, project)
+    if not file.exists():
+        return False
+    target = _WS.sub("", text)[:80]
+    if not target:
+        return False
+
+    lines = file.read_text(encoding="utf-8").splitlines()
+    kept: list[str] = []
+    removed = False
+    for line in lines:
+        match = _ENTRY_RE.match(line.strip())
+        if not removed and match and _WS.sub("", match.group(1))[:80] == target:
+            removed = True
+            continue
+        kept.append(line)
+    if not removed:
+        return False
+
+    cleaned: list[str] = []
+    for index, line in enumerate(kept):
+        stripped = line.strip()
+        if re.fullmatch(r"## \d{4}-\d{2}-\d{2}", stripped):
+            following = [item for item in kept[index + 1 :] if item.strip()]
+            next_line = following[0].strip() if following else ""
+            if not next_line.startswith("- "):
+                continue
+        cleaned.append(line)
+
+    file.write_text("\n".join(cleaned).rstrip() + "\n", encoding="utf-8")
+    return True

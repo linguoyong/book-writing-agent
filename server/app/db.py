@@ -230,6 +230,18 @@ def update_session_title(session_id: str, title: str) -> None:
         )
 
 
+def session_titles(session_ids: list[str]) -> dict[str, str]:
+    if not session_ids:
+        return {}
+    placeholders = ",".join("?" for _ in session_ids)
+    with get_conn() as conn:
+        rows = conn.execute(
+            f"SELECT id, title FROM sessions WHERE id IN ({placeholders})",
+            session_ids,
+        ).fetchall()
+    return {row["id"]: row["title"] for row in rows}
+
+
 def delete_session(session_id: str) -> None:
     with get_conn() as conn:
         conn.execute(

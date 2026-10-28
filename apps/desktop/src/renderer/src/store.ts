@@ -461,7 +461,8 @@ export const useAppStore = create<AppState>((set, get) => {
                   id: `m${message.id}`,
                   type: 'user',
                   content: message.content,
-                  steering: Boolean(meta?.steering)
+                  steering: Boolean(meta?.steering),
+                  references: meta?.references
                 }
               : { id: `m${message.id}`, type: 'assistant', content: message.content }
           )
@@ -502,20 +503,28 @@ export const useAppStore = create<AppState>((set, get) => {
       sessionId = session.id
     }
 
+    const references = get().references
     set((state) => ({
-      timeline: [...state.timeline, { id: uid(), type: 'user', content: message }],
+      timeline: [
+        ...state.timeline,
+        {
+          id: uid(),
+          type: 'user',
+          content: message,
+          references: references.length ? references : undefined
+        }
+      ],
       streaming: true,
       streamStartedAt: Date.now(),
       error: null,
-      approval: null
+      approval: null,
+      references: []
     }))
 
     const builder = get().builder
     const mode =
       builder === 'expert' ? 'expert_builder' : builder === 'skill' ? 'skill_builder' : 'main'
 
-    const references = get().references
-    if (references.length) set({ references: [] })
     await streamChat(sessionId, message, mode, references, makeHandlers())
   },
 

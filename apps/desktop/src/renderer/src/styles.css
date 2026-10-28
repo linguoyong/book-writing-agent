@@ -2956,3 +2956,247 @@ textarea:focus {
 .perm-option.warn > svg {
   color: #b4690e;
 }
+
+/* ---------- 引用回显 ---------- */
+
+.user-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  max-width: 72%;
+}
+
+.user-stack .bubble {
+  max-width: 100%;
+}
+
+.msg-refs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.msg-ref-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--bg-elev);
+  color: var(--muted);
+  font-size: 10.5px;
+}
+
+/* ---------- 记忆管理 ---------- */
+
+.memory-page {
+  height: 100%;
+  overflow-y: auto;
+  padding: 22px 32px 32px;
+}
+
+.memory-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.memory-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.memory-sub {
+  font-size: 11px;
+  color: var(--faint);
+  margin-right: auto;
+}
+
+.memory-grid {
+  display: grid;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 22px;
+  max-width: 1040px;
+}
+
+.memory-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.memory-nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 9px;
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: left;
+}
+
+.memory-nav-item:hover {
+  background: var(--bg-elev);
+}
+
+.memory-nav-item.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.memory-nav-count {
+  font-size: 10.5px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.memory-nav-title {
+  margin: 14px 0 6px;
+  padding: 0 9px;
+  font-size: 10.5px;
+  color: var(--faint);
+}
+
+.memory-daily {
+  padding: 3px 9px;
+  font-size: 10.5px;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.memory-empty {
+  padding: 4px 9px;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.memory-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.memory-main-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.memory-main-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.memory-main-hint {
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--faint);
+}
+
+.memory-chars {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.memory-save {
+  margin-left: 0;
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+.memory-editor {
+  width: 100%;
+  min-height: 300px;
+  max-height: 52vh;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-input);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.7;
+  resize: vertical;
+}
+
+.memory-editor:focus {
+  outline: none;
+  border-color: rgba(47, 122, 95, 0.45);
+  box-shadow: 0 0 0 3px rgba(47, 122, 95, 0.08);
+}
+
+.memory-entries {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.memory-entries-head {
+  padding: 7px 10px;
+  background: var(--bg-elev);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.memory-entries-head span {
+  color: var(--faint);
+}
+
+.memory-entry {
+  position: relative;
+  padding: 8px 34px 8px 10px;
+  border-top: 1px solid var(--border);
+}
+
+.memory-entry:hover {
+  background: var(--bg-elev);
+}
+
+.memory-entry-text {
+  font-size: 11.5px;
+  line-height: 1.65;
+  color: var(--text);
+}
+
+.memory-entry-meta {
+  display: flex;
+  gap: 10px;
+  margin-top: 3px;
+  font-size: 10px;
+  color: var(--faint);
+}
+
+.memory-source {
+  color: var(--muted);
+}
+
+.memory-del {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  opacity: 0;
+}
+
+.memory-entry:hover .memory-del {
+  opacity: 1;
+}
+
+.memory-saved-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  color: var(--faint);
+}

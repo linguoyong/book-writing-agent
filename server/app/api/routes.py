@@ -402,10 +402,41 @@ class MemoryWrite(BaseModel):
 def get_memory(project_id: str | None = None) -> dict[str, Any]:
     project = Path(_require_project(project_id)["path"]) if project_id else None
     memory.ensure_files(project)
-    scopes = {
-        scope: memory.read(scope, project) for scope in ("user", "long", "project")
+    scope_names = ["user", "long"] + (["project"] if project else [])
+    scopes = {scope: memory.read(scope, project) for scope in scope_names}
+    entries = {scope: memory.entries(scope, project) for scope in scope_names}
+
+    source_ids = {
+        item["source"].split(":", 1)[1]
+        for items in entries.values()
+        for item in items
+        if item.get("source", "").startswith("session:")
     }
-    return {"status": memory.status(project), "scopes": scopes}
+    sources = {sid: title for sid, title in db.session_titles(list(source_ids)).items()}
+    return {
+        "status": memory.status(project),
+        "scopes": scopes,
+        "entries": entries,
+        "sources": sources,
+    }
+
+
+class MemoryDelete(BaseModel):
+    scope: str
+    text: str
+    project_id: str | None = None
+
+
+@router.post("/memory/delete")
+def delete_memory_entry(req: MemoryDelete) -> dict[str, bool]:
+    if req.scope not in {"user", "long", "project"}:
+        raise HTTPException(status_code=400, detail=f"未知记忆范围：{req.scope}")
+    project = Path(_require_project(req.project_id)["path"]) if req.project_id else None
+    if req.scope == "project" and project is None:
+        raise HTTPException(status_code=400, detail="项目记忆需要 project_id")
+    if not memory.delete_entry(req.scope, req.text, project):
+        raise HTTPException(status_code=404, detail="未找到该记忆条目")
+    return {"ok": True}
 
 
 @router.put("/memory/{scope}")

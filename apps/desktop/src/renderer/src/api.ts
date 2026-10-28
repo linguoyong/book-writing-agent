@@ -109,6 +109,11 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ content, project_id: projectId ?? null })
     }),
+  deleteMemoryEntry: (scope: string, text: string, projectId?: string) =>
+    http<{ ok: boolean }>('/memory/delete', {
+      method: 'POST',
+      body: JSON.stringify({ scope, text, project_id: projectId ?? null })
+    }),
   deleteSession: (sessionId: string) =>
     http<{ ok: boolean }>(`/sessions/${sessionId}`, { method: 'DELETE' }),
   messages: (sessionId: string) => http<Message[]>(`/sessions/${sessionId}/messages`),

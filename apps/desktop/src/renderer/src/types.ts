@@ -48,6 +48,7 @@ export interface Message {
     turn?: TurnMeta
     awaiting_approval?: boolean
     steering?: boolean
+    references?: ReferenceItem[]
   } | null
   created_at: string
 }
@@ -152,6 +153,14 @@ export interface MemoryFile {
 export interface MemoryState {
   status: MemoryFile[]
   scopes: Record<string, string>
+  entries?: Record<string, MemoryEntry[]>
+  sources?: Record<string, string>
+}
+
+export interface MemoryEntry {
+  text: string
+  date?: string
+  source?: string
 }
 
 export interface ApprovalRequest {
@@ -205,7 +214,7 @@ export interface ChunkItem {
   source: string
 }
 
-export type AppView = 'chat' | 'experts' | 'skills' | 'knowledge'
+export type AppView = 'chat' | 'experts' | 'skills' | 'knowledge' | 'memory'
 
 export interface ModelSettings {
   base_url: string
@@ -246,7 +255,7 @@ export interface AppConfig {
 }
 
 export type TimelineItem =
-  | { id: string; type: 'user'; content: string; steering?: boolean }
+  | { id: string; type: 'user'; content: string; steering?: boolean; references?: ReferenceItem[] }
   | { id: string; type: 'assistant'; content: string }
   | {
       id: string

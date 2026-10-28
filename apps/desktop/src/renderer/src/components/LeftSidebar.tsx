@@ -1,4 +1,4 @@
-import { Folder, Library, MessageSquare, Plus, Settings, Sparkles, Trash2, Wand2 } from 'lucide-react'
+import { Brain, Folder, Library, MessageSquare, Plus, Settings, Sparkles, Trash2, Wand2 } from 'lucide-react'
 import { useAppStore } from '../store'
 
 export default function LeftSidebar(): React.JSX.Element {
@@ -82,6 +82,13 @@ export default function LeftSidebar(): React.JSX.Element {
           <Library size={14} />
           <span className="label">知识库</span>
           <span className="hint">{kbCount}</span>
+        </button>
+        <button
+          className={`nav-item ${view === 'memory' ? 'active' : ''}`}
+          onClick={() => setView('memory')}
+        >
+          <Brain size={14} />
+          <span className="label">记忆</span>
         </button>
       </div>
 

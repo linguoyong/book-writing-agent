@@ -326,7 +326,23 @@ function TurnBlock({
     <div className="turn">
       {turn.user && (
         <div className="msg user">
-          <div className="bubble">{turn.user.content}</div>
+          <div className="user-stack">
+            {turn.user.references && turn.user.references.length > 0 && (
+              <div className="msg-refs">
+                {turn.user.references.map((ref, index) => (
+                  <span
+                    className="msg-ref-chip"
+                    key={`${ref.type}-${ref.path}-${index}`}
+                    title={ref.path}
+                  >
+                    <span className="ref-hint">{ref.hint}</span>
+                    {ref.name}
+                  </span>
+                ))}
+              </div>
+            )}
+            <div className="bubble">{turn.user.content}</div>
+          </div>
         </div>
       )}
 

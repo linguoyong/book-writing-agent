@@ -11,6 +11,7 @@ import SettingsModal from './components/SettingsModal'
 import ExpertsPage from './views/ExpertsPage'
 import SkillsPage from './views/SkillsPage'
 import KnowledgePage from './views/KnowledgePage'
+import MemoryPage from './views/MemoryPage'
 
 export default function App(): React.JSX.Element {
   const ready = useAppStore((state) => state.ready)
@@ -71,6 +72,7 @@ export default function App(): React.JSX.Element {
           {view === 'experts' && <ExpertsPage />}
           {view === 'skills' && <SkillsPage />}
           {view === 'knowledge' && <KnowledgePage />}
+          {view === 'memory' && <MemoryPage />}
         </div>
         {view === 'chat' && !rightCollapsed && <RightSidebar />}
 
