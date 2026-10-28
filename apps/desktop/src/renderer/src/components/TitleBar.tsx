@@ -1,4 +1,4 @@
-import { PanelLeft, PanelRight, Settings, Minus, Square, X } from 'lucide-react'
+import { Minus, PanelLeft, PanelRight, Settings, Square, X } from 'lucide-react'
 import { useAppStore } from '../store'
 
 export default function TitleBar(): React.JSX.Element {
@@ -11,11 +11,6 @@ export default function TitleBar(): React.JSX.Element {
 
   return (
     <header className="titlebar">
-      <div className="brand">
-        <span className="brand-mark" />
-        墨阑
-      </div>
-
       <button
         className={`icon-btn ${leftCollapsed ? '' : 'active'}`}
         onClick={toggleLeft}
@@ -23,13 +18,11 @@ export default function TitleBar(): React.JSX.Element {
       >
         <PanelLeft size={15} />
       </button>
-      <button
-        className={`icon-btn ${rightCollapsed ? '' : 'active'}`}
-        onClick={toggleRight}
-        title="切换右栏"
-      >
-        <PanelRight size={15} />
-      </button>
+
+      <div className="brand">
+        <span className="brand-mark" />
+        墨阑
+      </div>
 
       <span className="project-name">
         {project ? `《${project.meta?.title || project.name}》` : '未打开项目'}
@@ -40,6 +33,15 @@ export default function TitleBar(): React.JSX.Element {
       <button className="icon-btn" onClick={() => setSettingsOpen(true)} title="设置">
         <Settings size={15} />
       </button>
+      <button
+        className={`icon-btn ${rightCollapsed ? '' : 'active'}`}
+        onClick={toggleRight}
+        title="切换右栏"
+      >
+        <PanelRight size={15} />
+      </button>
+
+      <div className="win-divider" />
 
       <div className="win-controls">
         <button className="win-btn" onClick={() => window.desktop?.minimize()} title="最小化">

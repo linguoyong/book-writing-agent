@@ -15,7 +15,7 @@ BOOKS_DIR = APP_HOME / "books"
 class ModelSettings(BaseModel):
     base_url: str = "https://api.deepseek.com/v1"
     api_key: str = ""
-    model: str = "deepseek-chat"
+    model: str = "deepseek-flash"
     temperature: float = 0.7
 
 
@@ -29,10 +29,10 @@ class EmbeddingSettings(BaseModel):
 
 class Settings(BaseModel):
     writer: ModelSettings = Field(
-        default_factory=lambda: ModelSettings(model="deepseek-chat")
+        default_factory=lambda: ModelSettings(model="deepseek-flash")
     )
     extractor: ModelSettings = Field(
-        default_factory=lambda: ModelSettings(model="deepseek-chat", temperature=0.1)
+        default_factory=lambda: ModelSettings(model="deepseek-flash", temperature=0.1)
     )
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
 

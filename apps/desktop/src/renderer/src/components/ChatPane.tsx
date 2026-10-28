@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, ArrowUp, Wrench } from 'lucide-react'
+import { AlertTriangle, ArrowUp, ChevronDown, Sparkles, Wrench } from 'lucide-react'
+import { findExpert } from '../experts'
 import { useAppStore } from '../store'
 import type { TimelineItem } from '../types'
 
@@ -15,12 +16,16 @@ export default function ChatPane(): React.JSX.Element {
   const streaming = useAppStore((state) => state.streaming)
   const activeSessionId = useAppStore((state) => state.activeSessionId)
   const sendMessage = useAppStore((state) => state.sendMessage)
+  const currentExpertId = useAppStore((state) => state.currentExpertId)
+  const setExpertModalOpen = useAppStore((state) => state.setExpertModalOpen)
 
   const [input, setInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const pendingComposer = useAppStore((state) => state.pendingComposer)
   const setPendingComposer = useAppStore((state) => state.setPendingComposer)
+
+  const expert = findExpert(currentExpertId)
 
   useEffect(() => {
     const element = scrollRef.current
@@ -57,54 +62,77 @@ export default function ChatPane(): React.JSX.Element {
     <section className="chat-pane">
       <div className="chat-header">
         <span>{activeSessionId ? '对话' : '未选择会话'}</span>
-        <span style={{ marginLeft: 'auto', fontSize: 11, color: streaming ? 'var(--accent)' : 'var(--faint)' }}>
+        <span
+          style={{
+            marginLeft: 'auto',
+            fontSize: 11,
+            color: streaming ? 'var(--accent)' : 'var(--faint)'
+          }}
+        >
           {streaming ? '生成中…' : '就绪'}
         </span>
       </div>
 
       <div className="chat-scroll" ref={scrollRef}>
-        {timeline.length === 0 ? (
-          <div className="chat-empty">
-            <div className="big">开始你的第一章</div>
-            <div style={{ fontSize: 12 }}>写正文、查设定、改知识库，都会落到书稿文件里</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'center', marginTop: 6 }}>
-              {SUGGESTIONS.map((text) => (
-                <button key={text} className="expert-chip" onClick={() => setInput(text)}>
-                  {text}
-                </button>
-              ))}
+        <div className="chat-inner">
+          {timeline.length === 0 ? (
+            <div className="chat-empty">
+              <div className="big">开始你的第一章</div>
+              <div style={{ fontSize: 12 }}>写正文、查设定、改知识库，都会落到书稿文件里</div>
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 6,
+                  justifyContent: 'center',
+                  marginTop: 6
+                }}
+              >
+                {SUGGESTIONS.map((text) => (
+                  <button key={text} className="expert-chip" onClick={() => setInput(text)}>
+                    {text}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        ) : (
-          timeline.map((item, index) => (
-            <TimelineRow
-              key={item.id}
-              item={item}
-              streaming={streaming && index === timeline.length - 1}
-            />
-          ))
-        )}
+          ) : (
+            timeline.map((item, index) => (
+              <TimelineRow
+                key={item.id}
+                item={item}
+                streaming={streaming && index === timeline.length - 1}
+              />
+            ))
+          )}
+        </div>
       </div>
 
       <div className="composer">
-        <div className="composer-box">
-          <textarea
-            ref={textareaRef}
-            value={input}
-            placeholder="描述你想写的内容，或向 Agent 提问…"
-            onChange={handleInput}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-                event.preventDefault()
-                submit()
-              }
-            }}
-          />
-          <div className="composer-actions">
-            <span className="composer-hint">Enter 发送 · Shift+Enter 换行</span>
-            <button className="send-btn" onClick={submit} disabled={!input.trim() || streaming}>
-              <ArrowUp size={15} />
-            </button>
+        <div className="composer-inner">
+          <div className="composer-box">
+            <textarea
+              ref={textareaRef}
+              value={input}
+              placeholder="描述你想写的内容，或向 Agent 提问…"
+              onChange={handleInput}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                  event.preventDefault()
+                  submit()
+                }
+              }}
+            />
+            <div className="composer-actions">
+              <button className="expert-selector" onClick={() => setExpertModalOpen(true)}>
+                <Sparkles size={12} />
+                专家 · {expert.name}
+                <ChevronDown size={11} />
+              </button>
+              <span className="composer-hint">Enter 发送 · Shift+Enter 换行</span>
+              <button className="send-btn" onClick={submit} disabled={!input.trim() || streaming}>
+                <ArrowUp size={15} />
+              </button>
+            </div>
           </div>
         </div>
       </div>

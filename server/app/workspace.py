@@ -40,6 +40,7 @@ def init_book_dir(path: Path, title: str, author: str = "") -> Path:
     (path / ".index").mkdir(exist_ok=True)
     for sub in KB_DIRS.values():
         (path / "kb" / sub).mkdir(parents=True, exist_ok=True)
+    (path / "skills").mkdir(exist_ok=True)
 
     book_file = path / "book.json"
     if not book_file.exists():

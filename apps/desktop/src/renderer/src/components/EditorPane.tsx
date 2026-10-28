@@ -85,7 +85,7 @@ export default function EditorPane(): React.JSX.Element {
               <FilePlus2 size={13} />
               新建第一章
             </button>
-            <div style={{ fontSize: 11.5 }}>或在右栏文件树中选择文件</div>
+            <div style={{ fontSize: 11.5 }}>或从右栏文件树中选择文件</div>
           </div>
         )}
       </div>

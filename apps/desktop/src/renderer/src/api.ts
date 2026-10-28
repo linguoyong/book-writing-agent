@@ -7,6 +7,7 @@ import type {
   Project,
   SearchHit,
   Session,
+  Skill,
   TreeNode
 } from './types'
 
@@ -68,6 +69,7 @@ export const api = {
     }),
 
   tree: (projectId: string) => http<TreeNode[]>(`/projects/${projectId}/tree`),
+  skills: (projectId: string) => http<Skill[]>(`/projects/${projectId}/skills`),
   readFile: (projectId: string, path: string) =>
     http<{ path: string; content: string }>(
       `/projects/${projectId}/file?path=${encodeURIComponent(path)}`

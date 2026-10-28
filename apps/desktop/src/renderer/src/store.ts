@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { api, streamChat } from './api'
+import { findExpert } from './experts'
 import type {
   AppConfig,
   Entity,
@@ -46,9 +47,15 @@ interface AppState {
 
   leftCollapsed: boolean
   rightCollapsed: boolean
+  leftTab: 'chats' | 'files'
+  leftWidth: number
+  rightWidth: number
   settingsOpen: boolean
   projectModalOpen: boolean
+  expertModalOpen: boolean
+  skillsModalOpen: boolean
   writingStyle: string
+  currentExpertId: string
   pendingComposer: string | null
 
   bootstrap: () => Promise<void>
@@ -85,8 +92,14 @@ interface AppState {
   clearError: () => void
   toggleLeft: () => void
   toggleRight: () => void
+  setLeftTab: (tab: 'chats' | 'files') => void
+  setLeftWidth: (width: number) => void
+  setRightWidth: (width: number) => void
   setSettingsOpen: (open: boolean) => void
   setProjectModalOpen: (open: boolean) => void
+  setExpertModalOpen: (open: boolean) => void
+  setSkillsModalOpen: (open: boolean) => void
+  setExpert: (expertId: string) => void
   setWritingStyle: (style: string) => void
   setPendingComposer: (text: string | null) => void
 }
@@ -126,9 +139,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   diff: '',
   leftCollapsed: false,
   rightCollapsed: false,
+  leftTab: 'chats',
+  leftWidth: 300,
+  rightWidth: 344,
   settingsOpen: false,
   projectModalOpen: false,
+  expertModalOpen: false,
+  skillsModalOpen: false,
   writingStyle: '',
+  currentExpertId: 'general',
   pendingComposer: null,
 
   bootstrap: async () => {
@@ -347,7 +366,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!project) return
     try {
       const file = await api.readFile(project.id, path)
-      set({ openFile: { path: file.path, content: file.content, dirty: false } })
+      set({
+        openFile: { path: file.path, content: file.content, dirty: false },
+        leftTab: 'files',
+        leftCollapsed: false
+      })
     } catch (error) {
       set({ error: (error as Error).message })
     }
@@ -500,8 +523,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   clearError: () => set({ error: null }),
   toggleLeft: () => set({ leftCollapsed: !get().leftCollapsed }),
   toggleRight: () => set({ rightCollapsed: !get().rightCollapsed }),
+  setLeftTab: (tab) => set({ leftTab: tab }),
+  setLeftWidth: (width) => set({ leftWidth: Math.min(460, Math.max(200, width)) }),
+  setRightWidth: (width) => set({ rightWidth: Math.min(480, Math.max(280, width)) }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
   setProjectModalOpen: (open) => set({ projectModalOpen: open }),
+  setExpertModalOpen: (open) => set({ expertModalOpen: open }),
+  setSkillsModalOpen: (open) => set({ skillsModalOpen: open }),
+  setExpert: (expertId) => {
+    const expert = findExpert(expertId)
+    set({ currentExpertId: expert.id, writingStyle: expert.prompt })
+  },
   setWritingStyle: (style) => set({ writingStyle: style }),
   setPendingComposer: (text) => set({ pendingComposer: text })
 }))

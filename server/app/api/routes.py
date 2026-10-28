@@ -10,7 +10,14 @@ from pydantic import BaseModel, Field
 from .. import db
 from ..agent.runner import chat_stream
 from ..config import load_settings, save_settings
-from ..kb.repository import KINDS, delete_entity, get_entity, list_entities, save_entity
+from ..kb.repository import (
+    KINDS,
+    delete_entity,
+    get_entity,
+    list_entities,
+    parse_note,
+    save_entity,
+)
 from ..kb.search import KbIndex
 from ..workspace import (
     create_book,
@@ -241,6 +248,30 @@ def reindex_kb(project_id: str) -> dict[str, int]:
     project = _require_project(project_id)
     index = KbIndex(Path(project["path"]), load_settings().embedding)
     return index.rebuild()
+
+
+# ---------------------------------------------------------------- 技能
+
+
+@router.get("/projects/{project_id}/skills")
+def list_skills(project_id: str) -> list[dict[str, Any]]:
+    project = _require_project(project_id)
+    root = Path(project["path"]) / "skills"
+    root.mkdir(parents=True, exist_ok=True)
+    if not root.exists():
+        return []
+    items: list[dict[str, Any]] = []
+    for file in sorted(root.glob("*/SKILL.md")):
+        meta, body = parse_note(file.read_text(encoding="utf-8"))
+        items.append(
+            {
+                "name": meta.get("name") or file.parent.name,
+                "description": meta.get("description") or body.strip()[:200],
+                "path": str(file.relative_to(Path(project["path"]))),
+                "enabled": bool(meta.get("enabled", True)),
+            }
+        )
+    return items
 
 
 # ---------------------------------------------------------------- 文件

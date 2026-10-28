@@ -81,6 +81,13 @@ export interface Overview {
   git_dirty: boolean
 }
 
+export interface Skill {
+  name: string
+  description: string
+  path: string
+  enabled: boolean
+}
+
 export interface ModelSettings {
   base_url: string
   api_key: string
