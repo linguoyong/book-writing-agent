@@ -7,7 +7,8 @@ from typing import Any
 from langchain_core.tools import tool
 
 from ..config import EmbeddingSettings
-from ..kb.repository import KINDS, get_entity, list_entities, save_entity
+from ..experts import save_expert
+from ..kb.repository import KINDS, dump_note, get_entity, list_entities, safe_entity_id, save_entity
 from ..kb.search import KbIndex
 from ..workspace import git_diff, read_book_meta, safe_join
 
@@ -169,6 +170,46 @@ def build_tools(project: Path, embedding: EmbeddingSettings, readonly: bool = Fa
         diff = git_diff(project)
         return diff[:12000] if diff.strip() else "当前没有未提交的改动。"
 
+    @tool
+    def expert_write(
+        expert_id: str,
+        name: str,
+        description: str,
+        tags: str,
+        prompt: str,
+        body: str,
+    ) -> str:
+        """创建或更新一个写作专家。expert_id 用简短的英文/拼音标识，name 为中文名，
+        description 一句话说明擅长什么，tags 用逗号分隔，prompt 是注入模型的写作风格指令，
+        body 是 Markdown 正文，写清工作流程与禁忌。"""
+        saved = save_expert(
+            project,
+            expert_id,
+            {
+                "name": name,
+                "description": description,
+                "tags": [item.strip() for item in tags.replace("，", ",").split(",") if item.strip()],
+                "avatar": name[:1] if name else "专",
+                "prompt": prompt,
+            },
+            body,
+        )
+        return f"已保存专家 {saved['name']}：{saved['file']}"
+
+    @tool
+    def skill_write(name: str, description: str, instructions: str) -> str:
+        """创建一个技能，写入 skills/<技能名>/SKILL.md。
+        name 为技能名，description 一句话说明用途，instructions 是 Markdown 格式的执行步骤与输出要求。"""
+        if not name.strip():
+            return "技能名不能为空"
+        slug = safe_entity_id(name)
+        directory = project / "skills" / slug
+        directory.mkdir(parents=True, exist_ok=True)
+        file = directory / "SKILL.md"
+        meta = {"name": name.strip(), "description": description.strip(), "enabled": True}
+        file.write_text(dump_note(meta, instructions), encoding="utf-8")
+        return f"已创建技能 {name}：{file.relative_to(project)}"
+
     readonly_tools = [
         kb_search,
         kb_get,
@@ -181,4 +222,4 @@ def build_tools(project: Path, embedding: EmbeddingSettings, readonly: bool = Fa
     ]
     if readonly:
         return readonly_tools
-    return [*readonly_tools, kb_write, manuscript_write]
+    return [*readonly_tools, kb_write, manuscript_write, expert_write, skill_write]

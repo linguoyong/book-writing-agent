@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from .. import db
 from ..agent.runner import chat_stream
 from ..config import load_settings, save_settings
+from ..experts import delete_expert, get_expert, list_experts, save_expert
 from ..kb.repository import (
     KINDS,
     delete_entity,
@@ -18,7 +19,7 @@ from ..kb.repository import (
     parse_note,
     save_entity,
 )
-from ..kb.search import KbIndex
+from ..kb.search import KbIndex, load_kb_config, save_kb_config
 from ..workspace import (
     create_book,
     git_diff,
@@ -233,13 +234,24 @@ class SearchRequest(BaseModel):
     kinds: list[str] | None = None
     chapter_limit: int | None = None
     top_k: int = 8
+    threshold: float = 0.0
+    mode: str = "hybrid"
+    alpha: float = 0.5
 
 
 @router.post("/projects/{project_id}/search")
 def search_kb(project_id: str, req: SearchRequest) -> dict[str, Any]:
     project = _require_project(project_id)
     index = KbIndex(Path(project["path"]), load_settings().embedding)
-    results = index.search(req.query, req.kinds, req.chapter_limit, req.top_k)
+    results = index.search(
+        req.query,
+        kinds=req.kinds,
+        chapter_limit=req.chapter_limit,
+        top_k=req.top_k,
+        threshold=req.threshold,
+        mode=req.mode,
+        alpha=req.alpha,
+    )
     return {"query": req.query, "results": results}
 
 
@@ -248,6 +260,80 @@ def reindex_kb(project_id: str) -> dict[str, int]:
     project = _require_project(project_id)
     index = KbIndex(Path(project["path"]), load_settings().embedding)
     return index.rebuild()
+
+
+# ---------------------------------------------------------------- 知识库扩展
+
+KB_KIND_NAMES = {
+    "characters": "角色",
+    "factions": "势力",
+    "items": "物品",
+    "locations": "地点",
+    "world": "世界观",
+    "outline": "大纲",
+    "materials": "素材",
+    "styles": "风格",
+}
+
+
+@router.get("/projects/{project_id}/knowledge-bases")
+def knowledge_bases(project_id: str) -> dict[str, Any]:
+    project = _require_project(project_id)
+    path = Path(project["path"])
+    index = KbIndex(path, load_settings().embedding)
+    counts = {kind: len(list_entities(path, kind)) for kind in KINDS}
+    chunk_stats = index.stats_by_kind()
+    if sum(counts.values()) > 0 and sum(chunk_stats.values()) == 0:
+        index.rebuild()
+        chunk_stats = index.stats_by_kind()
+    return {
+        "index": index.stats(),
+        "config": load_kb_config(path),
+        "items": [
+            {
+                "kind": kind,
+                "name": KB_KIND_NAMES[kind],
+                "count": counts[kind],
+                "chunks": chunk_stats.get(kind, 0),
+            }
+            for kind in KINDS
+        ],
+    }
+
+
+@router.get("/projects/{project_id}/chunks")
+def list_chunks(
+    project_id: str,
+    kind: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    q: str | None = None,
+) -> dict[str, Any]:
+    project = _require_project(project_id)
+    index = KbIndex(Path(project["path"]), load_settings().embedding)
+    if index.stats()["chunks"] == 0:
+        index.rebuild()
+    return index.list_chunks(kind, limit, offset, q)
+
+
+class KbConfigRequest(BaseModel):
+    top_k: int = 8
+    threshold: float = 0.0
+    mode: str = "hybrid"
+    alpha: float = 0.5
+    chapter_limit: int | None = None
+
+
+@router.get("/projects/{project_id}/kb-config")
+def get_kb_config(project_id: str) -> dict[str, Any]:
+    project = _require_project(project_id)
+    return load_kb_config(Path(project["path"]))
+
+
+@router.put("/projects/{project_id}/kb-config")
+def put_kb_config(project_id: str, req: KbConfigRequest) -> dict[str, Any]:
+    project = _require_project(project_id)
+    return save_kb_config(Path(project["path"]), req.model_dump())
 
 
 # ---------------------------------------------------------------- 技能
@@ -272,6 +358,39 @@ def list_skills(project_id: str) -> list[dict[str, Any]]:
             }
         )
     return items
+
+
+# ---------------------------------------------------------------- 专家
+
+
+class ExpertRequest(BaseModel):
+    id: str
+    meta: dict[str, Any] = Field(default_factory=dict)
+    body: str = ""
+
+
+@router.get("/projects/{project_id}/experts")
+def get_experts(project_id: str) -> list[dict[str, Any]]:
+    project = _require_project(project_id)
+    return list_experts(Path(project["path"]))
+
+
+@router.post("/projects/{project_id}/experts")
+def post_expert(project_id: str, req: ExpertRequest) -> dict[str, Any]:
+    project = _require_project(project_id)
+    return save_expert(Path(project["path"]), req.id, req.meta, req.body)
+
+
+@router.put("/projects/{project_id}/experts/{expert_id}")
+def put_expert(project_id: str, expert_id: str, req: ExpertRequest) -> dict[str, Any]:
+    project = _require_project(project_id)
+    return save_expert(Path(project["path"]), expert_id, req.meta, req.body)
+
+
+@router.delete("/projects/{project_id}/experts/{expert_id}")
+def remove_expert(project_id: str, expert_id: str) -> dict[str, bool]:
+    project = _require_project(project_id)
+    return {"ok": delete_expert(Path(project["path"]), expert_id)}
 
 
 # ---------------------------------------------------------------- 文件

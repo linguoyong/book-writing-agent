@@ -41,6 +41,11 @@ def init_book_dir(path: Path, title: str, author: str = "") -> Path:
     for sub in KB_DIRS.values():
         (path / "kb" / sub).mkdir(parents=True, exist_ok=True)
     (path / "skills").mkdir(exist_ok=True)
+    (path / "experts").mkdir(exist_ok=True)
+
+    from .experts import seed_experts
+
+    seed_experts(path)
 
     book_file = path / "book.json"
     if not book_file.exists():

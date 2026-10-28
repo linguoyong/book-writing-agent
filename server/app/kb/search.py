@@ -228,24 +228,90 @@ class KbIndex:
         kinds: list[str] | None = None,
         chapter_limit: int | None = None,
         top_k: int = 8,
+        threshold: float = 0.0,
+        mode: str = "hybrid",
+        alpha: float = 0.5,
     ) -> list[dict[str, Any]]:
         query = query.strip()
         if not query:
             return []
 
+        if mode == "keyword":
+            items = self._search_lexical(query, kinds, chapter_limit, top_k * 2)
+            return _normalize(items, "lexical_score", top_k, threshold)
+
+        if mode == "vector":
+            items = self._search_vector(query, kinds, chapter_limit, top_k * 2)
+            results = []
+            for item in items:
+                score = max(0.0, float(item["vector_score"]))
+                if score >= threshold:
+                    results.append({**item, "score": round(score, 4)})
+            return results[:top_k]
+
         lexical = self._search_lexical(query, kinds, chapter_limit, top_k * 2)
         vector_hits = self._search_vector(query, kinds, chapter_limit, top_k * 2)
 
+        alpha = min(max(alpha, 0.0), 1.0)
         fused: dict[str, dict[str, Any]] = {}
         for rank, item in enumerate(lexical):
-            fused.setdefault(item["id"], {**item, "score": 0.0})["score"] += 1 / (60 + rank + 1)
+            entry = fused.setdefault(item["id"], {**item, "score": 0.0})
+            entry["score"] += alpha / (60 + rank + 1)
         for rank, item in enumerate(vector_hits):
             entry = fused.setdefault(item["id"], {**item, "score": 0.0})
-            entry["score"] += 1 / (60 + rank + 1)
+            entry["score"] += (1 - alpha) / (60 + rank + 1)
             entry.setdefault("vector_score", item["vector_score"])
 
-        results = sorted(fused.values(), key=lambda x: x["score"], reverse=True)[:top_k]
-        return results
+        return _normalize(list(fused.values()), "score", top_k, threshold)
+
+    def list_chunks(
+        self,
+        kind: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+        query: str | None = None,
+    ) -> list[dict[str, Any]]:
+        sql = ["SELECT * FROM chunks WHERE 1=1"]
+        params: list[Any] = []
+        if kind:
+            sql.append("AND kind = ?")
+            params.append(kind)
+        if query:
+            sql.append("AND (title LIKE ? OR text LIKE ?)")
+            like = f"%{query}%"
+            params.extend([like, like])
+        sql.append("ORDER BY kind ASC, chapter ASC, id ASC LIMIT ? OFFSET ?")
+        params.extend([limit, offset])
+
+        with self.connect() as conn:
+            rows = conn.execute(" ".join(sql), params).fetchall()
+            total = conn.execute(
+                "SELECT COUNT(*) AS n FROM chunks" + (" WHERE kind = ?" if kind else ""),
+                ([kind] if kind else []),
+            ).fetchone()["n"]
+
+        return {
+            "total": total,
+            "items": [
+                {
+                    "id": row["id"],
+                    "kind": row["kind"],
+                    "ref": row["ref"],
+                    "title": row["title"],
+                    "text": row["text"],
+                    "chapter": row["chapter"],
+                    "source": row["source"],
+                }
+                for row in rows
+            ],
+        }
+
+    def stats_by_kind(self) -> dict[str, int]:
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT kind, COUNT(*) AS n FROM chunks GROUP BY kind"
+            ).fetchall()
+        return {row["kind"]: row["n"] for row in rows}
 
     def _search_lexical(
         self,
@@ -350,6 +416,22 @@ class KbIndex:
         return {"chunks": total, "embedded": embedded, "provider": self.embedding.provider}
 
 
+def _normalize(
+    items: list[dict[str, Any]], key: str, top_k: int, threshold: float
+) -> list[dict[str, Any]]:
+    if not items:
+        return []
+    max_value = max(float(item.get(key) or 0.0) for item in items) or 1.0
+    results = []
+    for item in items:
+        score = float(item.get(key) or 0.0) / max_value
+        if score < threshold:
+            continue
+        results.append({**item, "score": round(score, 4)})
+    results.sort(key=lambda item: item["score"], reverse=True)
+    return results[:top_k]
+
+
 def _cosine(a: list[float], b: Iterable[float]) -> float:
     b_list = list(b)
     if len(a) != len(b_list):
@@ -401,3 +483,37 @@ def _chapter_number(meta: dict[str, Any], stem: str) -> int:
             return int(value)
     match = re.search(r"(\d+)", stem)
     return int(match.group(1)) if match else 0
+
+
+DEFAULT_KB_CONFIG: dict[str, Any] = {
+    "top_k": 8,
+    "threshold": 0.0,
+    "mode": "hybrid",
+    "alpha": 0.5,
+    "chapter_limit": None,
+}
+
+
+def load_kb_config(project: Path) -> dict[str, Any]:
+    file = project / "kb" / "config.json"
+    merged = dict(DEFAULT_KB_CONFIG)
+    if not file.exists():
+        return merged
+    try:
+        data = json.loads(file.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return merged
+    if isinstance(data, dict):
+        merged.update({key: data[key] for key in DEFAULT_KB_CONFIG if key in data})
+    return merged
+
+
+def save_kb_config(project: Path, config: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(DEFAULT_KB_CONFIG)
+    merged.update({key: config[key] for key in DEFAULT_KB_CONFIG if key in config})
+    directory = project / "kb"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "config.json").write_text(
+        json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    return merged

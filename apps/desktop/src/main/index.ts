@@ -3,6 +3,10 @@ import { join } from 'node:path'
 
 let mainWindow: BrowserWindow | null = null
 
+if (process.env['ELECTRON_RENDERER_URL']) {
+  app.commandLine.appendSwitch('remote-debugging-port', '9222')
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1480,
@@ -11,7 +15,7 @@ function createWindow(): void {
     minHeight: 680,
     show: false,
     frame: false,
-    backgroundColor: '#0b0d10',
+    backgroundColor: '#f5f5f2',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,

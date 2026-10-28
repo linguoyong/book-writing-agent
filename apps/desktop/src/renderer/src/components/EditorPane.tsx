@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { markdown } from '@codemirror/lang-markdown'
-import { oneDark } from '@codemirror/theme-one-dark'
 import { FilePlus2, Save } from 'lucide-react'
 import { api } from '../api'
 import { useAppStore } from '../store'
@@ -67,7 +66,6 @@ export default function EditorPane(): React.JSX.Element {
           <CodeMirror
             value={openFile.content}
             height="100%"
-            theme={oneDark}
             extensions={[markdown()]}
             basicSetup={{
               lineNumbers: false,

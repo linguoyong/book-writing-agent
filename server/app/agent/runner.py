@@ -65,7 +65,12 @@ async def chat_stream(
     if session["title"] == "新会话":
         db.update_session_title(session_id, user_message.strip()[:24] or "新会话")
 
-    agent = build_agent(project, style, readonly=(mode == "side"))
+    builder = ""
+    if mode == "expert_builder":
+        builder = "expert"
+    elif mode == "skill_builder":
+        builder = "skill"
+    agent = build_agent(project, style, readonly=(mode == "side"), builder=builder)
 
     buffer: list[str] = []
     tool_calls: list[dict[str, Any]] = []

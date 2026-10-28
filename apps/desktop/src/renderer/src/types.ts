@@ -88,6 +88,45 @@ export interface Skill {
   enabled: boolean
 }
 
+export interface Expert {
+  id: string
+  name: string
+  description: string
+  tags: string[]
+  avatar: string
+  prompt: string
+  skills: string[]
+  body: string
+  file: string
+}
+
+export interface KnowledgeBaseSummary {
+  kind: KbKind
+  name: string
+  count: number
+  chunks: number
+}
+
+export interface KbConfig {
+  top_k: number
+  threshold: number
+  mode: 'hybrid' | 'keyword' | 'vector'
+  alpha: number
+  chapter_limit: number | null
+}
+
+export interface ChunkItem {
+  id: string
+  kind: string
+  ref: string
+  title: string
+  text: string
+  chapter: number
+  source: string
+}
+
+export type AppView = 'chat' | 'experts' | 'skills' | 'knowledge'
+
 export interface ModelSettings {
   base_url: string
   api_key: string

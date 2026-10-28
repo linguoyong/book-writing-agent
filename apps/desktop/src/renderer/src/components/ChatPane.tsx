@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, ArrowUp, ChevronDown, Sparkles, Wrench } from 'lucide-react'
-import { findExpert } from '../experts'
 import { useAppStore } from '../store'
 import type { TimelineItem } from '../types'
 
@@ -17,7 +16,10 @@ export default function ChatPane(): React.JSX.Element {
   const activeSessionId = useAppStore((state) => state.activeSessionId)
   const sendMessage = useAppStore((state) => state.sendMessage)
   const currentExpertId = useAppStore((state) => state.currentExpertId)
-  const setExpertModalOpen = useAppStore((state) => state.setExpertModalOpen)
+  const experts = useAppStore((state) => state.experts)
+  const builder = useAppStore((state) => state.builder)
+  const setBuilder = useAppStore((state) => state.setBuilder)
+  const setView = useAppStore((state) => state.setView)
 
   const [input, setInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -25,7 +27,7 @@ export default function ChatPane(): React.JSX.Element {
   const pendingComposer = useAppStore((state) => state.pendingComposer)
   const setPendingComposer = useAppStore((state) => state.setPendingComposer)
 
-  const expert = findExpert(currentExpertId)
+  const expert = experts.find((item) => item.id === currentExpertId)
 
   useEffect(() => {
     const element = scrollRef.current
@@ -62,6 +64,20 @@ export default function ChatPane(): React.JSX.Element {
     <section className="chat-pane">
       <div className="chat-header">
         <span>{activeSessionId ? '对话' : '未选择会话'}</span>
+        {builder && (
+          <span className="builder-chip">
+            <Sparkles size={11} />
+            创建{builder === 'expert' ? '专家' : '技能'}中
+            <button
+              onClick={() => {
+                setBuilder(null)
+                setView(builder === 'expert' ? 'experts' : 'skills')
+              }}
+            >
+              结束
+            </button>
+          </span>
+        )}
         <span
           style={{
             marginLeft: 'auto',
@@ -77,23 +93,31 @@ export default function ChatPane(): React.JSX.Element {
         <div className="chat-inner">
           {timeline.length === 0 ? (
             <div className="chat-empty">
-              <div className="big">开始你的第一章</div>
-              <div style={{ fontSize: 12 }}>写正文、查设定、改知识库，都会落到书稿文件里</div>
-              <div
-                style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  gap: 6,
-                  justifyContent: 'center',
-                  marginTop: 6
-                }}
-              >
-                {SUGGESTIONS.map((text) => (
-                  <button key={text} className="expert-chip" onClick={() => setInput(text)}>
-                    {text}
-                  </button>
-                ))}
+              <div className="big">
+                {builder ? `创建${builder === 'expert' ? '专家' : '技能'}` : '开始你的第一章'}
               </div>
+              <div style={{ fontSize: 12 }}>
+                {builder
+                  ? '描述你想要的定位、风格或流程，Agent 会逐步确认并写入文件'
+                  : '写正文、查设定、改知识库，都会落到书稿文件里'}
+              </div>
+              {!builder && (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 6,
+                    justifyContent: 'center',
+                    marginTop: 6
+                  }}
+                >
+                  {SUGGESTIONS.map((text) => (
+                    <button key={text} className="expert-chip" onClick={() => setInput(text)}>
+                      {text}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             timeline.map((item, index) => (
@@ -123,9 +147,9 @@ export default function ChatPane(): React.JSX.Element {
               }}
             />
             <div className="composer-actions">
-              <button className="expert-selector" onClick={() => setExpertModalOpen(true)}>
+              <button className="expert-selector" onClick={() => setView('experts')}>
                 <Sparkles size={12} />
-                专家 · {expert.name}
+                专家 · {expert?.name ?? '通用'}
                 <ChevronDown size={11} />
               </button>
               <span className="composer-hint">Enter 发送 · Shift+Enter 换行</span>

@@ -25,7 +25,9 @@ def build_chat_model(role: str = "writer") -> ChatOpenAI:
     )
 
 
-def build_system_prompt(project: Path, style: str = "", readonly: bool = False) -> str:
+def build_system_prompt(
+    project: Path, style: str = "", readonly: bool = False, builder: str = ""
+) -> str:
     meta = read_book_meta(project)
     progress = meta.get("progress") or {}
     chapter = progress.get("chapter", 1)
@@ -38,23 +40,38 @@ def build_system_prompt(project: Path, style: str = "", readonly: bool = False) 
         if readonly
         else ""
     )
+    builder_line = ""
+    if builder == "expert":
+        builder_line = (
+            "\n你正在与用户一起创建一个写作专家。请通过提问确认：擅长领域、叙事风格、"
+            "工作流程、禁忌事项。信息足够后调用 expert_write 保存；expert_id 用简短英文或拼音，"
+            "name 用中文。不要编造用户偏好，不确定就问。保存后告诉用户可在专家页选中并设为当前专家。\n"
+        )
+    elif builder == "skill":
+        builder_line = (
+            "\n你正在创建一个技能。请确认：技能用途、触发场景、执行步骤、输出格式。"
+            "确认后调用 skill_write 保存，技能名用中文，说明要具体可执行。\n"
+        )
     return (
         f"{SYSTEM_PROMPT}\n"
         f"当前书稿：《{title}》，进度：第{volume}卷第{chapter}章。\n"
         f"书稿根目录：{project}\n"
         f"{style_line}"
         f"{side_line}"
+        f"{builder_line}"
     )
 
 
-def build_agent(project: Path, style: str = "", readonly: bool = False):  # noqa: ANN201
+def build_agent(
+    project: Path, style: str = "", readonly: bool = False, builder: str = ""
+):  # noqa: ANN201
     settings = load_settings()
     tools: list[Any] = build_tools(project, settings.embedding, readonly=readonly)
     backend = FilesystemBackend(root_dir=str(project), virtual_mode=True)
     return create_deep_agent(
         model=build_chat_model("writer"),
         tools=tools,
-        system_prompt=build_system_prompt(project, style, readonly),
+        system_prompt=build_system_prompt(project, style, readonly, builder),
         backend=backend,
         interrupt_on={"kb_write": False, "manuscript_write": False},
         name="writing-agent",

@@ -7,19 +7,19 @@ import ChatPane from './components/ChatPane'
 import RightSidebar from './components/RightSidebar'
 import ProjectModal from './components/ProjectModal'
 import SettingsModal from './components/SettingsModal'
-import ExpertModal from './components/ExpertModal'
-import SkillsModal from './components/SkillsModal'
+import ExpertsPage from './views/ExpertsPage'
+import SkillsPage from './views/SkillsPage'
+import KnowledgePage from './views/KnowledgePage'
 
 export default function App(): React.JSX.Element {
   const ready = useAppStore((state) => state.ready)
   const projects = useAppStore((state) => state.projects)
+  const view = useAppStore((state) => state.view)
   const leftCollapsed = useAppStore((state) => state.leftCollapsed)
   const rightCollapsed = useAppStore((state) => state.rightCollapsed)
   const leftWidth = useAppStore((state) => state.leftWidth)
   const settingsOpen = useAppStore((state) => state.settingsOpen)
   const projectModalOpen = useAppStore((state) => state.projectModalOpen)
-  const expertModalOpen = useAppStore((state) => state.expertModalOpen)
-  const skillsModalOpen = useAppStore((state) => state.skillsModalOpen)
   const error = useAppStore((state) => state.error)
   const clearError = useAppStore((state) => state.clearError)
   const bootstrap = useAppStore((state) => state.bootstrap)
@@ -45,10 +45,13 @@ export default function App(): React.JSX.Element {
       <TitleBar />
       <div className="workspace">
         {!leftCollapsed && <LeftSidebar />}
-        <div className="chat-area">
-          <ChatPane />
+        <div className="main-area">
+          {view === 'chat' && <ChatPane />}
+          {view === 'experts' && <ExpertsPage />}
+          {view === 'skills' && <SkillsPage />}
+          {view === 'knowledge' && <KnowledgePage />}
         </div>
-        {!rightCollapsed && <RightSidebar />}
+        {view === 'chat' && !rightCollapsed && <RightSidebar />}
 
         {leftCollapsed && (
           <div className="left-hover-zone" onMouseEnter={() => setLeftHover(true)} />
@@ -84,8 +87,6 @@ export default function App(): React.JSX.Element {
       )}
 
       {settingsOpen && <SettingsModal />}
-      {expertModalOpen && <ExpertModal />}
-      {skillsModalOpen && <SkillsModal />}
       {showProjectModal && <ProjectModal canClose={projects.length > 0} />}
     </div>
   )

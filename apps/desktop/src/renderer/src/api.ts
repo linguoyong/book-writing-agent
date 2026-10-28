@@ -1,7 +1,11 @@
 import type {
   AppConfig,
+  ChunkItem,
   Entity,
+  Expert,
+  KbConfig,
   KbKind,
+  KnowledgeBaseSummary,
   Message,
   Overview,
   Project,
@@ -26,6 +30,15 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(detail || `请求失败：${response.status}`)
   }
   return (await response.json()) as T
+}
+
+interface SearchOptions {
+  kinds?: KbKind[]
+  chapter_limit?: number | null
+  top_k?: number
+  threshold?: number
+  mode?: 'hybrid' | 'keyword' | 'vector'
+  alpha?: number
 }
 
 export const api = {
@@ -58,14 +71,44 @@ export const api = {
     http<{ ok: boolean }>(`/projects/${projectId}/kb/${kind}/${entityId}`, {
       method: 'DELETE'
     }),
-  search: (projectId: string, query: string) =>
+  search: (projectId: string, query: string, options: SearchOptions = {}) =>
     http<{ query: string; results: SearchHit[] }>(`/projects/${projectId}/search`, {
       method: 'POST',
-      body: JSON.stringify({ query, top_k: 8 })
+      body: JSON.stringify({ query, top_k: 8, ...options })
     }),
   reindex: (projectId: string) =>
     http<{ chunks: number; embedded: number }>(`/projects/${projectId}/reindex`, {
       method: 'POST'
+    }),
+
+  knowledgeBases: (projectId: string) =>
+    http<{ items: KnowledgeBaseSummary[]; index: { chunks: number; embedded: number }; config: KbConfig }>(
+      `/projects/${projectId}/knowledge-bases`
+    ),
+  chunks: (projectId: string, kind?: string, limit = 50, offset = 0) =>
+    http<{ total: number; items: ChunkItem[] }>(
+      `/projects/${projectId}/chunks?limit=${limit}&offset=${offset}${kind ? `&kind=${kind}` : ''}`
+    ),
+  kbConfig: (projectId: string) => http<KbConfig>(`/projects/${projectId}/kb-config`),
+  saveKbConfig: (projectId: string, config: KbConfig) =>
+    http<KbConfig>(`/projects/${projectId}/kb-config`, {
+      method: 'PUT',
+      body: JSON.stringify(config)
+    }),
+
+  experts: (projectId: string) => http<Expert[]>(`/projects/${projectId}/experts`),
+  saveExpert: (
+    projectId: string,
+    expertId: string,
+    body: { id: string; meta: Record<string, unknown>; body: string }
+  ) =>
+    http<Expert>(`/projects/${projectId}/experts/${expertId}`, {
+      method: 'PUT',
+      body: JSON.stringify(body)
+    }),
+  deleteExpert: (projectId: string, expertId: string) =>
+    http<{ ok: boolean }>(`/projects/${projectId}/experts/${expertId}`, {
+      method: 'DELETE'
     }),
 
   tree: (projectId: string) => http<TreeNode[]>(`/projects/${projectId}/tree`),
@@ -101,7 +144,7 @@ export async function streamChat(
   sessionId: string,
   message: string,
   style: string,
-  mode: 'main' | 'side',
+  mode: 'main' | 'side' | 'expert_builder' | 'skill_builder',
   handlers: StreamHandlers
 ): Promise<void> {
   let response: Response

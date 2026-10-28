@@ -1,9 +1,10 @@
 import { create } from 'zustand'
 import { api, streamChat } from './api'
-import { findExpert } from './experts'
 import type {
   AppConfig,
+  AppView,
   Entity,
+  Expert,
   KbKind,
   Overview,
   Project,
@@ -19,7 +20,7 @@ export interface OpenFile {
   dirty: boolean
 }
 
-type RightTab = 'kb' | 'files' | 'diff' | 'side'
+type RightTab = 'kb' | 'files' | 'diff' | 'side' | 'doc'
 
 interface AppState {
   ready: boolean
@@ -47,9 +48,11 @@ interface AppState {
 
   leftCollapsed: boolean
   rightCollapsed: boolean
-  leftTab: 'chats' | 'files'
   leftWidth: number
   rightWidth: number
+  view: AppView
+  experts: Expert[]
+  builder: 'expert' | 'skill' | null
   settingsOpen: boolean
   projectModalOpen: boolean
   expertModalOpen: boolean
@@ -92,7 +95,10 @@ interface AppState {
   clearError: () => void
   toggleLeft: () => void
   toggleRight: () => void
-  setLeftTab: (tab: 'chats' | 'files') => void
+  setView: (view: AppView) => void
+  loadExperts: () => Promise<void>
+  startBuilder: (kind: 'expert' | 'skill') => Promise<void>
+  setBuilder: (kind: 'expert' | 'skill' | null) => void
   setLeftWidth: (width: number) => void
   setRightWidth: (width: number) => void
   setSettingsOpen: (open: boolean) => void
@@ -139,9 +145,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   diff: '',
   leftCollapsed: false,
   rightCollapsed: false,
-  leftTab: 'chats',
-  leftWidth: 300,
+  leftWidth: 268,
   rightWidth: 344,
+  view: 'chat',
+  experts: [],
+  builder: null,
   settingsOpen: false,
   projectModalOpen: false,
   expertModalOpen: false,
@@ -151,12 +159,19 @@ export const useAppStore = create<AppState>((set, get) => ({
   pendingComposer: null,
 
   bootstrap: async () => {
-    try {
-      const [projects, config] = await Promise.all([api.listProjects(), api.getConfig()])
-      set({ projects, config, ready: true })
-      if (projects.length > 0) await get().selectProject(projects[0].id)
-    } catch (error) {
-      set({ ready: true, error: (error as Error).message })
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      try {
+        const [projects, config] = await Promise.all([api.listProjects(), api.getConfig()])
+        set({ projects, config, ready: true, error: null })
+        if (projects.length > 0) await get().selectProject(projects[0].id)
+        return
+      } catch {
+        if (attempt === 5) {
+          set({ ready: true, error: '无法连接本地后端，请确认服务已启动后刷新' })
+          return
+        }
+        await new Promise((resolve) => setTimeout(resolve, 800))
+      }
     }
   },
 
@@ -203,6 +218,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const file = firstManuscript(tree)
       if (file) await get().openFileByPath(file)
       await get().loadKb(get().kbKind)
+      await get().loadExperts()
       const mainSessions = sessions.filter((session) => session.kind === 'main')
       if (mainSessions.length > 0) await get().selectSession(mainSessions[0].id)
     } catch (error) {
@@ -240,7 +256,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({
         sessions: [session, ...get().sessions],
         activeSessionId: session.id,
-        timeline: []
+        timeline: [],
+        builder: null
       })
       return session
     } catch (error) {
@@ -299,7 +316,11 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     let assistantId: string | null = null
 
-    await streamChat(sessionId, message, get().writingStyle, 'main', {
+    const builder = get().builder
+    const mode =
+      builder === 'expert' ? 'expert_builder' : builder === 'skill' ? 'skill_builder' : 'main'
+
+    await streamChat(sessionId, message, builder ? '' : get().writingStyle, mode, {
       onToken: (token) => {
         set((state) => {
           const items = [...state.timeline]
@@ -368,8 +389,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       const file = await api.readFile(project.id, path)
       set({
         openFile: { path: file.path, content: file.content, dirty: false },
-        leftTab: 'files',
-        leftCollapsed: false
+        rightTab: 'doc',
+        rightCollapsed: false
       })
     } catch (error) {
       set({ error: (error as Error).message })
@@ -523,7 +544,34 @@ export const useAppStore = create<AppState>((set, get) => ({
   clearError: () => set({ error: null }),
   toggleLeft: () => set({ leftCollapsed: !get().leftCollapsed }),
   toggleRight: () => set({ rightCollapsed: !get().rightCollapsed }),
-  setLeftTab: (tab) => set({ leftTab: tab }),
+  setView: (view) => set({ view }),
+  loadExperts: async () => {
+    const project = get().activeProject
+    if (!project) return
+    try {
+      const experts = await api.experts(project.id)
+      const current = experts.find((item) => item.id === get().currentExpertId) ?? experts[0]
+      set({
+        experts,
+        currentExpertId: current?.id ?? 'general',
+        writingStyle: current?.prompt ?? ''
+      })
+    } catch {
+      /* 忽略专家加载失败 */
+    }
+  },
+  startBuilder: async (kind) => {
+    await get().newSession()
+    set({
+      builder: kind,
+      view: 'chat',
+      pendingComposer:
+        kind === 'expert'
+          ? '我想创建一个新的写作专家，请先问我几个问题来确定定位和风格。'
+          : '我想创建一个新的技能，请先问我几个问题来确定用途和执行步骤。'
+    })
+  },
+  setBuilder: (kind) => set({ builder: kind }),
   setLeftWidth: (width) => set({ leftWidth: Math.min(460, Math.max(200, width)) }),
   setRightWidth: (width) => set({ rightWidth: Math.min(480, Math.max(280, width)) }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
@@ -531,8 +579,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   setExpertModalOpen: (open) => set({ expertModalOpen: open }),
   setSkillsModalOpen: (open) => set({ skillsModalOpen: open }),
   setExpert: (expertId) => {
-    const expert = findExpert(expertId)
-    set({ currentExpertId: expert.id, writingStyle: expert.prompt })
+    const expert = get().experts.find((item) => item.id === expertId)
+    set({ currentExpertId: expertId, writingStyle: expert?.prompt ?? '' })
   },
   setWritingStyle: (style) => set({ writingStyle: style }),
   setPendingComposer: (text) => set({ pendingComposer: text })
