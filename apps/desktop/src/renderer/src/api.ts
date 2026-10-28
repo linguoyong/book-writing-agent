@@ -21,10 +21,14 @@ import type {
   TurnChanges
 } from './types'
 
-const BASE = 'http://127.0.0.1:8787/api'
+let API_BASE = 'http://127.0.0.1:8787/api'
+
+export function setApiBase(port: number): void {
+  API_BASE = `http://127.0.0.1:${port}/api`
+}
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${BASE}${path}`, {
+  const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -217,7 +221,7 @@ export async function streamChat(
 ): Promise<void> {
   let response: Response
   try {
-    response = await fetch(`${BASE}/chat`, {
+    response = await fetch(`${API_BASE}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -249,7 +253,7 @@ export async function approveChat(
 ): Promise<void> {
   let response: Response
   try {
-    response = await fetch(`${BASE}/chat/approve`, {
+    response = await fetch(`${API_BASE}/chat/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: sessionId, decisions })

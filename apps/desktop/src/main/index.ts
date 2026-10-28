@@ -1,7 +1,9 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { join } from 'node:path'
+import { getBackendInfo, startBackend, stopBackend } from './backend'
 
 let mainWindow: BrowserWindow | null = null
+let quitting = false
 
 if (process.env['ELECTRON_RENDERER_URL']) {
   app.commandLine.appendSwitch('remote-debugging-port', '9222')
@@ -56,7 +58,19 @@ ipcMain.handle('shell:open-external', async (_event, url: unknown) => {
   return false
 })
 
+ipcMain.handle('backend:info', async () => {
+  // 等后端真正 ready 再返回，渲染层首次请求就不会打到还没监听的端口
+  const deadline = Date.now() + 15000
+  while (Date.now() < deadline) {
+    const current = getBackendInfo()
+    if (current.ready || current.error) return current
+    await new Promise((resolve) => setTimeout(resolve, 150))
+  }
+  return getBackendInfo()
+})
+
 app.whenReady().then(() => {
+  void startBackend()
   createWindow()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -65,4 +79,11 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
+})
+
+app.on('before-quit', (event) => {
+  if (quitting) return
+  quitting = true
+  event.preventDefault()
+  void stopBackend().finally(() => app.quit())
 })

@@ -27,8 +27,10 @@ app = FastAPI(title="Book Writing Agent", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_credentials=True,
+    # 服务只绑定 127.0.0.1；Electron 以 file:// 加载页面，Origin 为 null，
+    # 因此这里放开来源，靠 loopback 绑定与本地权限规则做边界。
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

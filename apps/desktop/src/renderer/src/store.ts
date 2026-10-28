@@ -268,7 +268,7 @@ export const useAppStore = create<AppState>((set, get) => {
   pendingComposer: null,
 
   bootstrap: async () => {
-    for (let attempt = 0; attempt < 6; attempt += 1) {
+    for (let attempt = 0; attempt < 15; attempt += 1) {
       try {
         const [projects, config] = await Promise.all([api.listProjects(), api.getConfig()])
         set({
@@ -282,7 +282,7 @@ export const useAppStore = create<AppState>((set, get) => {
         void get().refreshSpaceSummaries()
         return
       } catch {
-        if (attempt === 5) {
+        if (attempt === 14) {
           set({ ready: true, error: '无法连接本地后端，请确认服务已启动后刷新' })
           return
         }

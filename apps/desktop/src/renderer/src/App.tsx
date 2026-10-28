@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { X } from 'lucide-react'
+import { setApiBase } from './api'
 import { useAppStore } from './store'
 import TitleBar from './components/TitleBar'
 import LeftSidebar from './components/LeftSidebar'
@@ -25,9 +26,20 @@ export default function App(): React.JSX.Element {
   const bootstrap = useAppStore((state) => state.bootstrap)
 
   const [leftHover, setLeftHover] = useState(false)
+  const [bootError, setBootError] = useState<string | null>(null)
 
   useEffect(() => {
-    void bootstrap()
+    const init = async (): Promise<void> => {
+      try {
+        const info = await window.desktop?.backendInfo?.()
+        if (info?.port) setApiBase(info.port)
+        if (info?.error) setBootError(info.error)
+      } catch {
+        /* 浏览器预览没有 preload，沿用默认端口 */
+      }
+      await bootstrap()
+    }
+    void init()
   }, [bootstrap])
 
   useEffect(() => {
@@ -35,7 +47,16 @@ export default function App(): React.JSX.Element {
   }, [leftCollapsed])
 
   if (!ready) {
-    return <div className="boot-screen">正在连接本地写作引擎…</div>
+    return (
+      <div className="boot-screen">
+        <div>{bootError ?? '正在启动本地写作引擎…'}</div>
+        {bootError && (
+          <button className="small-btn" style={{ marginTop: 10 }} onClick={() => void bootstrap()}>
+            重试连接
+          </button>
+        )}
+      </div>
+    )
   }
 
   const showProjectModal = projectModalOpen || projects.length === 0

@@ -6,5 +6,7 @@ contextBridge.exposeInMainWorld('desktop', {
   close: (): void => ipcRenderer.send('window:close'),
   pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('dialog:pick-directory'),
   openExternal: (url: string): Promise<boolean> =>
-    ipcRenderer.invoke('shell:open-external', url)
+    ipcRenderer.invoke('shell:open-external', url),
+  backendInfo: (): Promise<{ port: number; ready: boolean; error?: string }> =>
+    ipcRenderer.invoke('backend:info')
 })
