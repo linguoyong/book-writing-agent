@@ -1,0 +1,17 @@
+{
+  "name": "book-writing-agent",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.33.3",
+  "scripts": {
+    "dev": "pnpm --filter desktop dev",
+    "build": "pnpm --filter desktop build",
+    "server": "uv run --directory server uvicorn app.main:app --port 8787 --reload"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ]
+  }
+}

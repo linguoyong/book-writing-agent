@@ -1,0 +1,32 @@
+{
+  "name": "desktop",
+  "version": "0.1.0",
+  "description": "Book writing agent desktop shell",
+  "main": "./out/main/index.js",
+  "author": "",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview"
+  },
+  "dependencies": {
+    "@codemirror/lang-markdown": "*",
+    "@codemirror/theme-one-dark": "*",
+    "@uiw/react-codemirror": "*",
+    "lucide-react": "*",
+    "react": "*",
+    "react-dom": "*",
+    "zustand": "*"
+  },
+  "devDependencies": {
+    "@types/node": "*",
+    "@types/react": "*",
+    "@types/react-dom": "*",
+    "@vitejs/plugin-react": "*",
+    "electron": "*",
+    "electron-vite": "*",
+    "typescript": "*",
+    "vite": "*"
+  }
+}

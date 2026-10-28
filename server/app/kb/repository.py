@@ -1,0 +1,133 @@
+from __future__ import annotations
+
+import re
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+KINDS = [
+    "characters",
+    "factions",
+    "items",
+    "locations",
+    "world",
+    "outline",
+    "materials",
+    "styles",
+]
+
+_FRONT_MATTER = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?(.*)\Z", re.S)
+_SAFE_ID = re.compile(r"[^\w\u4e00-\u9fff-]+")
+
+
+def kind_dir(project: Path, kind: str) -> Path:
+    if kind not in KINDS:
+        raise ValueError(f"未知知识库类型: {kind}")
+    return project / "kb" / kind
+
+
+def safe_entity_id(entity_id: str) -> str:
+    cleaned = _SAFE_ID.sub("-", entity_id.strip()).strip("-")
+    if not cleaned:
+        raise ValueError("实体 id 不能为空")
+    return cleaned
+
+
+def parse_note(text: str) -> tuple[dict[str, Any], str]:
+    match = _FRONT_MATTER.match(text)
+    if not match:
+        return {}, text
+    try:
+        meta = yaml.safe_load(match.group(1)) or {}
+    except yaml.YAMLError:
+        meta = {}
+    if not isinstance(meta, dict):
+        meta = {}
+    return meta, match.group(2)
+
+
+def dump_note(meta: dict[str, Any], body: str) -> str:
+    header = yaml.safe_dump(meta, allow_unicode=True, sort_keys=False).strip()
+    return f"---\n{header}\n---\n\n{body.strip()}\n"
+
+
+def entity_file(project: Path, kind: str, entity_id: str) -> Path:
+    return kind_dir(project, kind) / f"{safe_entity_id(entity_id)}.md"
+
+
+def list_entities(project: Path, kind: str) -> list[dict[str, Any]]:
+    directory = kind_dir(project, kind)
+    if not directory.exists():
+        return []
+    items: list[dict[str, Any]] = []
+    for file in sorted(directory.glob("*.md")):
+        meta, body = parse_note(file.read_text(encoding="utf-8"))
+        items.append(
+            {
+                "id": meta.get("id") or file.stem,
+                "kind": kind,
+                "title": _display_title(meta, file.stem),
+                "meta": meta,
+                "body": body,
+                "file": str(file.relative_to(project)),
+                "updated_at": file.stat().st_mtime,
+            }
+        )
+    return items
+
+
+def get_entity(project: Path, kind: str, entity_id: str) -> dict[str, Any] | None:
+    file = entity_file(project, kind, entity_id)
+    if not file.exists():
+        return None
+    meta, body = parse_note(file.read_text(encoding="utf-8"))
+    return {
+        "id": meta.get("id") or file.stem,
+        "kind": kind,
+        "title": _display_title(meta, file.stem),
+        "meta": meta,
+        "body": body,
+        "file": str(file.relative_to(project)),
+    }
+
+
+def save_entity(
+    project: Path, kind: str, entity_id: str, meta: dict[str, Any], body: str
+) -> dict[str, Any]:
+    entity_id = safe_entity_id(entity_id)
+    directory = kind_dir(project, kind)
+    directory.mkdir(parents=True, exist_ok=True)
+    file = directory / f"{entity_id}.md"
+
+    merged_meta = dict(meta or {})
+    merged_meta["id"] = entity_id
+    merged_meta.setdefault("type", kind[:-1] if kind.endswith("s") else kind)
+    merged_meta["updated_at"] = _now()
+
+    file.write_text(dump_note(merged_meta, body), encoding="utf-8")
+    saved = get_entity(project, kind, entity_id)
+    assert saved is not None
+    return saved
+
+
+def delete_entity(project: Path, kind: str, entity_id: str) -> bool:
+    file = entity_file(project, kind, entity_id)
+    if file.exists():
+        file.unlink()
+        return True
+    return False
+
+
+def _display_title(meta: dict[str, Any], fallback: str) -> str:
+    for key in ("name", "title"):
+        value = meta.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return fallback
+
+
+def _now() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat()
