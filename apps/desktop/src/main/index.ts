@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain } from 'electron'
 import { join } from 'node:path'
 
 let mainWindow: BrowserWindow | null = null
@@ -39,6 +39,14 @@ ipcMain.on('window:toggle-maximize', () => {
   else mainWindow.maximize()
 })
 ipcMain.on('window:close', () => mainWindow?.close())
+
+ipcMain.handle('dialog:pick-directory', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openDirectory', 'createDirectory'],
+    title: '选择书稿空间目录'
+  })
+  return result.canceled ? null : result.filePaths[0]
+})
 
 app.whenReady().then(() => {
   createWindow()

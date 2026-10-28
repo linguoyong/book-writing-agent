@@ -5,5 +5,6 @@ interface Window {
     minimize: () => void
     toggleMaximize: () => void
     close: () => void
+    pickDirectory: () => Promise<string | null>
   }
 }

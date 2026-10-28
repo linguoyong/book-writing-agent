@@ -1,8 +1,19 @@
 import { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, ArrowUp, ChevronDown, Sparkles, Wrench } from 'lucide-react'
+import {
+  AlertTriangle,
+  ArrowUp,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  FileDiff,
+  Loader2,
+  MessageSquareReply,
+  Sparkles,
+  Wrench
+} from 'lucide-react'
 import { api } from '../api'
 import { useAppStore } from '../store'
-import type { ReferenceItem, TimelineItem } from '../types'
+import type { ReferenceItem, TimelineItem, TurnMeta } from '../types'
 import ApprovalCard from './ApprovalCard'
 
 const SUGGESTIONS = [
@@ -12,11 +23,24 @@ const SUGGESTIONS = [
   '检索与「宗门大比」相关的原文'
 ]
 
+type UserItem = Extract<TimelineItem, { type: 'user' }>
+type AssistantItem = Extract<TimelineItem, { type: 'assistant' }>
+
+interface TurnView {
+  id: string
+  user?: UserItem
+  process: TimelineItem[]
+  conclusion?: AssistantItem
+  meta?: TurnMeta
+}
+
 export default function ChatPane(): React.JSX.Element {
   const timeline = useAppStore((state) => state.timeline)
   const streaming = useAppStore((state) => state.streaming)
+  const streamStartedAt = useAppStore((state) => state.streamStartedAt)
   const activeSessionId = useAppStore((state) => state.activeSessionId)
   const sendMessage = useAppStore((state) => state.sendMessage)
+  const steerMessage = useAppStore((state) => state.steerMessage)
   const currentExpertId = useAppStore((state) => state.currentExpertId)
   const experts = useAppStore((state) => state.experts)
   const builder = useAppStore((state) => state.builder)
@@ -63,7 +87,13 @@ export default function ChatPane(): React.JSX.Element {
       selectReference(candidates[0])
       return
     }
-    if (!input.trim() || streaming || approval) return
+    if (!input.trim() || approval) return
+    if (streaming) {
+      void steerMessage(input)
+      setInput('')
+      if (textareaRef.current) textareaRef.current.style.height = 'auto'
+      return
+    }
     void sendMessage(input)
     setInput('')
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
@@ -102,6 +132,8 @@ export default function ChatPane(): React.JSX.Element {
     }, 160)
   }
 
+  const turns = groupTurns(timeline)
+
   return (
     <section className="chat-pane">
       <div className="chat-header">
@@ -127,13 +159,13 @@ export default function ChatPane(): React.JSX.Element {
             color: streaming ? 'var(--accent)' : 'var(--faint)'
           }}
         >
-          {streaming ? '生成中…' : '就绪'}
+          {streaming ? '处理中…' : '就绪'}
         </span>
       </div>
 
       <div className="chat-scroll" ref={scrollRef}>
         <div className="chat-inner">
-          {timeline.length === 0 ? (
+          {turns.length === 0 ? (
             <div className="chat-empty">
               <div className="big">
                 {builder ? `创建${builder === 'expert' ? '专家' : '技能'}` : '开始你的第一章'}
@@ -162,11 +194,12 @@ export default function ChatPane(): React.JSX.Element {
               )}
             </div>
           ) : (
-            timeline.map((item, index) => (
-              <TimelineRow
-                key={item.id}
-                item={item}
-                streaming={streaming && index === timeline.length - 1}
+            turns.map((turn, index) => (
+              <TurnBlock
+                key={turn.id}
+                turn={turn}
+                live={streaming && index === turns.length - 1}
+                startedAt={streamStartedAt}
               />
             ))
           )}
@@ -241,12 +274,17 @@ export default function ChatPane(): React.JSX.Element {
                 <ChevronDown size={11} />
               </button>
               <span className="composer-hint">
-                {approval ? '先处理待审批的写入' : 'Enter 发送 · Shift+Enter 换行 · @ 引用'}
+                {approval
+                  ? '先处理待审批的写入'
+                  : streaming
+                    ? '执行中 · 发送将作为引导，不打断当前任务'
+                    : 'Enter 发送 · Shift+Enter 换行 · @ 引用'}
               </span>
               <button
                 className="send-btn"
                 onClick={submit}
-                disabled={!input.trim() || streaming || !!approval}
+                disabled={!input.trim() || !!approval}
+                title={streaming ? '发送引导（不打断当前任务）' : '发送'}
               >
                 <ArrowUp size={15} />
               </button>
@@ -258,19 +296,105 @@ export default function ChatPane(): React.JSX.Element {
   )
 }
 
-function TimelineRow({
-  item,
-  streaming
+function TurnBlock({
+  turn,
+  live,
+  startedAt
 }: {
-  item: TimelineItem
-  streaming: boolean
+  turn: TurnView
+  live: boolean
+  startedAt: number | null
 }): React.JSX.Element {
+  const showTurnDiff = useAppStore((state) => state.showTurnDiff)
+  const [now, setNow] = useState(Date.now())
+
+  useEffect(() => {
+    if (!live) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [live])
+
+  const running = live && !turn.meta
+  const elapsed = turn.meta?.elapsed_ms ?? (running && startedAt ? now - startedAt : 0)
+  const steps = turn.process.filter((item) => item.type === 'tool')
+  const files = turn.meta?.changes.files ?? []
+
+  return (
+    <div className="turn">
+      {turn.user && (
+        <div className="msg user">
+          <div className="bubble">{turn.user.content}</div>
+        </div>
+      )}
+
+      {turn.process.length > 0 &&
+        (running ? (
+          <div className="turn-live">
+            <div className="turn-live-head">
+              <Loader2 size={12} className="spin" />
+              处理中 · {formatDuration(elapsed)}
+            </div>
+            {turn.process.map((item) => (
+              <StepRow key={item.id} item={item} />
+            ))}
+          </div>
+        ) : (
+          <details className="turn-fold">
+            <summary>
+              <Check size={12} />
+              <span>已完成</span>
+              {turn.meta && (
+                <>
+                  <span className="turn-dot">·</span>
+                  <span>{formatDuration(elapsed)}</span>
+                </>
+              )}
+              {steps.length > 0 && (
+                <>
+                  <span className="turn-dot">·</span>
+                  <span>{steps.length} 步</span>
+                </>
+              )}
+              <ChevronRight size={12} className="turn-chev" />
+            </summary>
+            <div className="turn-live">
+              {turn.process.map((item) => (
+                <StepRow key={item.id} item={item} />
+              ))}
+            </div>
+          </details>
+        ))}
+
+      {turn.conclusion && (
+        <div className="msg assistant">
+          <div className="avatar">墨</div>
+          <div className={`content ${live ? 'streaming' : ''}`}>{turn.conclusion.content}</div>
+        </div>
+      )}
+
+      {files.length > 0 && turn.meta && (
+        <div className="turn-changes">
+          <button onClick={() => showTurnDiff(turn.meta!.changes)}>
+            <FileDiff size={12} />
+            查看变更 · {files.length} 个文件
+          </button>
+          <span className="turn-files">
+            {files.slice(0, 3).join('、')}
+            {files.length > 3 ? '…' : ''}
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StepRow({ item }: { item: TimelineItem }): React.JSX.Element | null {
   if (item.type === 'tool') {
     return (
-      <details className="tool-card">
+      <details className="step-tool">
         <summary>
-          <Wrench size={12} />
-          <span className="tool-name">{item.name}</span>
+          <Wrench size={11} />
+          <span className="step-name">{item.name}</span>
           <span className={`status ${item.status === 'running' ? 'running' : ''}`}>
             {item.status === 'running' ? '执行中' : '完成'}
           </span>
@@ -282,28 +406,70 @@ function TimelineRow({
       </details>
     )
   }
-
-  if (item.type === 'error') {
-    return (
-      <div className="error-banner" style={{ margin: '0 0 14px 34px' }}>
-        <AlertTriangle size={13} />
-        <span style={{ flex: 1 }}>{item.content}</span>
-      </div>
-    )
-  }
-
   if (item.type === 'user') {
     return (
-      <div className="msg user">
-        <div className="bubble">{item.content}</div>
+      <div className="step-steer">
+        <MessageSquareReply size={12} />
+        <div>
+          <span className="step-steer-label">引导</span>
+          {item.content}
+        </div>
       </div>
     )
   }
+  if (item.type === 'assistant') {
+    return <div className="step-text">{item.content}</div>
+  }
+  if (item.type === 'error') {
+    return (
+      <div className="step-error">
+        <AlertTriangle size={12} />
+        <span>{item.content}</span>
+      </div>
+    )
+  }
+  return null
+}
 
-  return (
-    <div className="msg assistant">
-      <div className="avatar">墨</div>
-      <div className={`content ${streaming ? 'streaming' : ''}`}>{item.content}</div>
-    </div>
-  )
+function groupTurns(items: TimelineItem[]): TurnView[] {
+  const turns: TurnView[] = []
+  let current: TurnView | null = null
+
+  for (const item of items) {
+    if (item.type === 'user' && !item.steering) {
+      current = { id: item.id, user: item, process: [] }
+      turns.push(current)
+      continue
+    }
+    if (!current) {
+      current = { id: `turn-${item.id}`, process: [] }
+      turns.push(current)
+    }
+    if (item.type === 'turn_end') {
+      current.meta = item.meta
+      continue
+    }
+    current.process.push(item)
+  }
+
+  for (const turn of turns) {
+    for (let index = turn.process.length - 1; index >= 0; index -= 1) {
+      const item = turn.process[index]
+      if (item.type === 'assistant' && item.content.trim()) {
+        turn.conclusion = item
+        turn.process.splice(index, 1)
+        break
+      }
+    }
+  }
+  return turns
+}
+
+function formatDuration(ms: number): string {
+  if (!ms || ms < 1000) return '1 秒内'
+  const seconds = Math.round(ms / 1000)
+  if (seconds < 60) return `${seconds} 秒`
+  const minutes = Math.floor(seconds / 60)
+  const rest = seconds % 60
+  return rest ? `${minutes} 分 ${rest} 秒` : `${minutes} 分`
 }

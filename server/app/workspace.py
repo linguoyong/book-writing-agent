@@ -127,3 +127,64 @@ def safe_join(root: Path, relative: str) -> Path:
     if not str(candidate).startswith(str(root.resolve())):
         raise ValueError("路径越界")
     return candidate
+
+
+def default_project_path(name: str) -> Path:
+    return (BOOKS_DIR / slugify(name)).resolve()
+
+
+def turn_changes(project: Path, paths: list[str], limit: int = 20000) -> dict[str, Any]:
+    """本轮写过的文件相对 HEAD 的 diff，用于对话里的「查看变更」。"""
+    unique = list(dict.fromkeys(path for path in paths if path))
+    if not unique:
+        return {"files": [], "diff": "", "truncated": False}
+    if not (project / ".git").exists():
+        return {"files": [], "diff": "", "truncated": False}
+
+    tracked = _git(project, "-c", "core.quotepath=false", "ls-files", "--", *unique).stdout
+    tracked_set = {line.strip() for line in tracked.splitlines() if line.strip()}
+
+    files: list[str] = []
+    chunks: list[str] = []
+    for relative in unique:
+        try:
+            target = safe_join(project, relative)
+        except ValueError:
+            continue
+        if not target.exists():
+            continue
+        files.append(relative)
+        if relative in tracked_set:
+            diff = _git(
+                project, "-c", "core.quotepath=false", "diff", "--", relative
+            ).stdout
+            if not diff.strip():
+                diff = _git(
+                    project, "-c", "core.quotepath=false", "diff", "--cached", "--", relative
+                ).stdout
+        else:
+            diff = _new_file_diff(target, relative)
+        if diff.strip():
+            chunks.append(diff.strip())
+
+    text = "\n".join(chunks)
+    truncated = len(text) > limit
+    if truncated:
+        text = text[:limit].rstrip() + "\n…（diff 过长，已截断）"
+    return {"files": files, "diff": text, "truncated": truncated}
+
+
+def _new_file_diff(target: Path, relative: str) -> str:
+    try:
+        content = target.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
+    lines = content.splitlines()[:400]
+    header = [
+        "diff --git a/{0} b/{0}".format(relative),
+        "new file mode 100644",
+        "--- /dev/null",
+        "+++ b/{}".format(relative),
+        "@@ -0,0 +1,{} @@".format(len(lines)),
+    ]
+    return "\n".join([*header, *[f"+{line}" for line in lines]])

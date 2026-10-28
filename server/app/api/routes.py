@@ -11,6 +11,7 @@ from .. import db, memory
 from ..agent.checkpointer import drop_thread
 from ..agent.factory import resolve_expert
 from ..agent.runner import approve_stream, chat_stream
+from ..agent import steering
 from ..config import load_settings, save_settings
 from ..context import assemble
 from ..domains import list_domains
@@ -26,6 +27,7 @@ from ..kb.repository import (
 from ..kb.search import KbIndex, load_kb_config, save_kb_config
 from ..workspace import (
     create_book,
+    default_project_path,
     git_diff,
     git_status,
     read_book_meta,
@@ -92,6 +94,34 @@ def post_project(req: CreateProjectRequest) -> dict[str, Any]:
         return {**existing, "meta": read_book_meta(path)}
     project = db.create_project(req.name, str(path))
     return {**project, "meta": read_book_meta(path)}
+
+
+@router.get("/projects/default-path")
+def get_default_path(name: str = "未命名") -> dict[str, str]:
+    """新建书稿的默认落点：~/.book-agent/books/<slug>。"""
+    return {"path": str(default_project_path(name))}
+
+
+class OpenProjectRequest(BaseModel):
+    path: str
+
+
+@router.post("/projects/open")
+def open_project(req: OpenProjectRequest) -> dict[str, Any]:
+    target = Path(req.path).expanduser()
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(status_code=400, detail=f"目录不存在：{target}")
+    path = target.resolve()
+    existing = next(
+        (p for p in db.list_projects() if Path(p["path"]).resolve() == path), None
+    )
+    if existing:
+        return {**existing, "meta": read_book_meta(path)}
+    meta = read_book_meta(path)
+    name = path.name or meta.get("title") or "未命名空间"
+    created = create_book(name, meta.get("title") or name, meta.get("author") or "", str(path))
+    project = db.create_project(name, str(created))
+    return {**project, "meta": read_book_meta(created)}
 
 
 @router.get("/projects/{project_id}")
@@ -251,6 +281,25 @@ def get_pending(session_id: str) -> dict[str, Any]:
     if not db.get_session(session_id):
         raise HTTPException(status_code=404, detail="会话不存在")
     return {"approval": db.pending_approval(session_id)}
+
+
+class SteerRequest(BaseModel):
+    session_id: str
+    message: str
+
+
+@router.post("/chat/steer")
+def post_steer(req: SteerRequest) -> dict[str, Any]:
+    """执行中插入引导：不打断当前 run，模型下一步会看到这条指示。"""
+    if not req.message.strip():
+        raise HTTPException(status_code=400, detail="引导内容不能为空")
+    if not db.get_session(req.session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    if not (steering.is_running(req.session_id) or db.pending_approval(req.session_id)):
+        raise HTTPException(status_code=409, detail="当前没有进行中的对话")
+    db.add_message(req.session_id, "user", req.message, meta={"steering": True})
+    queued = steering.enqueue(req.session_id, req.message)
+    return {"ok": True, "queued": queued}
 
 
 @router.get("/sessions/{session_id}/approvals")

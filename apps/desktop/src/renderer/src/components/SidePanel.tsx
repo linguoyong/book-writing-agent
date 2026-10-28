@@ -149,6 +149,7 @@ export default function SidePanel(): React.JSX.Element {
               </div>
             )
           }
+          if (item.type !== 'assistant') return null
           return (
             <div key={item.id} className="side-msg assistant">
               <div>

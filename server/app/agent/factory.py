@@ -12,6 +12,7 @@ from ..domains import get_domain
 from ..llm import build_chat_model
 from .approvals import GATED_TOOLS
 from .checkpointer import get_checkpointer
+from .steering import SteeringMiddleware
 
 
 def resolve_expert(project: Path, expert_id: str | None) -> dict[str, Any] | None:
@@ -58,12 +59,16 @@ def build_agent(
     # 只读会话没有写工具，无需拦截
     interrupt_on = None if readonly else {name: True for name in GATED_TOOLS}
 
+    sync_session = (session or {}).get("id", "")
+    middleware = [SteeringMiddleware(sync_session)] if sync_session else []
+
     agent = create_deep_agent(
         model=build_chat_model("writer"),
         tools=tools,
         system_prompt=bundle.system_prompt,
         backend=backend,
         skills=skills,
+        middleware=middleware,
         checkpointer=get_checkpointer(),
         interrupt_on=interrupt_on,
         name=f"agent-{domain.id}",

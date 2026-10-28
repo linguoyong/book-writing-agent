@@ -16,7 +16,8 @@ import type {
   SearchHit,
   Session,
   Skill,
-  TreeNode
+  TreeNode,
+  TurnChanges
 } from './types'
 
 const BASE = 'http://127.0.0.1:8787/api'
@@ -47,8 +48,12 @@ interface SearchOptions {
 
 export const api = {
   listProjects: () => http<Project[]>('/projects'),
-  createProject: (body: { name: string; title?: string; author?: string }) =>
+  createProject: (body: { name: string; title?: string; author?: string; path?: string }) =>
     http<Project>('/projects', { method: 'POST', body: JSON.stringify(body) }),
+  defaultPath: (name: string) =>
+    http<{ path: string }>(`/projects/default-path?name=${encodeURIComponent(name)}`),
+  openProject: (path: string) =>
+    http<Project>('/projects/open', { method: 'POST', body: JSON.stringify({ path }) }),
   getProject: (projectId: string) => http<Project>(`/projects/${projectId}`),
   overview: (projectId: string) => http<Overview>(`/projects/${projectId}/overview`),
 
@@ -92,6 +97,11 @@ export const api = {
   messages: (sessionId: string) => http<Message[]>(`/sessions/${sessionId}/messages`),
   pending: (sessionId: string) =>
     http<{ approval: ApprovalBundle | null }>(`/sessions/${sessionId}/pending`),
+  steer: (sessionId: string, message: string) =>
+    http<{ ok: boolean; queued: number }>('/chat/steer', {
+      method: 'POST',
+      body: JSON.stringify({ session_id: sessionId, message })
+    }),
   approvals: (sessionId: string) =>
     http<ApprovalBundle[]>(`/sessions/${sessionId}/approvals`),
   referenceCandidates: (projectId: string, q: string, limit = 20) =>
@@ -179,7 +189,7 @@ interface StreamHandlers {
   onToken: (text: string) => void
   onToolStart: (name: string, input: string) => void
   onToolEnd: (name: string, output: string) => void
-  onDone: () => void
+  onDone: (payload?: { elapsed_ms?: number; changes?: TurnChanges }) => void
   onError: (message: string) => void
 }
 
@@ -253,6 +263,7 @@ async function consumeStream(response: Response, handlers: StreamHandlers): Prom
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  let doneSeen = false
 
   while (true) {
     const { done, value } = await reader.read()
@@ -263,26 +274,26 @@ async function consumeStream(response: Response, handlers: StreamHandlers): Prom
     while (boundary >= 0) {
       const raw = buffer.slice(0, boundary)
       buffer = buffer.slice(boundary + 2)
-      dispatchEvent(raw, handlers)
+      doneSeen = dispatchEvent(raw, handlers) || doneSeen
       boundary = buffer.indexOf('\n\n')
     }
   }
-  handlers.onDone()
+  if (!doneSeen) handlers.onDone()
 }
 
-function dispatchEvent(raw: string, handlers: StreamHandlers): void {
+function dispatchEvent(raw: string, handlers: StreamHandlers): boolean {
   let event = 'message'
   const dataLines: string[] = []
   for (const line of raw.split('\n')) {
     if (line.startsWith('event:')) event = line.slice(6).trim()
     else if (line.startsWith('data:')) dataLines.push(line.slice(5).trim())
   }
-  if (!dataLines.length) return
+  if (!dataLines.length) return false
   let payload: Record<string, unknown>
   try {
     payload = JSON.parse(dataLines.join('\n')) as Record<string, unknown>
   } catch {
-    return
+    return false
   }
   switch (event) {
     case 'context':
@@ -300,8 +311,12 @@ function dispatchEvent(raw: string, handlers: StreamHandlers): void {
     case 'tool_end':
       handlers.onToolEnd(String(payload.name ?? 'tool'), String(payload.output ?? ''))
       break
+    case 'done':
+      handlers.onDone(payload as { elapsed_ms?: number; changes?: TurnChanges })
+      return true
     case 'error':
       handlers.onError(String(payload.message ?? '未知错误'))
       break
   }
+  return false
 }

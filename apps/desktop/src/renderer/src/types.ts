@@ -26,12 +26,28 @@ export interface Session {
   updated_at: string
 }
 
+export interface TurnChanges {
+  files: string[]
+  diff: string
+  truncated?: boolean
+}
+
+export interface TurnMeta {
+  elapsed_ms: number
+  changes: TurnChanges
+}
+
 export interface Message {
   id: number
   session_id: string
   role: 'user' | 'assistant'
   content: string
-  meta?: { tool_calls?: { name: string; input: string }[] } | null
+  meta?: {
+    tool_calls?: { name: string; input: string }[]
+    turn?: TurnMeta
+    awaiting_approval?: boolean
+    steering?: boolean
+  } | null
   created_at: string
 }
 
@@ -212,7 +228,8 @@ export interface AppConfig {
 }
 
 export type TimelineItem =
-  | { id: string; type: 'user' | 'assistant'; content: string }
+  | { id: string; type: 'user'; content: string; steering?: boolean }
+  | { id: string; type: 'assistant'; content: string }
   | {
       id: string
       type: 'tool'
@@ -222,3 +239,4 @@ export type TimelineItem =
       status: 'running' | 'done'
     }
   | { id: string; type: 'error'; content: string }
+  | { id: string; type: 'turn_end'; meta: TurnMeta }

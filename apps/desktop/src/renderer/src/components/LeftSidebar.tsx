@@ -1,4 +1,4 @@
-import { BookOpen, Library, MessageSquare, Plus, Settings, Sparkles, Trash2, Wand2 } from 'lucide-react'
+import { Folder, Library, MessageSquare, Plus, Settings, Sparkles, Trash2, Wand2 } from 'lucide-react'
 import { useAppStore } from '../store'
 
 export default function LeftSidebar(): React.JSX.Element {
@@ -7,6 +7,7 @@ export default function LeftSidebar(): React.JSX.Element {
   const sessions = useAppStore((state) => state.sessions)
   const activeSessionId = useAppStore((state) => state.activeSessionId)
   const overview = useAppStore((state) => state.overview)
+  const spaceSummaries = useAppStore((state) => state.spaceSummaries)
   const view = useAppStore((state) => state.view)
   const leftWidth = useAppStore((state) => state.leftWidth)
   const setLeftWidth = useAppStore((state) => state.setLeftWidth)
@@ -46,6 +47,10 @@ export default function LeftSidebar(): React.JSX.Element {
         <button
           className="new-chat-btn"
           onClick={() => {
+            if (!activeProject) {
+              setProjectModalOpen(true)
+              return
+            }
             setView('chat')
             void newSession()
           }}
@@ -83,32 +88,40 @@ export default function LeftSidebar(): React.JSX.Element {
       <div className="left-scroll">
         <section>
           <div className="left-section-title">
-            <span>项目</span>
+            <span>空间</span>
+            <span className="hint">{projects.length}</span>
             <button
               className="icon-btn"
               style={{ width: 20, height: 20 }}
               onClick={() => setProjectModalOpen(true)}
-              title="新建项目"
+              title="新建或打开空间"
             >
               <Plus size={12} />
             </button>
           </div>
-          {projects.map((project) => (
-            <div
-              key={project.id}
-              className={`list-item ${project.id === activeProject?.id ? 'active' : ''}`}
-              onClick={() => void selectProject(project.id)}
-              title={project.path}
-            >
-              <BookOpen size={13} />
-              <span className="label">{project.name}</span>
-            </div>
-          ))}
+          {projects.map((project) => {
+            const summary = spaceSummaries[project.id]
+            return (
+              <div
+                key={project.id}
+                className={`space-item ${project.id === activeProject?.id ? 'active' : ''}`}
+                onClick={() => void selectProject(project.id)}
+                title={project.path}
+              >
+                <Folder size={14} />
+                <div className="space-text">
+                  <span className="label">{project.name}</span>
+                  <span className="space-sub">{summary?.last || '暂无会话'}</span>
+                </div>
+                <span className="space-count">{summary?.count ?? 0}</span>
+              </div>
+            )
+          })}
         </section>
 
         <section>
           <div className="left-section-title">
-            <span>历史会话</span>
+            <span>会话</span>
             <span className="hint">{visibleSessions.length}</span>
           </div>
           {visibleSessions.length === 0 && (

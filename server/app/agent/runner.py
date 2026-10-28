@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any, AsyncIterator
 
@@ -8,10 +9,14 @@ from langchain_core.messages import HumanMessage
 from langgraph.types import Command
 
 from .. import db
+from ..workspace import turn_changes
+from . import steering
 from .approvals import build_requests
 from .factory import build_agent, resolve_expert
 
 MODE_BUILDER = {"expert_builder": "expert", "skill_builder": "skill"}
+
+WRITE_TOOLS = {"kb_write", "manuscript_write"}
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -63,69 +68,126 @@ async def chat_stream(
     active_expert_id = expert_id or session.get("expert_id") or "general"
     expert = resolve_expert(project, active_expert_id)
 
+    steering.begin(session_id)
     try:
-        agent, bundle = build_agent(
-            project,
-            session=session,
-            expert=expert,
-            readonly=readonly,
-            builder=builder,
-            project_id=session["project_id"],
-            references=references,
+        try:
+            agent, bundle = build_agent(
+                project,
+                session=session,
+                expert=expert,
+                readonly=readonly,
+                builder=builder,
+                project_id=session["project_id"],
+                references=references,
+            )
+        except Exception as exc:  # noqa: BLE001
+            yield _sse("error", {"message": f"Agent 初始化失败：{type(exc).__name__}: {exc}"})
+            return
+
+        yield _sse(
+            "context",
+            {
+                "items": [item.to_dict() for item in bundle.items],
+                "fingerprint": bundle.fingerprint,
+                "expert_id": bundle.expert_id,
+                "domain_id": bundle.domain_id,
+                "total_chars": bundle.total_chars,
+            },
         )
-    except Exception as exc:  # noqa: BLE001
-        yield _sse("error", {"message": f"Agent 初始化失败：{type(exc).__name__}: {exc}"})
-        return
 
-    yield _sse(
-        "context",
-        {
-            "items": [item.to_dict() for item in bundle.items],
-            "fingerprint": bundle.fingerprint,
-            "expert_id": bundle.expert_id,
-            "domain_id": bundle.domain_id,
-            "total_chars": bundle.total_chars,
-        },
-    )
+        db.add_message(
+            session_id,
+            "user",
+            user_message,
+            meta={"references": references} if references else None,
+        )
+        if session["title"] == "新会话":
+            db.update_session_title(session_id, user_message.strip()[:24] or "新会话")
 
-    db.add_message(
-        session_id,
-        "user",
-        user_message,
-        meta={"references": references} if references else None,
-    )
-    if session["title"] == "新会话":
-        db.update_session_title(session_id, user_message.strip()[:24] or "新会话")
+        buffer: list[str] = []
+        tool_calls: list[dict[str, Any]] = []
+        write_paths: set[str] = set()
+        config = {"configurable": {"thread_id": session_id}}
+        started = time.monotonic()
 
-    buffer: list[str] = []
-    tool_calls: list[dict[str, Any]] = []
-    config = {"configurable": {"thread_id": session_id}}
+        try:
+            async for chunk in _run_events(
+                agent,
+                {"messages": [HumanMessage(content=user_message)]},
+                config,
+                buffer,
+                tool_calls,
+                write_paths,
+            ):
+                yield chunk
+        except Exception as exc:  # noqa: BLE001
+            yield _sse("error", {"message": f"{type(exc).__name__}: {exc}"})
+            return
 
-    try:
-        async for chunk in _run_events(
-            agent,
-            {"messages": [HumanMessage(content=user_message)]},
-            config,
+        # 引导消息可能晚于最后一次模型调用到达：当轮补一段跟进，避免留到无关的下一轮
+        approval = await _approval_event(agent, config, session_id, project)
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        changes = turn_changes(project, sorted(write_paths))
+        _persist_assistant(
+            session_id,
             buffer,
             tool_calls,
-        ):
-            yield chunk
-    except Exception as exc:  # noqa: BLE001
-        yield _sse("error", {"message": f"{type(exc).__name__}: {exc}"})
-        return
-
-    approval = await _approval_event(agent, config, session_id, project)
-    _persist_assistant(session_id, buffer, tool_calls, awaiting=bool(approval))
-    if approval:
-        yield approval
-    yield _sse(
-        "done",
-        {
-            "chars": len("".join(buffer)),
-            "fingerprint": bundle.fingerprint,
-            "awaiting_approval": bool(approval),
-        },
-    )
+            awaiting=bool(approval),
+            elapsed_ms=elapsed_ms,
+            changes=changes,
+        )
+        if approval:
+            yield approval
+        else:
+            leftover = steering.drain(session_id)
+            if leftover:
+                follow = (
+                    "[执行中排队、但在上一段生成结束前未被消费的引导。请据此补充或修正结论，"
+                    "不要重复已经说过的内容]\n"
+                    + "\n".join(f"- {item}" for item in leftover)
+                )
+                buffer.clear()
+                tool_calls.clear()
+                write_paths.clear()
+                started = time.monotonic()
+                try:
+                    async for chunk in _run_events(
+                        agent,
+                        {"messages": [HumanMessage(content=follow)]},
+                        config,
+                        buffer,
+                        tool_calls,
+                        write_paths,
+                    ):
+                        yield chunk
+                except Exception as exc:  # noqa: BLE001
+                    yield _sse("error", {"message": f"{type(exc).__name__}: {exc}"})
+                approval = await _approval_event(agent, config, session_id, project)
+                elapsed_ms = int((time.monotonic() - started) * 1000)
+                changes = turn_changes(project, sorted(write_paths))
+                _persist_assistant(
+                    session_id,
+                    buffer,
+                    tool_calls,
+                    awaiting=bool(approval),
+                    elapsed_ms=elapsed_ms,
+                    changes=changes,
+                )
+                if approval:
+                    yield approval
+        yield _sse(
+            "done",
+            {
+                "chars": len("".join(buffer)),
+                "fingerprint": bundle.fingerprint,
+                "awaiting_approval": bool(approval),
+                "elapsed_ms": elapsed_ms,
+                "changes": changes,
+                "steering_pending": steering.pending_count(session_id),
+            },
+        )
+    finally:
+        steering.end(session_id)
 
 
 async def approve_stream(
@@ -155,41 +217,68 @@ async def approve_stream(
         return
 
     expert = resolve_expert(project, session.get("expert_id") or "general")
+    steering.begin(session_id)
     try:
-        agent, _ = build_agent(
-            project,
-            session=session,
-            expert=expert,
-            project_id=session["project_id"],
+        try:
+            agent, _ = build_agent(
+                project,
+                session=session,
+                expert=expert,
+                project_id=session["project_id"],
+            )
+        except Exception as exc:  # noqa: BLE001
+            yield _sse("error", {"message": f"Agent 初始化失败：{type(exc).__name__}: {exc}"})
+            return
+
+        status = (
+            "rejected" if any(item["type"] == "reject" for item in normalized) else "approved"
         )
-    except Exception as exc:  # noqa: BLE001
-        yield _sse("error", {"message": f"Agent 初始化失败：{type(exc).__name__}: {exc}"})
-        return
+        db.resolve_approvals(session_id, status)
 
-    status = "rejected" if any(item["type"] == "reject" for item in normalized) else "approved"
-    db.resolve_approvals(session_id, status)
+        buffer: list[str] = []
+        tool_calls: list[dict[str, Any]] = []
+        write_paths: set[str] = set()
+        config = {"configurable": {"thread_id": session_id}}
+        started = time.monotonic()
+        try:
+            async for chunk in _run_events(
+                agent,
+                Command(resume={"decisions": normalized}),
+                config,
+                buffer,
+                tool_calls,
+                write_paths,
+            ):
+                yield chunk
+        except Exception as exc:  # noqa: BLE001
+            yield _sse("error", {"message": f"{type(exc).__name__}: {exc}"})
+            return
 
-    buffer: list[str] = []
-    tool_calls: list[dict[str, Any]] = []
-    config = {"configurable": {"thread_id": session_id}}
-    try:
-        async for chunk in _run_events(
-            agent,
-            Command(resume={"decisions": normalized}),
-            config,
+        approval = await _approval_event(agent, config, session_id, project)
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        changes = turn_changes(project, sorted(write_paths))
+        _persist_assistant(
+            session_id,
             buffer,
             tool_calls,
-        ):
-            yield chunk
-    except Exception as exc:  # noqa: BLE001
-        yield _sse("error", {"message": f"{type(exc).__name__}: {exc}"})
-        return
-
-    approval = await _approval_event(agent, config, session_id, project)
-    _persist_assistant(session_id, buffer, tool_calls, awaiting=bool(approval))
-    if approval:
-        yield approval
-    yield _sse("done", {"chars": len("".join(buffer)), "awaiting_approval": bool(approval)})
+            awaiting=bool(approval),
+            elapsed_ms=elapsed_ms,
+            changes=changes,
+        )
+        if approval:
+            yield approval
+        yield _sse(
+            "done",
+            {
+                "chars": len("".join(buffer)),
+                "awaiting_approval": bool(approval),
+                "elapsed_ms": elapsed_ms,
+                "changes": changes,
+                "steering_pending": steering.pending_count(session_id),
+            },
+        )
+    finally:
+        steering.end(session_id)
 
 
 async def _run_events(
@@ -198,6 +287,7 @@ async def _run_events(
     config: dict[str, Any],
     buffer: list[str],
     tool_calls: list[dict[str, Any]],
+    write_paths: set[str],
 ) -> AsyncIterator[str]:
     async for event in agent.astream_events(graph_input, config, version="v2"):
         kind = event.get("event")
@@ -210,10 +300,12 @@ async def _run_events(
             name = event.get("name", "tool")
             if name in {"write_todos"}:
                 continue
-            payload = {
-                "name": name,
-                "input": _truncate(event.get("data", {}).get("input", {})),
-            }
+            raw_input = event.get("data", {}).get("input", {})
+            if name in WRITE_TOOLS and isinstance(raw_input, dict):
+                path = _write_path(name, raw_input)
+                if path:
+                    write_paths.add(path)
+            payload = {"name": name, "input": _truncate(raw_input)}
             tool_calls.append({"name": name, "input": payload["input"]})
             yield _sse("tool_start", payload)
         elif kind == "on_tool_end":
@@ -274,6 +366,8 @@ def _persist_assistant(
     tool_calls: list[dict[str, Any]],
     *,
     awaiting: bool,
+    elapsed_ms: int = 0,
+    changes: dict[str, Any] | None = None,
 ) -> None:
     text = "".join(buffer)
     if not text.strip():
@@ -283,7 +377,24 @@ def _persist_assistant(
         meta["tool_calls"] = tool_calls
     if awaiting:
         meta["awaiting_approval"] = True
-    db.add_message(session_id, "assistant", text, meta=meta or None)
+    meta["turn"] = {
+        "elapsed_ms": elapsed_ms,
+        "changes": changes or {"files": [], "diff": "", "truncated": False},
+    }
+    db.add_message(session_id, "assistant", text, meta=meta)
+
+
+def _write_path(name: str, args: dict[str, Any]) -> str | None:
+    if name == "manuscript_write":
+        relative = str(args.get("path") or "").strip().lstrip("/\\")
+        return f"manuscript/{relative}" if relative else None
+    if name == "kb_write":
+        kind = str(args.get("kind") or "").strip()
+        entity_id = str(args.get("entity_id") or "").strip()
+        if not kind or not entity_id:
+            return None
+        return f"kb/{kind}/{entity_id}.md"
+    return None
 
 
 def _truncate(value: Any, limit: int = 3000) -> str:

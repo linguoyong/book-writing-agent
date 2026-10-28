@@ -16,7 +16,8 @@ import type {
   SearchHit,
   Session,
   TimelineItem,
-  TreeNode
+  TreeNode,
+  TurnChanges
 } from './types'
 
 export interface OpenFile {
@@ -35,6 +36,7 @@ interface AppState {
   projects: Project[]
   activeProject: Project | null
   overview: Overview | null
+  spaceSummaries: Record<string, { count: number; last: string }>
 
   sessions: Session[]
   activeSessionId: string | null
@@ -54,6 +56,9 @@ interface AppState {
   memory: MemoryState | null
   approval: ApprovalBundle | null
   references: ReferenceItem[]
+  streamStartedAt: number | null
+  turnDiff: TurnChanges | null
+  diffMode: 'all' | 'turn'
 
   leftCollapsed: boolean
   rightCollapsed: boolean
@@ -71,7 +76,9 @@ interface AppState {
   pendingComposer: string | null
 
   bootstrap: () => Promise<void>
-  createProject: (name: string, title: string, author?: string) => Promise<void>
+  createProject: (name: string, title: string, author?: string, path?: string) => Promise<void>
+  openProject: (path: string) => Promise<void>
+  refreshSpaceSummaries: () => Promise<void>
   selectProject: (projectId: string) => Promise<void>
   refreshOverview: () => Promise<void>
 
@@ -81,6 +88,7 @@ interface AppState {
   removeSession: (sessionId: string) => Promise<void>
 
   sendMessage: (text: string) => Promise<void>
+  steerMessage: (text: string) => Promise<void>
   stopStreaming: () => void
 
   refreshTree: () => Promise<void>
@@ -99,6 +107,8 @@ interface AppState {
   reindexKb: () => Promise<void>
 
   refreshDiff: () => Promise<void>
+  showTurnDiff: (changes: TurnChanges) => void
+  setDiffMode: (mode: 'all' | 'turn') => void
   refreshContext: () => Promise<void>
   refreshMemory: () => Promise<void>
   distillMemory: () => Promise<{ ok: boolean; added: number; message?: string }>
@@ -189,8 +199,21 @@ export const useAppStore = create<AppState>((set, get) => {
           timeline: [...state.timeline, { id: uid(), type: 'error', content: message }]
         }))
       },
-      onDone: () => {
-        set({ streaming: false })
+      onDone: (payload) => {
+        const turn =
+          payload && (payload.elapsed_ms !== undefined || payload.changes)
+            ? {
+                elapsed_ms: payload.elapsed_ms ?? 0,
+                changes: payload.changes ?? { files: [], diff: '' }
+              }
+            : null
+        set((state) => ({
+          streaming: false,
+          streamStartedAt: null,
+          timeline: turn
+            ? [...state.timeline, { id: uid(), type: 'turn_end', meta: turn } as TimelineItem]
+            : state.timeline
+        }))
         void get().refreshSessions()
         void get().refreshOverview()
         void get().refreshDiff()
@@ -205,6 +228,7 @@ export const useAppStore = create<AppState>((set, get) => {
   projects: [],
   activeProject: null,
   overview: null,
+  spaceSummaries: {},
   sessions: [],
   activeSessionId: null,
   timeline: [],
@@ -221,6 +245,9 @@ export const useAppStore = create<AppState>((set, get) => {
   memory: null,
   approval: null,
   references: [],
+  streamStartedAt: null,
+  turnDiff: null,
+  diffMode: 'all',
   leftCollapsed: false,
   rightCollapsed: false,
   leftWidth: 268,
@@ -242,6 +269,7 @@ export const useAppStore = create<AppState>((set, get) => {
         const [projects, config] = await Promise.all([api.listProjects(), api.getConfig()])
         set({ projects, config, ready: true, error: null })
         if (projects.length > 0) await get().selectProject(projects[0].id)
+        void get().refreshSpaceSummaries()
         return
       } catch {
         if (attempt === 5) {
@@ -253,15 +281,47 @@ export const useAppStore = create<AppState>((set, get) => {
     }
   },
 
-  createProject: async (name, title, author) => {
+  createProject: async (name, title, author, path) => {
     try {
-      const project = await api.createProject({ name, title, author })
+      const project = await api.createProject({ name, title, author, path })
       const projects = await api.listProjects()
       set({ projects, projectModalOpen: false })
       await get().selectProject(project.id)
+      await get().refreshSpaceSummaries()
     } catch (error) {
       set({ error: (error as Error).message })
     }
+  },
+
+  openProject: async (path) => {
+    try {
+      const project = await api.openProject(path)
+      const projects = await api.listProjects()
+      set({ projects, projectModalOpen: false })
+      await get().selectProject(project.id)
+      await get().refreshSpaceSummaries()
+    } catch (error) {
+      set({ error: (error as Error).message })
+    }
+  },
+
+  refreshSpaceSummaries: async () => {
+    const projects = get().projects
+    const entries = await Promise.all(
+      projects.map(async (project) => {
+        try {
+          const sessions = await api.listSessions(project.id)
+          const visible = sessions.filter((session) => session.kind !== 'side')
+          return [
+            project.id,
+            { count: visible.length, last: visible[0]?.title ?? '' }
+          ] as const
+        } catch {
+          return [project.id, { count: 0, last: '' }] as const
+        }
+      })
+    )
+    set({ spaceSummaries: Object.fromEntries(entries) })
   },
 
   selectProject: async (projectId) => {
@@ -321,7 +381,14 @@ export const useAppStore = create<AppState>((set, get) => {
     if (!project) return
     try {
       const sessions = await api.listSessions(project.id)
-      set({ sessions })
+      const visible = sessions.filter((session) => session.kind !== 'side')
+      set({
+        sessions,
+        spaceSummaries: {
+          ...get().spaceSummaries,
+          [project.id]: { count: visible.length, last: visible[0]?.title ?? '' }
+        }
+      })
     } catch (error) {
       set({ error: (error as Error).message })
     }
@@ -360,15 +427,37 @@ export const useAppStore = create<AppState>((set, get) => {
     })
     try {
       const messages = await api.messages(sessionId)
-      set({
-        timeline: messages
-          .filter((message) => message.content.trim().length > 0)
-          .map((message) => ({
-            id: `m${message.id}`,
-            type: message.role,
-            content: message.content
-          }))
-      })
+      const items: TimelineItem[] = []
+      for (const message of messages) {
+        const meta = message.meta
+        if (meta?.tool_calls?.length) {
+          meta.tool_calls.forEach((call, index) => {
+            items.push({
+              id: `m${message.id}-t${index}`,
+              type: 'tool',
+              name: call.name,
+              input: call.input,
+              status: 'done'
+            })
+          })
+        }
+        if (message.content.trim()) {
+          items.push(
+            message.role === 'user'
+              ? {
+                  id: `m${message.id}`,
+                  type: 'user',
+                  content: message.content,
+                  steering: Boolean(meta?.steering)
+                }
+              : { id: `m${message.id}`, type: 'assistant', content: message.content }
+          )
+        }
+        if (message.role === 'assistant' && meta?.turn) {
+          items.push({ id: `t${message.id}`, type: 'turn_end', meta: meta.turn })
+        }
+      }
+      set({ timeline: items })
     } catch (error) {
       set({ error: (error as Error).message })
     }
@@ -403,6 +492,7 @@ export const useAppStore = create<AppState>((set, get) => {
     set((state) => ({
       timeline: [...state.timeline, { id: uid(), type: 'user', content: message }],
       streaming: true,
+      streamStartedAt: Date.now(),
       error: null,
       approval: null
     }))
@@ -414,6 +504,23 @@ export const useAppStore = create<AppState>((set, get) => {
     const references = get().references
     if (references.length) set({ references: [] })
     await streamChat(sessionId, message, mode, references, makeHandlers())
+  },
+
+  steerMessage: async (text) => {
+    const message = text.trim()
+    const sessionId = get().activeSessionId
+    if (!message || !sessionId) return
+    try {
+      await api.steer(sessionId, message)
+      set((state) => ({
+        timeline: [
+          ...state.timeline,
+          { id: uid(), type: 'user', content: message, steering: true }
+        ]
+      }))
+    } catch (error) {
+      set({ error: (error as Error).message })
+    }
   },
 
   stopStreaming: () => set({ streaming: false }),
@@ -594,6 +701,17 @@ export const useAppStore = create<AppState>((set, get) => {
       /* 上下文面板失败不打扰对话 */
     }
   },
+
+  showTurnDiff: (changes) => {
+    set({
+      turnDiff: changes,
+      diffMode: 'turn',
+      rightTab: 'diff',
+      rightCollapsed: false
+    })
+  },
+
+  setDiffMode: (mode) => set({ diffMode: mode }),
 
   refreshMemory: async () => {
     const project = get().activeProject
