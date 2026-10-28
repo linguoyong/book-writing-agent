@@ -77,6 +77,7 @@ interface AppState {
   saveKbActive: () => Promise<void>
   deleteKbActive: () => Promise<void>
   searchKb: (query: string) => Promise<void>
+  reindexKb: () => Promise<void>
 
   refreshDiff: () => Promise<void>
   saveConfig: (config: AppConfig) => Promise<void>
@@ -183,7 +184,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       const file = firstManuscript(tree)
       if (file) await get().openFileByPath(file)
       await get().loadKb(get().kbKind)
-      if (sessions.length > 0) await get().selectSession(sessions[0].id)
+      const mainSessions = sessions.filter((session) => session.kind === 'main')
+      if (mainSessions.length > 0) await get().selectSession(mainSessions[0].id)
     } catch (error) {
       set({ error: (error as Error).message })
     }
@@ -402,6 +404,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       await get().loadKb(kind)
       set({ kbActive: entity })
       await get().refreshTree()
+      await get().reindexKb()
     } catch (error) {
       set({ error: (error as Error).message })
     }
@@ -428,6 +431,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ kbActive: saved })
       await get().refreshTree()
       await get().refreshDiff()
+      await get().reindexKb()
     } catch (error) {
       set({ error: (error as Error).message })
     }
@@ -442,6 +446,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ kbActive: null })
       await get().loadKb(active.kind)
       await get().refreshDiff()
+      await get().reindexKb()
+    } catch (error) {
+      set({ error: (error as Error).message })
+    }
+  },
+
+  reindexKb: async () => {
+    const project = get().activeProject
+    if (!project) return
+    try {
+      await api.reindex(project.id)
+      await get().refreshOverview()
     } catch (error) {
       set({ error: (error as Error).message })
     }

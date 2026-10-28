@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, RefreshCw, Search, Trash2, X } from 'lucide-react'
+import { Database, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react'
 import { KB_LABELS, useAppStore } from '../store'
 import type { KbKind, SearchHit } from '../types'
 
@@ -26,6 +26,7 @@ export default function KnowledgePanel(): React.JSX.Element {
   const saveKbActive = useAppStore((state) => state.saveKbActive)
   const deleteKbActive = useAppStore((state) => state.deleteKbActive)
   const searchKb = useAppStore((state) => state.searchKb)
+  const reindexKb = useAppStore((state) => state.reindexKb)
   const openFileByPath = useAppStore((state) => state.openFileByPath)
 
   const [query, setQuery] = useState('')
@@ -85,6 +86,9 @@ export default function KnowledgePanel(): React.JSX.Element {
         />
         <button className="small-btn" onClick={runSearch} title="检索">
           <Search size={12} />
+        </button>
+        <button className="small-btn" onClick={() => void reindexKb()} title="重建索引">
+          <Database size={12} />
         </button>
         <button
           className="small-btn primary"

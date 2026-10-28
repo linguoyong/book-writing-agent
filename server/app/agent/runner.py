@@ -59,12 +59,13 @@ async def chat_stream(
         yield _sse("error", {"message": f"项目目录不存在：{project}"})
         return
 
+    history = _build_history(session_id, user_message)
+
     db.add_message(session_id, "user", user_message)
     if session["title"] == "新会话":
         db.update_session_title(session_id, user_message.strip()[:24] or "新会话")
 
     agent = build_agent(project, style, readonly=(mode == "side"))
-    history = _build_history(session_id, user_message)
 
     buffer: list[str] = []
     tool_calls: list[dict[str, Any]] = []
