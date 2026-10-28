@@ -6,6 +6,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .agent.checkpointer import close_checkpointer, init_checkpointer
 from .api.routes import router
 from .config import load_settings
 from .db import init_db
@@ -15,7 +16,11 @@ from .db import init_db
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     init_db()
     load_settings()
-    yield
+    await init_checkpointer()
+    try:
+        yield
+    finally:
+        await close_checkpointer()
 
 
 app = FastAPI(title="Book Writing Agent", version="0.1.0", lifespan=lifespan)

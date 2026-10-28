@@ -7,9 +7,13 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from .. import db
+from .. import db, memory
+from ..agent.checkpointer import drop_thread
+from ..agent.factory import resolve_expert
 from ..agent.runner import chat_stream
 from ..config import load_settings, save_settings
+from ..context import assemble
+from ..domains import list_domains
 from ..experts import delete_expert, get_expert, list_experts, save_expert
 from ..kb.repository import (
     KINDS,
@@ -131,6 +135,14 @@ def project_overview(project_id: str) -> dict[str, Any]:
 class CreateSessionRequest(BaseModel):
     title: str = "新会话"
     kind: str = "main"
+    expert_id: str | None = None
+    domain: str | None = "book"
+
+
+class SessionPatch(BaseModel):
+    title: str | None = None
+    expert_id: str | None = None
+    domain: str | None = None
 
 
 @router.get("/projects/{project_id}/sessions")
@@ -142,7 +154,33 @@ def get_sessions(project_id: str) -> list[dict[str, Any]]:
 @router.post("/projects/{project_id}/sessions")
 def post_session(project_id: str, req: CreateSessionRequest) -> dict[str, Any]:
     _require_project(project_id)
-    return db.create_session(project_id, req.title, req.kind)
+    return db.create_session(
+        project_id, req.title, req.kind, req.expert_id, req.domain
+    )
+
+
+@router.patch("/sessions/{session_id}")
+def patch_session(session_id: str, req: SessionPatch) -> dict[str, Any]:
+    if not db.get_session(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
+    updated = db.update_session(session_id, **req.model_dump(exclude_none=True))
+    assert updated is not None
+    return updated
+
+
+@router.get("/sessions/{session_id}/context")
+def session_context(session_id: str) -> dict[str, Any]:
+    """查看当前会话实际会注入的上下文（分层 + 预算 + 预览）。"""
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    project = _require_project(session["project_id"])
+    path = Path(project["path"])
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="项目目录不存在")
+    expert = resolve_expert(path, session.get("expert_id"))
+    bundle = assemble(path, session=session, expert=expert)
+    return bundle.to_dict()
 
 
 @router.get("/sessions/{session_id}/messages")
@@ -153,8 +191,9 @@ def get_messages(session_id: str) -> list[dict[str, Any]]:
 
 
 @router.delete("/sessions/{session_id}")
-def remove_session(session_id: str) -> dict[str, bool]:
+async def remove_session(session_id: str) -> dict[str, bool]:
     db.delete_session(session_id)
+    await drop_thread(session_id)
     return {"ok": True}
 
 
@@ -164,8 +203,8 @@ def remove_session(session_id: str) -> dict[str, bool]:
 class ChatRequest(BaseModel):
     session_id: str
     message: str
-    style: str = ""
     mode: str = "main"
+    expert_id: str | None = None
 
 
 @router.post("/chat")
@@ -173,10 +212,55 @@ async def post_chat(req: ChatRequest) -> StreamingResponse:
     if not req.message.strip():
         raise HTTPException(status_code=400, detail="消息不能为空")
     return StreamingResponse(
-        chat_stream(req.session_id, req.message, req.style, req.mode),
+        chat_stream(req.session_id, req.message, req.mode, req.expert_id),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+# ---------------------------------------------------------------- 内核：域包与记忆
+
+
+@router.get("/domains")
+def get_domains() -> list[dict[str, str]]:
+    return list_domains()
+
+
+class MemoryWrite(BaseModel):
+    content: str
+    project_id: str | None = None
+
+
+@router.get("/memory")
+def get_memory(project_id: str | None = None) -> dict[str, Any]:
+    project = Path(_require_project(project_id)["path"]) if project_id else None
+    memory.ensure_files(project)
+    scopes = {
+        scope: memory.read(scope, project) for scope in ("user", "long", "project")
+    }
+    return {"status": memory.status(project), "scopes": scopes}
+
+
+@router.put("/memory/{scope}")
+def put_memory(scope: str, req: MemoryWrite) -> dict[str, Any]:
+    if scope not in {"user", "long", "project"}:
+        raise HTTPException(status_code=400, detail=f"未知记忆范围：{scope}")
+    project = Path(_require_project(req.project_id)["path"]) if req.project_id else None
+    if scope == "project" and project is None:
+        raise HTTPException(status_code=400, detail="项目记忆需要 project_id")
+    return memory.write(scope, req.content, project)
+
+
+@router.post("/sessions/{session_id}/distill")
+def distill(session_id: str) -> dict[str, Any]:
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    project = Path(_require_project(session["project_id"])["path"])
+    try:
+        return memory.distill_session(session_id, project)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"沉淀失败：{exc}") from exc
 
 
 # ---------------------------------------------------------------- 知识库

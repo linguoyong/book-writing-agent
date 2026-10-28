@@ -10,6 +10,9 @@ APP_HOME = Path(os.environ.get("BOOK_AGENT_HOME", Path.home() / ".book-agent"))
 CONFIG_FILE = APP_HOME / "config.json"
 DB_FILE = APP_HOME / "app.db"
 BOOKS_DIR = APP_HOME / "books"
+MEMORY_DIR = APP_HOME / "memory"
+GLOBAL_SKILLS_DIR = APP_HOME / "skills"
+DAILY_LOG_DIR = MEMORY_DIR
 
 
 class ModelSettings(BaseModel):

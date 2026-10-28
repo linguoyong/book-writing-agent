@@ -3,9 +3,11 @@ import { api, streamChat } from './api'
 import type {
   AppConfig,
   AppView,
+  ContextBundle,
   Entity,
   Expert,
   KbKind,
+  MemoryState,
   Overview,
   Project,
   SearchHit,
@@ -20,7 +22,7 @@ export interface OpenFile {
   dirty: boolean
 }
 
-type RightTab = 'kb' | 'files' | 'diff' | 'side' | 'doc'
+type RightTab = 'kb' | 'files' | 'diff' | 'side' | 'doc' | 'context'
 
 interface AppState {
   ready: boolean
@@ -45,6 +47,8 @@ interface AppState {
   kbActive: Entity | null
   kbSearch: SearchHit[]
   diff: string
+  context: ContextBundle | null
+  memory: MemoryState | null
 
   leftCollapsed: boolean
   rightCollapsed: boolean
@@ -90,6 +94,9 @@ interface AppState {
   reindexKb: () => Promise<void>
 
   refreshDiff: () => Promise<void>
+  refreshContext: () => Promise<void>
+  refreshMemory: () => Promise<void>
+  distillMemory: () => Promise<{ ok: boolean; added: number; message?: string }>
   saveConfig: (config: AppConfig) => Promise<void>
 
   clearError: () => void
@@ -143,6 +150,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   kbActive: null,
   kbSearch: [],
   diff: '',
+  context: null,
+  memory: null,
   leftCollapsed: false,
   rightCollapsed: false,
   leftWidth: 268,
@@ -219,6 +228,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       if (file) await get().openFileByPath(file)
       await get().loadKb(get().kbKind)
       await get().loadExperts()
+      void get().refreshMemory()
       const mainSessions = sessions.filter((session) => session.kind === 'main')
       if (mainSessions.length > 0) await get().selectSession(mainSessions[0].id)
     } catch (error) {
@@ -252,13 +262,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     const project = get().activeProject
     if (!project) return null
     try {
-      const session = await api.createSession(project.id)
+      const session = await api.createSession(project.id, {
+        expertId: get().currentExpertId,
+        domain: 'book'
+      })
       set({
         sessions: [session, ...get().sessions],
         activeSessionId: session.id,
         timeline: [],
+        context: null,
         builder: null
       })
+      void get().refreshContext()
       return session
     } catch (error) {
       set({ error: (error as Error).message })
@@ -267,7 +282,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   selectSession: async (sessionId) => {
-    set({ activeSessionId: sessionId, timeline: [], error: null })
+    const session = get().sessions.find((item) => item.id === sessionId)
+    set({
+      activeSessionId: sessionId,
+      timeline: [],
+      error: null,
+      currentExpertId: session?.expert_id ?? get().currentExpertId
+    })
     try {
       const messages = await api.messages(sessionId)
       set({
@@ -282,6 +303,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (error) {
       set({ error: (error as Error).message })
     }
+    void get().refreshContext()
   },
 
   removeSession: async (sessionId) => {
@@ -320,7 +342,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     const mode =
       builder === 'expert' ? 'expert_builder' : builder === 'skill' ? 'skill_builder' : 'main'
 
-    await streamChat(sessionId, message, builder ? '' : get().writingStyle, mode, {
+    await streamChat(sessionId, message, mode, {
+      onContext: (bundle) => set({ context: bundle }),
       onToken: (token) => {
         set((state) => {
           const items = [...state.timeline]
@@ -421,6 +444,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ rightTab: tab })
     if (tab === 'diff') void get().refreshDiff()
     if (tab === 'files') void get().refreshTree()
+    if (tab === 'context') {
+      void get().refreshContext()
+      void get().refreshMemory()
+    }
   },
 
   loadKb: async (kind) => {
@@ -532,6 +559,43 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
+  refreshContext: async () => {
+    const sessionId = get().activeSessionId
+    if (!sessionId) {
+      set({ context: null })
+      return
+    }
+    try {
+      set({ context: await api.context(sessionId) })
+    } catch {
+      /* 上下文面板失败不打扰对话 */
+    }
+  },
+
+  refreshMemory: async () => {
+    const project = get().activeProject
+    try {
+      set({ memory: await api.memory(project?.id) })
+    } catch {
+      /* 忽略记忆读取失败 */
+    }
+  },
+
+  distillMemory: async () => {
+    const sessionId = get().activeSessionId
+    if (!sessionId) return { ok: false, added: 0, message: '当前没有会话' }
+    try {
+      const result = await api.distill(sessionId)
+      if (result.ok) {
+        await get().refreshMemory()
+        await get().refreshContext()
+      }
+      return result
+    } catch (error) {
+      return { ok: false, added: 0, message: (error as Error).message }
+    }
+  },
+
   saveConfig: async (config) => {
     try {
       const saved = await api.saveConfig(config)
@@ -581,6 +645,19 @@ export const useAppStore = create<AppState>((set, get) => ({
   setExpert: (expertId) => {
     const expert = get().experts.find((item) => item.id === expertId)
     set({ currentExpertId: expertId, writingStyle: expert?.prompt ?? '' })
+    const sessionId = get().activeSessionId
+    if (!sessionId) return
+    void api
+      .updateSession(sessionId, { expert_id: expertId })
+      .then((updated) => {
+        set({
+          sessions: get().sessions.map((item) =>
+            item.id === sessionId ? { ...item, expert_id: updated.expert_id } : item
+          )
+        })
+        void get().refreshContext()
+      })
+      .catch((error: Error) => set({ error: error.message }))
   },
   setWritingStyle: (style) => set({ writingStyle: style }),
   setPendingComposer: (text) => set({ pendingComposer: text })

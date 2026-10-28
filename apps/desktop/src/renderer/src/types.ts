@@ -20,6 +20,8 @@ export interface Session {
   project_id: string
   title: string
   kind: string
+  expert_id?: string | null
+  domain?: string | null
   created_at: string
   updated_at: string
 }
@@ -96,8 +98,43 @@ export interface Expert {
   avatar: string
   prompt: string
   skills: string[]
+  max_turns?: number
   body: string
   file: string
+}
+
+export interface ContextItem {
+  layer: string
+  title: string
+  source: string
+  chars: number
+  limit: number
+  truncated: boolean
+  preview: string
+  included: boolean
+}
+
+export interface ContextBundle {
+  system_prompt: string
+  items: ContextItem[]
+  expert_id: string
+  domain_id: string
+  fingerprint: string
+  total_chars: number
+}
+
+export interface MemoryFile {
+  scope: string
+  title: string
+  path: string
+  chars: number
+  updated: number
+  files?: string[]
+}
+
+export interface MemoryState {
+  status: MemoryFile[]
+  scopes: Record<string, string>
 }
 
 export interface KnowledgeBaseSummary {

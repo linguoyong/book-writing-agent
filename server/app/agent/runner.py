@@ -4,12 +4,12 @@ import json
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import HumanMessage
 
 from .. import db
-from .factory import build_agent
+from .factory import build_agent, resolve_expert
 
-MAX_HISTORY = 40
+MODE_BUILDER = {"expert_builder": "expert", "skill_builder": "skill"}
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -31,19 +31,11 @@ def _as_text(content: Any) -> str:
     return ""
 
 
-def _build_history(session_id: str, user_message: str) -> list[Any]:
-    history: list[Any] = []
-    for item in db.list_messages(session_id, limit=MAX_HISTORY):
-        if item["role"] == "user":
-            history.append(HumanMessage(content=item["content"]))
-        elif item["role"] == "assistant" and item["content"].strip():
-            history.append(AIMessage(content=item["content"]))
-    history.append(HumanMessage(content=user_message))
-    return history
-
-
 async def chat_stream(
-    session_id: str, user_message: str, style: str = "", mode: str = "main"
+    session_id: str,
+    user_message: str,
+    mode: str = "main",
+    expert_id: str | None = None,
 ) -> AsyncIterator[str]:
     session = db.get_session(session_id)
     if not session:
@@ -59,24 +51,50 @@ async def chat_stream(
         yield _sse("error", {"message": f"项目目录不存在：{project}"})
         return
 
-    history = _build_history(session_id, user_message)
+    readonly = mode == "side" or session.get("kind") == "side"
+    builder = MODE_BUILDER.get(mode, "")
+    active_expert_id = expert_id or session.get("expert_id") or "general"
+    expert = resolve_expert(project, active_expert_id)
+
+    try:
+        agent, bundle = build_agent(
+            project,
+            session=session,
+            expert=expert,
+            readonly=readonly,
+            builder=builder,
+            project_id=session["project_id"],
+        )
+    except Exception as exc:  # noqa: BLE001
+        yield _sse("error", {"message": f"Agent 初始化失败：{type(exc).__name__}: {exc}"})
+        return
+
+    # 先把「这一轮注入了什么」推给前端，让上下文可解释
+    yield _sse(
+        "context",
+        {
+            "items": [item.to_dict() for item in bundle.items],
+            "fingerprint": bundle.fingerprint,
+            "expert_id": bundle.expert_id,
+            "domain_id": bundle.domain_id,
+            "total_chars": bundle.total_chars,
+        },
+    )
 
     db.add_message(session_id, "user", user_message)
     if session["title"] == "新会话":
         db.update_session_title(session_id, user_message.strip()[:24] or "新会话")
 
-    builder = ""
-    if mode == "expert_builder":
-        builder = "expert"
-    elif mode == "skill_builder":
-        builder = "skill"
-    agent = build_agent(project, style, readonly=(mode == "side"), builder=builder)
-
     buffer: list[str] = []
     tool_calls: list[dict[str, Any]] = []
+    config = {"configurable": {"thread_id": session_id}}
 
     try:
-        async for event in agent.astream_events({"messages": history}, version="v2"):
+        async for event in agent.astream_events(
+            {"messages": [HumanMessage(content=user_message)]},
+            config,
+            version="v2",
+        ):
             kind = event.get("event")
             if kind == "on_chat_model_stream":
                 text = _as_text(event.get("data", {}).get("chunk", {}).content)
@@ -112,7 +130,7 @@ async def chat_stream(
             final_text,
             meta={"tool_calls": tool_calls} if tool_calls else None,
         )
-    yield _sse("done", {"chars": len(final_text)})
+    yield _sse("done", {"chars": len(final_text), "fingerprint": bundle.fingerprint})
 
 
 def _truncate(value: Any, limit: int = 3000) -> str:

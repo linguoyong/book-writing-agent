@@ -34,7 +34,7 @@ export default function SidePanel(): React.JSX.Element {
     let sid = sessionId
     if (!sid) {
       try {
-        const session = await api.createSession(project.id, '侧问', 'side')
+        const session = await api.createSession(project.id, { title: '侧问', kind: 'side' })
         sid = session.id
         setSessionId(sid)
       } catch (error) {
@@ -53,7 +53,7 @@ export default function SidePanel(): React.JSX.Element {
 
     let assistantId: string | null = null
 
-    await streamChat(sid, text, '', 'side', {
+    await streamChat(sid, text, 'side', {
       onToken: (token) => {
         setItems((prev) => {
           const next = [...prev]

@@ -163,6 +163,65 @@ class KbIndex:
                         source=str(file.relative_to(self.project)),
                     )
 
+    # ------------------------------------------------------------ 增量索引
+
+    def reindex_entity(self, kind: str, entity_id: str) -> int:
+        """只重建一个实体的切片，避免每次写入触发全库重扫。"""
+        from .repository import entity_file, safe_entity_id
+
+        if kind not in KINDS:
+            return 0
+        try:
+            file = entity_file(self.project, kind, entity_id)
+        except ValueError:
+            return 0
+        chunk_id = f"{kind}:{safe_entity_id(entity_id)}"
+        with self.connect() as conn:
+            conn.execute("DELETE FROM chunks WHERE id = ?", (chunk_id,))
+            conn.execute("DELETE FROM chunks_fts WHERE chunk_id = ?", (chunk_id,))
+            conn.execute("DELETE FROM vectors WHERE chunk_id = ?", (chunk_id,))
+            if not file.exists():
+                conn.commit()
+                return 0
+            meta, body = parse_note(file.read_text(encoding="utf-8"))
+            title = meta.get("name") or meta.get("title") or file.stem
+            text = f"{title}\n{body}".strip()
+            if not text:
+                conn.commit()
+                return 0
+            chunk = Chunk(
+                id=chunk_id,
+                kind=kind,
+                ref=str(meta.get("id") or file.stem),
+                title=str(title),
+                text=text,
+                chapter=int(meta.get("first_chapter") or 0),
+                entities=[str(entity_id)],
+                source=str(file.relative_to(self.project)),
+            )
+            conn.execute(
+                "INSERT INTO chunks (id, kind, ref, title, text, chapter, entities, source) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    chunk.id,
+                    chunk.kind,
+                    chunk.ref,
+                    chunk.title,
+                    chunk.text,
+                    chunk.chapter,
+                    json.dumps(chunk.entities, ensure_ascii=False),
+                    chunk.source,
+                ),
+            )
+            conn.execute(
+                "INSERT INTO chunks_fts (chunk_id, content) VALUES (?, ?)",
+                (chunk.id, " ".join(tokenize(f"{chunk.title} {chunk.text}"))),
+            )
+            conn.commit()
+        if self.embedding.provider != "none":
+            self._embed_chunks([chunk])
+        return 1
+
     # ------------------------------------------------------------ 向量
 
     def _embed_chunks(self, chunks: list[Chunk]) -> int:

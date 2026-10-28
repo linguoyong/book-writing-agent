@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     project_id TEXT NOT NULL,
     title TEXT NOT NULL,
     kind TEXT NOT NULL DEFAULT 'main',
+    expert_id TEXT,
+    domain TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -36,9 +38,23 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL
 );
 
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+    message_id UNINDEXED,
+    content,
+    tokenize='unicode61'
+);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
 """
+
+# 旧库升级：sessions 增加 expert_id / domain
+_MIGRATIONS = {
+    "sessions": {
+        "expert_id": "ALTER TABLE sessions ADD COLUMN expert_id TEXT",
+        "domain": "ALTER TABLE sessions ADD COLUMN domain TEXT",
+    }
+}
 
 
 def now_iso() -> str:
@@ -49,6 +65,32 @@ def init_db() -> None:
     DB_FILE.parent.mkdir(parents=True, exist_ok=True)
     with get_conn() as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
+        _backfill_fts(conn)
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    for table, columns in _MIGRATIONS.items():
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for column, statement in columns.items():
+            if column not in existing:
+                conn.execute(statement)
+
+
+def _backfill_fts(conn: sqlite3.Connection) -> None:
+    """旧库没有消息索引时补一次，保证「回忆」可用。"""
+    from .text import tokenize
+
+    indexed = conn.execute("SELECT COUNT(*) AS n FROM messages_fts").fetchone()["n"]
+    total = conn.execute("SELECT COUNT(*) AS n FROM messages").fetchone()["n"]
+    if indexed or not total:
+        return
+    rows = conn.execute("SELECT id, content FROM messages ORDER BY id").fetchall()
+    for row in rows:
+        conn.execute(
+            "INSERT INTO messages_fts (message_id, content) VALUES (?, ?)",
+            (row["id"], " ".join(tokenize(row["content"]))),
+        )
 
 
 @contextmanager
@@ -107,18 +149,38 @@ def touch_project(project_id: str) -> None:
 # ---------------------------------------------------------------- sessions
 
 
-def create_session(project_id: str, title: str = "新会话", kind: str = "main") -> dict[str, Any]:
+def create_session(
+    project_id: str,
+    title: str = "新会话",
+    kind: str = "main",
+    expert_id: str | None = None,
+    domain: str | None = None,
+) -> dict[str, Any]:
     session_id = new_id("ses")
     ts = now_iso()
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO sessions (id, project_id, title, kind, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (session_id, project_id, title, kind, ts, ts),
+            "INSERT INTO sessions (id, project_id, title, kind, expert_id, domain, "
+            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (session_id, project_id, title, kind, expert_id, domain, ts, ts),
         )
     result = get_session(session_id)
     assert result is not None
     return result
+
+
+def update_session(session_id: str, **fields: Any) -> dict[str, Any] | None:
+    allowed = {"title", "expert_id", "domain", "kind"}
+    updates = {k: v for k, v in fields.items() if k in allowed}
+    if not updates:
+        return get_session(session_id)
+    assignments = ", ".join(f"{key} = ?" for key in updates)
+    with get_conn() as conn:
+        conn.execute(
+            f"UPDATE sessions SET {assignments}, updated_at = ? WHERE id = ?",
+            (*updates.values(), now_iso(), session_id),
+        )
+    return get_session(session_id)
 
 
 def list_sessions(project_id: str) -> list[dict[str, Any]]:
@@ -146,6 +208,11 @@ def update_session_title(session_id: str, title: str) -> None:
 
 def delete_session(session_id: str) -> None:
     with get_conn() as conn:
+        conn.execute(
+            "DELETE FROM messages_fts WHERE message_id IN "
+            "(SELECT id FROM messages WHERE session_id = ?)",
+            (session_id,),
+        )
         conn.execute("DELETE FROM messages WHERE session_id = ?", (session_id,))
         conn.execute("DELETE FROM sessions WHERE id = ?", (session_id,))
 
@@ -173,6 +240,12 @@ def add_message(
             ),
         )
         message_id = cursor.lastrowid
+        from .text import tokenize
+
+        conn.execute(
+            "INSERT INTO messages_fts (message_id, content) VALUES (?, ?)",
+            (message_id, " ".join(tokenize(content))),
+        )
         conn.execute(
             "UPDATE sessions SET updated_at = ? WHERE id = ?", (ts, session_id)
         )
@@ -186,15 +259,54 @@ def add_message(
     }
 
 
-def list_messages(session_id: str, limit: int = 200) -> list[dict[str, Any]]:
+def list_messages(session_id: str, limit: int = 200, tail: bool = True) -> list[dict[str, Any]]:
+    """按时间正序返回消息。tail=True 表示取「最近 limit 条」，否则取最早 limit 条。"""
+    sql = "SELECT * FROM (SELECT * FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?) ORDER BY id ASC"
+    if not tail:
+        sql = "SELECT * FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT ?"
     with get_conn() as conn:
-        rows = conn.execute(
-            "SELECT * FROM messages WHERE session_id = ? ORDER BY id ASC LIMIT ?",
-            (session_id, limit),
-        ).fetchall()
+        rows = conn.execute(sql, (session_id, limit)).fetchall()
     result = []
     for row in rows:
         item = _row_to_dict(row)
         item["meta"] = json.loads(item["meta"]) if item["meta"] else None
         result.append(item)
     return result
+
+
+def search_messages(query: str, limit: int = 8, project_id: str | None = None) -> list[dict[str, Any]]:
+    """跨会话回忆：对历史消息做 FTS 检索。"""
+    from .text import fts_query
+
+    match = fts_query(query)
+    if not match:
+        return []
+    sql = (
+        "SELECT m.id, m.session_id, m.role, m.content, m.created_at, s.title AS session_title, "
+        "messages_fts.rank AS rank "
+        "FROM messages_fts JOIN messages m ON m.id = messages_fts.message_id "
+        "JOIN sessions s ON s.id = m.session_id "
+        "WHERE messages_fts MATCH ?"
+    )
+    params: list[Any] = [match]
+    if project_id:
+        sql += " AND s.project_id = ?"
+        params.append(project_id)
+    sql += " ORDER BY messages_fts.rank LIMIT ?"
+    params.append(limit)
+    try:
+        with get_conn() as conn:
+            rows = conn.execute(sql, params).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    return [
+        {
+            "id": row["id"],
+            "session_id": row["session_id"],
+            "role": row["role"],
+            "content": row["content"][:600],
+            "created_at": row["created_at"],
+            "session_title": row["session_title"],
+        }
+        for row in rows
+    ]

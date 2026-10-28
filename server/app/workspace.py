@@ -43,8 +43,10 @@ def init_book_dir(path: Path, title: str, author: str = "") -> Path:
     (path / "skills").mkdir(exist_ok=True)
     (path / "experts").mkdir(exist_ok=True)
 
+    from . import memory
     from .experts import seed_experts
 
+    memory.ensure_files(path)
     seed_experts(path)
 
     book_file = path / "book.json"

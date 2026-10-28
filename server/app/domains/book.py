@@ -1,33 +1,49 @@
 from __future__ import annotations
 
+import hashlib
 import json
-from pathlib import Path
+import re
 from typing import Any
 
 from langchain_core.tools import tool
 
-from ..config import EmbeddingSettings
+from .. import db, memory
 from ..experts import save_expert
-from ..kb.repository import KINDS, dump_note, get_entity, list_entities, safe_entity_id, save_entity
+from ..kb.repository import (
+    KINDS,
+    dump_note,
+    get_entity,
+    list_entities,
+    safe_entity_id,
+    save_entity,
+)
 from ..kb.search import KbIndex
 from ..workspace import git_diff, read_book_meta, safe_join
+from .base import ToolContext
 
-SYSTEM_PROMPT = """你是一名本地小说写作助手，工作在用户的书稿项目中。
+RULES = """你工作在用户的书稿项目里，当前域是「长篇小说写作」。
 
 工作原则：
-1. 写正文前，先用 kb_search / kb_get 确认角色当前状态、势力关系、世界观设定，避免与既有设定冲突。
-2. 角色状态按章节推进，只使用 chapter 不超过当前写作进度的状态。
-3. 修改知识库或正文时，使用工具真实写入文件，不要只在回复里贴出内容。
+1. 写正文前，先用 kb_search / kb_get 确认角色当前状态、势力关系、世界观设定，避免冲突。
+2. 角色状态按章节推进，只使用 chapter 不超过当前写作进度的状态，避免剧透与状态错乱。
+3. 修改知识库或正文时用工具真实写入文件，不要只在回复里贴出内容。
 4. 检索结果要注明出处（章节号或文件路径）。
 5. 不确定的设定先向用户确认，不要自行编造并写入知识库。
-6. 保持用户已有的写作风格；需要风格参考时检索 styles / materials。
+6. 保持用户已有的写作风格；需要参考时检索 styles / materials。
 
-当前写作进度由项目 book.json 的 progress 字段决定。
+关于记忆：
+- 用户说「记住」，或给出长期有效的偏好、设定决策时，调用 remember 写入。
+- 回忆以前讨论过的事，用 recall_conversations 检索历史，不要凭印象编造。
+- 记忆与当前用户要求冲突时，以用户当前要求为准。
 """
 
+PERSONA = """你是一位长篇小说的写作与编辑搭档。你读得懂设定，改得动正文，也守得住一致性。
+你说话直接，不吹捧；不确定的地方会先问，不猜着写。"""
 
-def build_tools(project: Path, embedding: EmbeddingSettings, readonly: bool = False) -> list[Any]:
-    index = KbIndex(project, embedding)
+
+def build_tools(ctx: ToolContext) -> list[Any]:
+    project = ctx.project
+    index = KbIndex(project, ctx.embedding)
 
     def _ensure_index() -> None:
         if index.stats()["chunks"] == 0:
@@ -48,19 +64,20 @@ def build_tools(project: Path, embedding: EmbeddingSettings, readonly: bool = Fa
         )
         if not results:
             return "未检索到相关内容。"
+        labels = {
+            "chapters": "原文",
+            "characters": "角色",
+            "factions": "势力",
+            "items": "物品",
+            "locations": "地点",
+            "world": "世界观",
+            "outline": "大纲",
+            "materials": "素材",
+            "styles": "风格",
+        }
         lines = []
         for item in results:
-            label = {
-                "chapters": "原文",
-                "characters": "角色",
-                "factions": "势力",
-                "items": "物品",
-                "locations": "地点",
-                "world": "世界观",
-                "outline": "大纲",
-                "materials": "素材",
-                "styles": "风格",
-            }.get(item["kind"], item["kind"])
+            label = labels.get(item["kind"], item["kind"])
             chapter = f"（第{item['chapter']}章）" if item["chapter"] else ""
             lines.append(
                 f"[{label}] {item['title']}{chapter} · {item['source']}\n{item['text'][:900]}"
@@ -102,7 +119,7 @@ def build_tools(project: Path, embedding: EmbeddingSettings, readonly: bool = Fa
         except json.JSONDecodeError as exc:
             return f"meta_json 不是合法 JSON：{exc}"
         entity = save_entity(project, kind, entity_id, meta, body)
-        index.rebuild()
+        index.reindex_entity(kind, str(entity["id"]))
         return f"已写入 {entity['file']}"
 
     @tool
@@ -110,8 +127,10 @@ def build_tools(project: Path, embedding: EmbeddingSettings, readonly: bool = Fa
         """查看当前书稿项目概况：书名、进度、知识库条目数、章节数。"""
         meta = read_book_meta(project)
         counts = {kind: len(list_entities(project, kind)) for kind in KINDS}
-        chapters = sorted((project / "chapters").glob("*.md")) if (project / "chapters").exists() else []
-        manuscript = sorted((project / "manuscript").rglob("*.md")) if (project / "manuscript").exists() else []
+        chapters_dir = project / "chapters"
+        manuscript_dir = project / "manuscript"
+        chapters = sorted(chapters_dir.glob("*.md")) if chapters_dir.exists() else []
+        manuscript = sorted(manuscript_dir.rglob("*.md")) if manuscript_dir.exists() else []
         return json.dumps(
             {
                 "book": meta,
@@ -171,6 +190,33 @@ def build_tools(project: Path, embedding: EmbeddingSettings, readonly: bool = Fa
         return diff[:12000] if diff.strip() else "当前没有未提交的改动。"
 
     @tool
+    def remember(text: str, scope: str = "long") -> str:
+        """写入一条长期记忆。scope：user（用户偏好，跨项目）/ project（本项目约定，写入 AGENTS.md）/ long（其他长期事实，默认）。
+        只记长期有效的信息：偏好、设定决策、结论、禁忌。不要记临时任务或寒暄。"""
+        if scope not in {"user", "project", "long"}:
+            return f"非法 scope：{scope}"
+        line = memory.append(scope, text, project, source=f"session:{ctx.session_id}")
+        if not line:
+            return "该记忆已存在，未重复写入。"
+        memory.daily_log(f"记住：{text[:120]}", tag="memory")
+        title = {"user": "用户记忆", "project": "项目记忆", "long": "长期记忆"}[scope]
+        return f"已写入{title}：{text}"
+
+    @tool
+    def recall_conversations(query: str, limit: int = 8) -> str:
+        """回忆历史会话。当用户提到「之前说过」「上次定的」时，先用它检索，不要凭空猜。
+        返回命中的历史消息片段与所属会话。"""
+        hits = db.search_messages(query, limit=limit, project_id=ctx.project_id or None)
+        if not hits:
+            return "没有找到相关的历史记录。"
+        lines = [
+            f"[{item['session_title']} · {item['created_at'][:10]}] "
+            f"{'用户' if item['role'] == 'user' else '助手'}：{item['content'][:400]}"
+            for item in hits
+        ]
+        return "\n\n".join(lines)
+
+    @tool
     def expert_write(
         expert_id: str,
         name: str,
@@ -178,10 +224,12 @@ def build_tools(project: Path, embedding: EmbeddingSettings, readonly: bool = Fa
         tags: str,
         prompt: str,
         body: str,
+        skills: str = "",
     ) -> str:
         """创建或更新一个写作专家。expert_id 用简短的英文/拼音标识，name 为中文名，
-        description 一句话说明擅长什么，tags 用逗号分隔，prompt 是注入模型的写作风格指令，
-        body 是 Markdown 正文，写清工作流程与禁忌。"""
+        description 说明「什么时候该用这个专家」（用于激活判定），tags 用逗号分隔，
+        prompt 是注入模型的写作风格指令，body 是 Markdown 正文，写清工作流程与禁忌。
+        skills 是逗号分隔的技能目录名，声明该专家启动时预加载的技能。"""
         saved = save_expert(
             project,
             expert_id,
@@ -191,22 +239,29 @@ def build_tools(project: Path, embedding: EmbeddingSettings, readonly: bool = Fa
                 "tags": [item.strip() for item in tags.replace("，", ",").split(",") if item.strip()],
                 "avatar": name[:1] if name else "专",
                 "prompt": prompt,
+                "skills": [item.strip() for item in skills.replace("，", ",").split(",") if item.strip()],
             },
             body,
         )
         return f"已保存专家 {saved['name']}：{saved['file']}"
 
     @tool
-    def skill_write(name: str, description: str, instructions: str) -> str:
-        """创建一个技能，写入 skills/<技能名>/SKILL.md。
-        name 为技能名，description 一句话说明用途，instructions 是 Markdown 格式的执行步骤与输出要求。"""
+    def skill_write(name: str, description: str, instructions: str, slug: str = "") -> str:
+        """创建一个技能，写入 skills/<slug>/SKILL.md。
+        name 为技能中文名，slug 为目录名（小写英文与连字符，留空则自动生成），
+        description 一句话说明用途（用于渐进披露时的索引），instructions 是 Markdown 执行步骤与输出要求。"""
         if not name.strip():
             return "技能名不能为空"
-        slug = safe_entity_id(name)
-        directory = project / "skills" / slug
+        directory_name = _slugify(slug or name)
+        directory = project / "skills" / directory_name
         directory.mkdir(parents=True, exist_ok=True)
         file = directory / "SKILL.md"
-        meta = {"name": name.strip(), "description": description.strip(), "enabled": True}
+        meta = {
+            "name": directory_name,
+            "display_name": name.strip(),
+            "description": description.strip(),
+            "enabled": True,
+        }
         file.write_text(dump_note(meta, instructions), encoding="utf-8")
         return f"已创建技能 {name}：{file.relative_to(project)}"
 
@@ -219,7 +274,29 @@ def build_tools(project: Path, embedding: EmbeddingSettings, readonly: bool = Fa
         chapter_read,
         manuscript_read,
         git_view_diff,
+        recall_conversations,
     ]
-    if readonly:
+    if ctx.readonly:
         return readonly_tools
-    return [*readonly_tools, kb_write, manuscript_write, expert_write, skill_write]
+    return [*readonly_tools, kb_write, manuscript_write, remember, expert_write, skill_write]
+
+
+def _slugify(value: str) -> str:
+    ascii_part = re.sub(r"[^a-zA-Z0-9]+", "-", value).strip("-").lower()
+    if ascii_part:
+        return ascii_part
+    # 中文名无法直接作为目录名（技能规范要求 ASCII），退化为稳定短标识
+    digest = hashlib.sha1(value.encode("utf-8")).hexdigest()[:6]
+    return f"skill-{digest}"
+
+
+class BookDomain:
+    id = "book"
+    name = "长篇小说写作"
+    description = "书稿项目：角色/势力/物品/世界观/大纲/素材 + 章节原文，支持检索、写作与一致性维护"
+    persona = PERSONA
+    rules = RULES
+    skills_subdir = "skills"
+
+    def build_tools(self, ctx: ToolContext) -> list[Any]:
+        return build_tools(ctx)

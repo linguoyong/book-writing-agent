@@ -1,11 +1,13 @@
 import type {
   AppConfig,
   ChunkItem,
+  ContextBundle,
   Entity,
   Expert,
   KbConfig,
   KbKind,
   KnowledgeBaseSummary,
+  MemoryState,
   Message,
   Overview,
   Project,
@@ -49,10 +51,39 @@ export const api = {
   overview: (projectId: string) => http<Overview>(`/projects/${projectId}/overview`),
 
   listSessions: (projectId: string) => http<Session[]>(`/projects/${projectId}/sessions`),
-  createSession: (projectId: string, title = '新会话', kind = 'main') =>
+  createSession: (
+    projectId: string,
+    options: { title?: string; kind?: string; expertId?: string; domain?: string } = {}
+  ) =>
     http<Session>(`/projects/${projectId}/sessions`, {
       method: 'POST',
-      body: JSON.stringify({ title, kind })
+      body: JSON.stringify({
+        title: options.title ?? '新会话',
+        kind: options.kind ?? 'main',
+        expert_id: options.expertId ?? null,
+        domain: options.domain ?? 'book'
+      })
+    }),
+  updateSession: (
+    sessionId: string,
+    patch: { title?: string; expert_id?: string | null; domain?: string }
+  ) =>
+    http<Session>(`/sessions/${sessionId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(patch)
+    }),
+  context: (sessionId: string) => http<ContextBundle>(`/sessions/${sessionId}/context`),
+  distill: (sessionId: string) =>
+    http<{ ok: boolean; added: number; message?: string; items?: string[] }>(
+      `/sessions/${sessionId}/distill`,
+      { method: 'POST' }
+    ),
+  memory: (projectId?: string) =>
+    http<MemoryState>(`/memory${projectId ? `?project_id=${projectId}` : ''}`),
+  saveMemory: (scope: string, content: string, projectId?: string) =>
+    http<unknown>(`/memory/${scope}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content, project_id: projectId ?? null })
     }),
   deleteSession: (sessionId: string) =>
     http<{ ok: boolean }>(`/sessions/${sessionId}`, { method: 'DELETE' }),
@@ -133,6 +164,7 @@ export const api = {
 }
 
 interface StreamHandlers {
+  onContext?: (bundle: ContextBundle) => void
   onToken: (text: string) => void
   onToolStart: (name: string, input: string) => void
   onToolEnd: (name: string, output: string) => void
@@ -143,7 +175,6 @@ interface StreamHandlers {
 export async function streamChat(
   sessionId: string,
   message: string,
-  style: string,
   mode: 'main' | 'side' | 'expert_builder' | 'skill_builder',
   handlers: StreamHandlers
 ): Promise<void> {
@@ -152,7 +183,7 @@ export async function streamChat(
     response = await fetch(`${BASE}/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: sessionId, message, style, mode })
+      body: JSON.stringify({ session_id: sessionId, message, mode })
     })
   } catch (error) {
     handlers.onError(`无法连接后端：${(error as Error).message}`)
@@ -201,6 +232,9 @@ function dispatchEvent(raw: string, handlers: StreamHandlers): void {
     return
   }
   switch (event) {
+    case 'context':
+      handlers.onContext?.(payload as unknown as ContextBundle)
+      break
     case 'token':
       handlers.onToken(String(payload.text ?? ''))
       break

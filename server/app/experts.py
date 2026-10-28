@@ -127,6 +127,7 @@ def save_expert(
     meta.setdefault("avatar", str(meta["name"])[:1])
     meta.setdefault("prompt", "")
     meta.setdefault("skills", [])
+    meta.setdefault("max_turns", 50)
     meta["updated_at"] = datetime.now(timezone.utc).isoformat()
     (directory / f"{expert_id}.md").write_text(dump_note(meta, body), encoding="utf-8")
     saved = get_expert(project, expert_id)
@@ -151,6 +152,7 @@ def _to_expert(meta: dict[str, Any], body: str, file: Path, project: Path) -> di
         "avatar": meta.get("avatar") or str(meta.get("name") or file.stem)[:1],
         "prompt": meta.get("prompt") or "",
         "skills": meta.get("skills") or [],
+        "max_turns": int(meta.get("max_turns") or 50),
         "body": body,
         "file": str(file.relative_to(project)),
     }
