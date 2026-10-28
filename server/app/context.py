@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 from . import memory
-from .config import GLOBAL_SKILLS_DIR
 from .domains import DomainPack, ToolContext, get_domain
 from .kb.repository import parse_note
 from .workspace import read_book_meta
@@ -168,18 +167,17 @@ def _persona_block(expert: dict[str, Any]) -> str:
 
 
 def _skills_index(project: Path, domain: DomainPack) -> str:
+    """只列项目技能：全局技能目录当前未挂载到 backend，列出来会误导模型。"""
     lines: list[str] = []
-    for root in (project / domain.skills_subdir, GLOBAL_SKILLS_DIR):
-        if not root.exists():
-            continue
+    root = project / domain.skills_subdir
+    if root.exists():
         for file in sorted(root.glob("*/SKILL.md")):
             meta, body = parse_note(file.read_text(encoding="utf-8"))
             if meta.get("enabled") is False:
                 continue
             name = meta.get("display_name") or meta.get("name") or file.parent.name
             description = meta.get("description") or _WS.sub(" ", body).strip()[:120]
-            scope = "项目" if root.parent == project else "全局"
-            lines.append(f"- [{scope}] {name}（{file.parent.name}）：{description}")
+            lines.append(f"- {name}（{file.parent.name}）：{description}")
     if not lines:
         return "（暂无技能。需要时可用 skill_write 创建。）"
     return "\n".join(lines)

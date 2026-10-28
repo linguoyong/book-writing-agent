@@ -178,8 +178,13 @@ def session_context(session_id: str) -> dict[str, Any]:
     path = Path(project["path"])
     if not path.exists():
         raise HTTPException(status_code=404, detail="项目目录不存在")
-    expert = resolve_expert(path, session.get("expert_id"))
-    bundle = assemble(path, session=session, expert=expert)
+    expert = resolve_expert(path, session.get("expert_id") or "general")
+    bundle = assemble(
+        path,
+        session=session,
+        expert=expert,
+        readonly=session.get("kind") == "side",
+    )
     return bundle.to_dict()
 
 
