@@ -167,12 +167,14 @@ class CreateSessionRequest(BaseModel):
     kind: str = "main"
     expert_id: str | None = None
     domain: str | None = "book"
+    permission_mode: str | None = None
 
 
 class SessionPatch(BaseModel):
     title: str | None = None
     expert_id: str | None = None
     domain: str | None = None
+    permission_mode: str | None = None
 
 
 @router.get("/projects/{project_id}/sessions")
@@ -185,7 +187,12 @@ def get_sessions(project_id: str) -> list[dict[str, Any]]:
 def post_session(project_id: str, req: CreateSessionRequest) -> dict[str, Any]:
     _require_project(project_id)
     return db.create_session(
-        project_id, req.title, req.kind, req.expert_id, req.domain
+        project_id,
+        req.title,
+        req.kind,
+        req.expert_id,
+        req.domain,
+        req.permission_mode,
     )
 
 

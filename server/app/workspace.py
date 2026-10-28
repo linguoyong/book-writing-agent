@@ -146,13 +146,27 @@ def turn_changes(project: Path, paths: list[str], limit: int = 20000) -> dict[st
 
     files: list[str] = []
     chunks: list[str] = []
+    seen: set[str] = set()
     for relative in unique:
+        normalized = relative
+        candidate = Path(relative)
+        if candidate.is_absolute():
+            try:
+                normalized = str(candidate.resolve().relative_to(project.resolve())).replace(
+                    "\\", "/"
+                )
+            except ValueError:
+                continue
+        if normalized in seen:
+            continue
         try:
-            target = safe_join(project, relative)
+            target = safe_join(project, normalized)
         except ValueError:
             continue
         if not target.exists():
             continue
+        seen.add(normalized)
+        relative = normalized
         files.append(relative)
         if relative in tracked_set:
             diff = _git(

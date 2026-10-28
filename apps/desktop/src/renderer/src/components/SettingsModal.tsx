@@ -6,7 +6,8 @@ import type {
   EmbeddingSettings,
   ModelSettings,
   PathRule,
-  PermissionMode
+  RuleMode,
+  SessionPermission
 } from '../types'
 
 export default function SettingsModal(): React.JSX.Element | null {
@@ -36,7 +37,7 @@ export default function SettingsModal(): React.JSX.Element | null {
     ])
   const removeRule = (index: number): void =>
     setRules(draft.sandbox.rules.filter((_, i) => i !== index))
-  const setMode = (index: number, op: 'read' | 'write' | 'delete', mode: PermissionMode): void =>
+  const setMode = (index: number, op: 'read' | 'write' | 'delete', mode: RuleMode): void =>
     patchRule(index, { [op]: mode } as Partial<PathRule>)
 
   return (
@@ -111,7 +112,25 @@ export default function SettingsModal(): React.JSX.Element | null {
             <div style={{ fontSize: 12.5 }}>文件权限</div>
             <div style={{ fontSize: 11, color: 'var(--faint)', marginBottom: 8, lineHeight: 1.6 }}>
               工作区内路径，支持 glob（如 secrets/**、**/*.key）。allow 放行、ask 需审批、deny 直接拒绝；
-              未命中规则的写入仍默认需要审批。
+              未命中规则的写入按会话的权限模式处理。
+            </div>
+            <div className="field" style={{ marginBottom: 10 }}>
+              <label>新会话默认模式</label>
+              <select
+                value={draft.sandbox.default_mode}
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    sandbox: {
+                      ...draft.sandbox,
+                      default_mode: event.target.value as SessionPermission
+                    }
+                  })
+                }
+              >
+                <option value="ask">请求批准</option>
+                <option value="auto">完全访问</option>
+              </select>
             </div>
             <div className="rule-head">
               <span>路径</span>
@@ -133,7 +152,7 @@ export default function SettingsModal(): React.JSX.Element | null {
                     key={op}
                     value={rule[op]}
                     onChange={(event) =>
-                      setMode(index, op, event.target.value as PermissionMode)
+                      setMode(index, op, event.target.value as RuleMode)
                     }
                   >
                     <option value="allow">allow</option>

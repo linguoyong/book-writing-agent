@@ -22,6 +22,7 @@ export interface Session {
   kind: string
   expert_id?: string | null
   domain?: string | null
+  permission_mode?: SessionPermission | null
   created_at: string
   updated_at: string
 }
@@ -221,17 +222,19 @@ export interface EmbeddingSettings {
   dimensions: number
 }
 
-export type PermissionMode = 'allow' | 'ask' | 'deny'
+export type RuleMode = 'allow' | 'ask' | 'deny'
+export type SessionPermission = 'ask' | 'auto'
 
 export interface PathRule {
   pattern: string
-  read: PermissionMode
-  write: PermissionMode
-  delete: PermissionMode
+  read: RuleMode
+  write: RuleMode
+  delete: RuleMode
   note?: string
 }
 
 export interface SandboxSettings {
+  default_mode: SessionPermission
   rules: PathRule[]
 }
 

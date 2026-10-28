@@ -18,6 +18,7 @@ from ..kb.repository import (
     save_entity,
 )
 from ..kb.search import KbIndex
+from ..sandbox import check_path
 from ..workspace import git_diff, read_book_meta, safe_join
 from .base import ToolContext
 
@@ -48,6 +49,12 @@ def build_tools(ctx: ToolContext) -> list[Any]:
     def _ensure_index() -> None:
         if index.stats()["chunks"] == 0:
             index.rebuild()
+
+    def _deny(path: str) -> str | None:
+        """路径规则 deny 是硬边界：完全访问模式下也不能写。"""
+        if check_path(ctx.sandbox, path, "write") == "deny":
+            return f"操作被路径规则禁止：{path}（write=deny）"
+        return None
 
     @tool
     def kb_search(
@@ -114,6 +121,9 @@ def build_tools(ctx: ToolContext) -> list[Any]:
         body 是 Markdown 正文。写入后不会自动提交 git。"""
         if kind not in KINDS:
             return f"非法 kind：{kind}"
+        denied = _deny(f"kb/{kind}/{entity_id}.md")
+        if denied:
+            return denied
         try:
             meta = json.loads(meta_json) if meta_json.strip() else {}
         except json.JSONDecodeError as exc:
@@ -177,7 +187,13 @@ def build_tools(ctx: ToolContext) -> list[Any]:
     @tool
     def manuscript_write(path: str, content: str, mode: str = "overwrite") -> str:
         """写入 manuscript 目录下的文稿。mode 为 overwrite 或 append。写入后不会自动提交 git。"""
-        target = safe_join(project / "manuscript", path)
+        denied = _deny(f"manuscript/{path}")
+        if denied:
+            return denied
+        try:
+            target = safe_join(project / "manuscript", path)
+        except ValueError:
+            return "路径越界"
         target.parent.mkdir(parents=True, exist_ok=True)
         if mode == "append" and target.exists():
             existing = target.read_text(encoding="utf-8")

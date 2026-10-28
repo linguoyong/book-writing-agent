@@ -271,10 +271,12 @@ def _preview(text: str) -> str:
 def tool_context(project: Path, *, project_id: str = "", session_id: str = "", readonly: bool = False) -> ToolContext:
     from .config import load_settings
 
+    settings = load_settings()
     return ToolContext(
         project=project,
-        embedding=load_settings().embedding,
+        embedding=settings.embedding,
         project_id=project_id,
         session_id=session_id,
         readonly=readonly,
+        sandbox=settings.sandbox,
     )

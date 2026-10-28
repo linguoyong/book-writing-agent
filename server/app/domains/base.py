@@ -16,6 +16,7 @@ class ToolContext:
     project_id: str = ""
     session_id: str = ""
     readonly: bool = False
+    sandbox: Any = None
 
 
 class DomainPack(Protocol):

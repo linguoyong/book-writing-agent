@@ -8,6 +8,7 @@ import {
   FileDiff,
   Loader2,
   MessageSquareReply,
+  ShieldCheck,
   Sparkles,
   Wrench
 } from 'lucide-react'
@@ -274,6 +275,7 @@ export default function ChatPane(): React.JSX.Element {
                 专家 · {expert?.name ?? '通用'}
                 <ChevronDown size={11} />
               </button>
+              <PermissionPicker />
               <span className="composer-hint">
                 {approval
                   ? '先处理待审批的写入'
@@ -432,6 +434,60 @@ function StepRow({ item }: { item: TimelineItem }): React.JSX.Element | null {
     )
   }
   return null
+}
+
+function PermissionPicker(): React.JSX.Element {
+  const mode = useAppStore((state) => state.permissionMode)
+  const setPermissionMode = useAppStore((state) => state.setPermissionMode)
+  const [open, setOpen] = useState(false)
+  const auto = mode === 'auto'
+
+  return (
+    <div className="perm-wrap">
+      {open && (
+        <div className="perm-pop" role="menu">
+          <div className="perm-pop-title">应如何批准操作？</div>
+          <button
+            className={`perm-option ${mode === 'ask' ? 'active' : ''}`}
+            onClick={() => {
+              setPermissionMode('ask')
+              setOpen(false)
+            }}
+          >
+            <ShieldCheck size={14} />
+            <div className="perm-text">
+              <strong>请求批准</strong>
+              <span>编辑文件、写知识库前先询问</span>
+            </div>
+            {mode === 'ask' && <Check size={13} />}
+          </button>
+          <button
+            className={`perm-option ${auto ? 'active warn' : ''}`}
+            onClick={() => {
+              setPermissionMode('auto')
+              setOpen(false)
+            }}
+          >
+            <AlertTriangle size={14} />
+            <div className="perm-text">
+              <strong>完全访问</strong>
+              <span>不再询问，直接执行；敏感路径仍会被拒绝</span>
+            </div>
+            {auto && <Check size={13} />}
+          </button>
+        </div>
+      )}
+      <button
+        className={`perm-trigger ${auto ? 'warn' : ''}`}
+        onClick={() => setOpen((value) => !value)}
+        title="选择权限模式"
+      >
+        {auto ? <AlertTriangle size={12} /> : <ShieldCheck size={12} />}
+        {auto ? '完全访问' : '请求批准'}
+        <ChevronDown size={10} />
+      </button>
+    </div>
+  )
 }
 
 function groupTurns(items: TimelineItem[]): TurnView[] {

@@ -15,6 +15,7 @@ import type {
   ReferenceItem,
   SearchHit,
   Session,
+  SessionPermission,
   Skill,
   TreeNode,
   TurnChanges
@@ -60,7 +61,13 @@ export const api = {
   listSessions: (projectId: string) => http<Session[]>(`/projects/${projectId}/sessions`),
   createSession: (
     projectId: string,
-    options: { title?: string; kind?: string; expertId?: string; domain?: string } = {}
+    options: {
+      title?: string
+      kind?: string
+      expertId?: string
+      domain?: string
+      permissionMode?: SessionPermission
+    } = {}
   ) =>
     http<Session>(`/projects/${projectId}/sessions`, {
       method: 'POST',
@@ -68,12 +75,18 @@ export const api = {
         title: options.title ?? '新会话',
         kind: options.kind ?? 'main',
         expert_id: options.expertId ?? null,
-        domain: options.domain ?? 'book'
+        domain: options.domain ?? 'book',
+        permission_mode: options.permissionMode ?? null
       })
     }),
   updateSession: (
     sessionId: string,
-    patch: { title?: string; expert_id?: string | null; domain?: string }
+    patch: {
+      title?: string
+      expert_id?: string | null
+      domain?: string
+      permission_mode?: SessionPermission
+    }
   ) =>
     http<Session>(`/sessions/${sessionId}`, {
       method: 'PATCH',

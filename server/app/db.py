@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     kind TEXT NOT NULL DEFAULT 'main',
     expert_id TEXT,
     domain TEXT,
+    permission_mode TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -64,6 +65,7 @@ _MIGRATIONS = {
     "sessions": {
         "expert_id": "ALTER TABLE sessions ADD COLUMN expert_id TEXT",
         "domain": "ALTER TABLE sessions ADD COLUMN domain TEXT",
+        "permission_mode": "ALTER TABLE sessions ADD COLUMN permission_mode TEXT",
     }
 }
 
@@ -166,14 +168,25 @@ def create_session(
     kind: str = "main",
     expert_id: str | None = None,
     domain: str | None = None,
+    permission_mode: str | None = None,
 ) -> dict[str, Any]:
     session_id = new_id("ses")
     ts = now_iso()
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO sessions (id, project_id, title, kind, expert_id, domain, "
-            "created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (session_id, project_id, title, kind, expert_id, domain, ts, ts),
+            "permission_mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                session_id,
+                project_id,
+                title,
+                kind,
+                expert_id,
+                domain,
+                permission_mode,
+                ts,
+                ts,
+            ),
         )
     result = get_session(session_id)
     assert result is not None
@@ -181,7 +194,7 @@ def create_session(
 
 
 def update_session(session_id: str, **fields: Any) -> dict[str, Any] | None:
-    allowed = {"title", "expert_id", "domain", "kind"}
+    allowed = {"title", "expert_id", "domain", "kind", "permission_mode"}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return get_session(session_id)

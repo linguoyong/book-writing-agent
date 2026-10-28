@@ -4,11 +4,14 @@ from typing import Literal
 
 from deepagents import FilesystemPermission
 from pydantic import BaseModel, Field, field_validator
+from wcmatch import glob as wcglob
 
 Mode = Literal["allow", "ask", "deny"]
+PermissionMode = Literal["ask", "auto"]
 
 _RANK = {"allow": 0, "ask": 1, "deny": 2}
 _MODE_MAP = {"allow": "allow", "ask": "interrupt", "deny": "deny"}
+_GLOB_FLAGS = wcglob.BRACE | wcglob.GLOBSTAR
 
 
 class PathRule(BaseModel):
@@ -43,6 +46,7 @@ DEFAULT_RULES: list[dict[str, str]] = [
 
 
 class SandboxSettings(BaseModel):
+    default_mode: PermissionMode = "ask"
     rules: list[PathRule] = Field(
         default_factory=lambda: [PathRule(**rule) for rule in DEFAULT_RULES]
     )
@@ -62,36 +66,58 @@ def _strongest(*modes: str) -> str:
     return max(modes, key=lambda mode: _RANK.get(mode, 0))
 
 
+def _mapped(mode: str, ask_mode: str) -> str:
+    return ask_mode if mode == "ask" else _MODE_MAP[mode]
+
+
 def compile_permissions(
-    sandbox: SandboxSettings | None, *, write_policy: Literal["ask", "allow"] = "ask"
+    sandbox: SandboxSettings | None, *, mode: PermissionMode = "ask"
 ) -> list[FilesystemPermission]:
     """把规则表编译成 deepagents 的权限栈；先匹配先生效。
 
-    注意：deepagents 只有 read / write 两类操作，delete 归入 write，
-    因此一条规则的 write 与 delete 取更严格者。
+    - ask：规则里的 ask 一律中断审批，末尾再加 `/**` 写入兜底审批。
+    - auto（完全访问）：规则里的 ask 直接放行，不再有兜底审批；deny 仍然生效。
     """
+    ask_mode = "interrupt" if mode == "ask" else "allow"
     permissions: list[FilesystemPermission] = []
     for rule in (sandbox.rules if sandbox else []):
         patterns = _expand(rule.pattern)
         if not patterns:
             continue
-        if rule.read != "allow":
+        read_target = _mapped(rule.read, ask_mode)
+        if read_target != "allow":
             permissions.append(
                 FilesystemPermission(
-                    operations=["read"], paths=patterns, mode=_MODE_MAP[rule.read]
+                    operations=["read"], paths=patterns, mode=read_target
                 )
             )
-        write_mode = _strongest(rule.write, rule.delete)
-        if write_mode != "allow":
+        write_target = _mapped(_strongest(rule.write, rule.delete), ask_mode)
+        if write_target != "allow":
             permissions.append(
                 FilesystemPermission(
-                    operations=["write"], paths=patterns, mode=_MODE_MAP[write_mode]
+                    operations=["write"], paths=patterns, mode=write_target
                 )
             )
 
-    if write_policy == "ask":
+    if mode == "ask":
         # 兜底：所有写入都要人工确认（规则表里更严格的 deny 在前面先命中）
         permissions.append(
             FilesystemPermission(operations=["write"], paths=["/**"], mode="interrupt")
         )
     return permissions
+
+
+def check_path(
+    sandbox: SandboxSettings | None, path: str, operation: Literal["read", "write"] = "write"
+) -> str:
+    """给自研工具用的规则查询：返回 allow / ask / deny。"""
+    if sandbox is None:
+        return "allow"
+    normalized = "/" + path.replace("\\", "/").lstrip("/")
+    for rule in sandbox.rules:
+        if any(
+            wcglob.globmatch(normalized, pattern, flags=_GLOB_FLAGS)
+            for pattern in _expand(rule.pattern)
+        ):
+            return rule.read if operation == "read" else _strongest(rule.write, rule.delete)
+    return "allow"

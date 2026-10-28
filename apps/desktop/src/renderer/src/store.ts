@@ -15,6 +15,7 @@ import type {
   ReferenceItem,
   SearchHit,
   Session,
+  SessionPermission,
   TimelineItem,
   TreeNode,
   TurnChanges
@@ -56,6 +57,7 @@ interface AppState {
   memory: MemoryState | null
   approval: ApprovalBundle | null
   references: ReferenceItem[]
+  permissionMode: SessionPermission
   streamStartedAt: number | null
   turnDiff: TurnChanges | null
   diffMode: 'all' | 'turn'
@@ -135,6 +137,7 @@ interface AppState {
   setExpertModalOpen: (open: boolean) => void
   setSkillsModalOpen: (open: boolean) => void
   setExpert: (expertId: string) => void
+  setPermissionMode: (mode: SessionPermission) => void
   setWritingStyle: (style: string) => void
   setPendingComposer: (text: string | null) => void
 }
@@ -245,6 +248,7 @@ export const useAppStore = create<AppState>((set, get) => {
   memory: null,
   approval: null,
   references: [],
+  permissionMode: 'ask',
   streamStartedAt: null,
   turnDiff: null,
   diffMode: 'all',
@@ -267,7 +271,13 @@ export const useAppStore = create<AppState>((set, get) => {
     for (let attempt = 0; attempt < 6; attempt += 1) {
       try {
         const [projects, config] = await Promise.all([api.listProjects(), api.getConfig()])
-        set({ projects, config, ready: true, error: null })
+        set({
+          projects,
+          config,
+          ready: true,
+          error: null,
+          permissionMode: config.sandbox.default_mode
+        })
         if (projects.length > 0) await get().selectProject(projects[0].id)
         void get().refreshSpaceSummaries()
         return
@@ -400,7 +410,8 @@ export const useAppStore = create<AppState>((set, get) => {
     try {
       const session = await api.createSession(project.id, {
         expertId: get().currentExpertId,
-        domain: 'book'
+        domain: 'book',
+        permissionMode: get().permissionMode
       })
       set({
         sessions: [session, ...get().sessions],
@@ -423,7 +434,9 @@ export const useAppStore = create<AppState>((set, get) => {
       activeSessionId: sessionId,
       timeline: [],
       error: null,
-      currentExpertId: session?.expert_id ?? get().currentExpertId
+      currentExpertId: session?.expert_id ?? get().currentExpertId,
+      permissionMode:
+        session?.permission_mode ?? get().config?.sandbox.default_mode ?? get().permissionMode
     })
     try {
       const messages = await api.messages(sessionId)
@@ -835,6 +848,22 @@ export const useAppStore = create<AppState>((set, get) => {
       })
       .catch((error: Error) => set({ error: error.message }))
   },
+  setPermissionMode: (mode) => {
+    set({ permissionMode: mode })
+    const sessionId = get().activeSessionId
+    if (!sessionId) return
+    void api
+      .updateSession(sessionId, { permission_mode: mode })
+      .then((updated) => {
+        set({
+          sessions: get().sessions.map((item) =>
+            item.id === sessionId ? { ...item, permission_mode: updated.permission_mode } : item
+          )
+        })
+      })
+      .catch((error: Error) => set({ error: error.message }))
+  },
+
   setWritingStyle: (style) => set({ writingStyle: style }),
   setPendingComposer: (text) => set({ pendingComposer: text })
   }

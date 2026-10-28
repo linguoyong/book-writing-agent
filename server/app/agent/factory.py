@@ -57,12 +57,11 @@ def build_agent(
     tools = domain.build_tools(ctx)
     backend = _backend(project)
     skills = _skill_sources(project, domain.skills_subdir)
-    # 只读会话没有写工具，无需拦截
-    interrupt_on = None if readonly else {name: True for name in GATED_TOOLS}
-    # 路径规则（敏感文件 deny/ask）+ 写入兜底审批，都来自 config.sandbox
-    permissions = (
-        None if readonly else compile_permissions(load_settings().sandbox)
-    )
+    settings = load_settings()
+    mode = (session or {}).get("permission_mode") or settings.sandbox.default_mode
+    # 审批模式下，写工具与通用文件写入都要人工确认；完全访问模式跳过审批，但规则 deny 仍生效
+    interrupt_on = None if readonly or mode == "auto" else {name: True for name in GATED_TOOLS}
+    permissions = None if readonly else compile_permissions(settings.sandbox, mode=mode)
 
     sync_session = (session or {}).get("id", "")
     middleware = [SteeringMiddleware(sync_session)] if sync_session else []
