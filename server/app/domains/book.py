@@ -155,9 +155,12 @@ def build_tools(ctx: ToolContext) -> list[Any]:
     def chapter_read(chapter: str) -> str:
         """读取一个章节的正文。chapter 可传章节文件名（不含 .md）或章节号。"""
         directory = project / "chapters"
-        candidate = directory / f"{chapter}.md"
+        name = str(chapter).strip().replace("\\", "/").split("/")[-1]
+        if not name or name in {".", ".."}:
+            return "非法的章节名"
+        candidate = directory / f"{name}.md"
         if not candidate.exists():
-            matches = sorted(directory.glob(f"*{chapter}*.md"))
+            matches = sorted(directory.glob(f"*{name}*.md"))
             if not matches:
                 return f"未找到章节：{chapter}"
             candidate = matches[0]

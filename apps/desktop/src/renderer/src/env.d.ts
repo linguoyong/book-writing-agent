@@ -6,5 +6,6 @@ interface Window {
     toggleMaximize: () => void
     close: () => void
     pickDirectory: () => Promise<string | null>
+    openExternal: (url: string) => Promise<boolean>
   }
 }

@@ -15,6 +15,7 @@ import { api } from '../api'
 import { useAppStore } from '../store'
 import type { ReferenceItem, TimelineItem, TurnMeta } from '../types'
 import ApprovalCard from './ApprovalCard'
+import Markdown from './Markdown'
 
 const SUGGESTIONS = [
   '根据大纲续写下一章',
@@ -368,7 +369,9 @@ function TurnBlock({
       {turn.conclusion && (
         <div className="msg assistant">
           <div className="avatar">墨</div>
-          <div className={`content ${live ? 'streaming' : ''}`}>{turn.conclusion.content}</div>
+          <div className={`content md-content ${live ? 'streaming' : ''}`}>
+            <Markdown content={turn.conclusion.content} />
+          </div>
         </div>
       )}
 

@@ -16,7 +16,7 @@ from .factory import build_agent, resolve_expert
 
 MODE_BUILDER = {"expert_builder": "expert", "skill_builder": "skill"}
 
-WRITE_TOOLS = {"kb_write", "manuscript_write"}
+WRITE_TOOLS = {"kb_write", "manuscript_write", "write_file", "edit_file", "delete"}
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -394,6 +394,9 @@ def _write_path(name: str, args: dict[str, Any]) -> str | None:
         if not kind or not entity_id:
             return None
         return f"kb/{kind}/{entity_id}.md"
+    if name in {"write_file", "edit_file", "delete"}:
+        relative = str(args.get("file_path") or "").strip().lstrip("/\\")
+        return relative.replace("\\", "/") if relative else None
     return None
 
 

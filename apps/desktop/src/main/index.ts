@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { join } from 'node:path'
 
 let mainWindow: BrowserWindow | null = null
@@ -46,6 +46,14 @@ ipcMain.handle('dialog:pick-directory', async () => {
     title: '选择书稿空间目录'
   })
   return result.canceled ? null : result.filePaths[0]
+})
+
+ipcMain.handle('shell:open-external', async (_event, url: unknown) => {
+  if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
+    await shell.openExternal(url)
+    return true
+  }
+  return false
 })
 
 app.whenReady().then(() => {

@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from deepagents import create_deep_agent
+from deepagents import FilesystemPermission, create_deep_agent
 from deepagents.backends import CompositeBackend, FilesystemBackend
 
 from ..config import GLOBAL_SKILLS_DIR
@@ -58,6 +58,12 @@ def build_agent(
     skills = _skill_sources(project, domain.skills_subdir)
     # 只读会话没有写工具，无需拦截
     interrupt_on = None if readonly else {name: True for name in GATED_TOOLS}
+    # 通用文件写入（write_file / edit_file / delete）也纳入审批，避免绕过 kb_write 的审核
+    permissions = (
+        None
+        if readonly
+        else [FilesystemPermission(operations=["write"], paths=["/**"], mode="interrupt")]
+    )
 
     sync_session = (session or {}).get("id", "")
     middleware = [SteeringMiddleware(sync_session)] if sync_session else []
@@ -68,6 +74,7 @@ def build_agent(
         system_prompt=bundle.system_prompt,
         backend=backend,
         skills=skills,
+        permissions=permissions,
         middleware=middleware,
         checkpointer=get_checkpointer(),
         interrupt_on=interrupt_on,

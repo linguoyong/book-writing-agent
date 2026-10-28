@@ -3,6 +3,7 @@ import { ArrowUp, CornerUpLeft, Eraser } from 'lucide-react'
 import { api, streamChat } from '../api'
 import { useAppStore } from '../store'
 import type { TimelineItem } from '../types'
+import Markdown from './Markdown'
 
 let counter = 0
 const nextId = (): string => `s${Date.now()}-${counter++}`
@@ -153,7 +154,7 @@ export default function SidePanel(): React.JSX.Element {
           return (
             <div key={item.id} className="side-msg assistant">
               <div>
-                {item.content}
+                <Markdown content={item.content} />
                 {streaming && index === items.length - 1 ? '▌' : ''}
               </div>
               {index === items.length - 1 && item.content.trim() && !streaming && (

@@ -39,6 +39,12 @@ def describe(project: Path, name: str, args: dict[str, Any]) -> tuple[str, str, 
         return _manuscript_diff(project, args)
     if name == "kb_write":
         return _kb_diff(project, args)
+    if name == "write_file":
+        return _fs_write_diff(project, args)
+    if name == "edit_file":
+        return _fs_edit_diff(project, args)
+    if name == "delete":
+        return _fs_delete_diff(project, args)
     return "", "", ""
 
 
@@ -71,6 +77,50 @@ def _kb_diff(project: Path, args: dict[str, Any]) -> tuple[str, str, str]:
     new = dump_note(merged, body)
     label = f"kb/{kind}/{entity_id}.md"
     return label, _diff(old, new, label), "" if existing else "新建条目"
+
+
+def _fs_target(project: Path, args: dict[str, Any]) -> tuple[Path | None, str]:
+    raw = str(args.get("file_path") or args.get("path") or "").strip()
+    relative = raw.lstrip("/\\").replace("\\", "/")
+    if not relative:
+        return None, ""
+    try:
+        return safe_join(project, relative), relative
+    except ValueError:
+        return None, relative
+
+
+def _fs_write_diff(project: Path, args: dict[str, Any]) -> tuple[str, str, str]:
+    target, relative = _fs_target(project, args)
+    if target is None:
+        return relative, "", "路径越界，无法预览"
+    old = target.read_text(encoding="utf-8") if target.exists() else ""
+    new = str(args.get("content") or "")
+    return relative, _diff(old, new, relative), "" if target.exists() else "新建文件"
+
+
+def _fs_edit_diff(project: Path, args: dict[str, Any]) -> tuple[str, str, str]:
+    target, relative = _fs_target(project, args)
+    if target is None:
+        return relative, "", "路径越界，无法预览"
+    if not target.exists():
+        return relative, "", "文件不存在"
+    old = target.read_text(encoding="utf-8")
+    needle = str(args.get("old_string") or "")
+    replacement = str(args.get("new_string") or "")
+    if not needle or needle not in old:
+        return relative, "", "找不到待替换的文本，执行会失败"
+    count = -1 if args.get("replace_all") else 1
+    new = old.replace(needle, replacement, count)
+    return relative, _diff(old, new, relative), ""
+
+
+def _fs_delete_diff(project: Path, args: dict[str, Any]) -> tuple[str, str, str]:
+    target, relative = _fs_target(project, args)
+    if target is None:
+        return relative, "", "路径越界，无法预览"
+    old = target.read_text(encoding="utf-8") if target.exists() else ""
+    return relative, _diff(old, "", relative), "删除文件"
 
 
 def _diff(old: str, new: str, label: str) -> str:
