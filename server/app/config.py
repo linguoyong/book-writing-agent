@@ -6,6 +6,8 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field
 
+from .sandbox import SandboxSettings
+
 APP_HOME = Path(os.environ.get("BOOK_AGENT_HOME", Path.home() / ".book-agent"))
 CONFIG_FILE = APP_HOME / "config.json"
 DB_FILE = APP_HOME / "app.db"
@@ -38,6 +40,7 @@ class Settings(BaseModel):
         default_factory=lambda: ModelSettings(model="deepseek-flash", temperature=0.1)
     )
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
+    sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
 
 
 def _ensure_home() -> None:

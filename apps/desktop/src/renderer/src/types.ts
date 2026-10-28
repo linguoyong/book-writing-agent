@@ -221,10 +221,25 @@ export interface EmbeddingSettings {
   dimensions: number
 }
 
+export type PermissionMode = 'allow' | 'ask' | 'deny'
+
+export interface PathRule {
+  pattern: string
+  read: PermissionMode
+  write: PermissionMode
+  delete: PermissionMode
+  note?: string
+}
+
+export interface SandboxSettings {
+  rules: PathRule[]
+}
+
 export interface AppConfig {
   writer: ModelSettings
   extractor: ModelSettings
   embedding: EmbeddingSettings
+  sandbox: SandboxSettings
 }
 
 export type TimelineItem =

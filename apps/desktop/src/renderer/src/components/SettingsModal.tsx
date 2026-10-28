@@ -1,7 +1,13 @@
 import { useState } from 'react'
-import { X } from 'lucide-react'
+import { Plus, Trash2, X } from 'lucide-react'
 import { useAppStore } from '../store'
-import type { AppConfig, EmbeddingSettings, ModelSettings } from '../types'
+import type {
+  AppConfig,
+  EmbeddingSettings,
+  ModelSettings,
+  PathRule,
+  PermissionMode
+} from '../types'
 
 export default function SettingsModal(): React.JSX.Element | null {
   const config = useAppStore((state) => state.config)
@@ -19,9 +25,23 @@ export default function SettingsModal(): React.JSX.Element | null {
   const setEmbedding = (patch: Partial<EmbeddingSettings>): void =>
     setDraft({ ...draft, embedding: { ...draft.embedding, ...patch } })
 
+  const setRules = (rules: PathRule[]): void =>
+    setDraft({ ...draft, sandbox: { ...draft.sandbox, rules } })
+  const patchRule = (index: number, patch: Partial<PathRule>): void =>
+    setRules(draft.sandbox.rules.map((rule, i) => (i === index ? { ...rule, ...patch } : rule)))
+  const addRule = (): void =>
+    setRules([
+      ...draft.sandbox.rules,
+      { pattern: 'secrets/**', read: 'ask', write: 'ask', delete: 'deny' }
+    ])
+  const removeRule = (index: number): void =>
+    setRules(draft.sandbox.rules.filter((_, i) => i !== index))
+  const setMode = (index: number, op: 'read' | 'write' | 'delete', mode: PermissionMode): void =>
+    patchRule(index, { [op]: mode } as Partial<PathRule>)
+
   return (
     <div className="modal-mask" onClick={() => setSettingsOpen(false)}>
-      <div className="modal" style={{ width: 560 }} onClick={(event) => event.stopPropagation()}>
+      <div className="modal" style={{ width: 640 }} onClick={(event) => event.stopPropagation()}>
         <div className="modal-header">
           <span>模型设置</span>
           <button className="icon-btn" onClick={() => setSettingsOpen(false)}>
@@ -85,6 +105,55 @@ export default function SettingsModal(): React.JSX.Element | null {
                 </div>
               </>
             )}
+          </div>
+
+          <div style={{ borderTop: '1px solid var(--border)', marginTop: 14, paddingTop: 12 }}>
+            <div style={{ fontSize: 12.5 }}>文件权限</div>
+            <div style={{ fontSize: 11, color: 'var(--faint)', marginBottom: 8, lineHeight: 1.6 }}>
+              工作区内路径，支持 glob（如 secrets/**、**/*.key）。allow 放行、ask 需审批、deny 直接拒绝；
+              未命中规则的写入仍默认需要审批。
+            </div>
+            <div className="rule-head">
+              <span>路径</span>
+              <span>读</span>
+              <span>写</span>
+              <span>删</span>
+              <span />
+            </div>
+            {draft.sandbox.rules.map((rule, index) => (
+              <div className="rule-row" key={`${rule.pattern}-${index}`}>
+                <input
+                  value={rule.pattern}
+                  onChange={(event) => patchRule(index, { pattern: event.target.value })}
+                  placeholder="secrets/**"
+                  title={rule.note}
+                />
+                {(['read', 'write', 'delete'] as const).map((op) => (
+                  <select
+                    key={op}
+                    value={rule[op]}
+                    onChange={(event) =>
+                      setMode(index, op, event.target.value as PermissionMode)
+                    }
+                  >
+                    <option value="allow">allow</option>
+                    <option value="ask">ask</option>
+                    <option value="deny">deny</option>
+                  </select>
+                ))}
+                <button
+                  className="icon-btn"
+                  onClick={() => removeRule(index)}
+                  title="删除规则"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+            <button className="small-btn" style={{ marginTop: 6 }} onClick={addRule}>
+              <Plus size={12} />
+              添加规则
+            </button>
           </div>
         </div>
 

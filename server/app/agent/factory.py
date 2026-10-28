@@ -3,13 +3,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from deepagents import FilesystemPermission, create_deep_agent
+from deepagents import create_deep_agent
 from deepagents.backends import CompositeBackend, FilesystemBackend
 
-from ..config import GLOBAL_SKILLS_DIR
+from ..config import GLOBAL_SKILLS_DIR, load_settings
 from ..context import ContextBundle, assemble, tool_context
 from ..domains import get_domain
 from ..llm import build_chat_model
+from ..sandbox import compile_permissions
 from .approvals import GATED_TOOLS
 from .checkpointer import get_checkpointer
 from .steering import SteeringMiddleware
@@ -58,11 +59,9 @@ def build_agent(
     skills = _skill_sources(project, domain.skills_subdir)
     # 只读会话没有写工具，无需拦截
     interrupt_on = None if readonly else {name: True for name in GATED_TOOLS}
-    # 通用文件写入（write_file / edit_file / delete）也纳入审批，避免绕过 kb_write 的审核
+    # 路径规则（敏感文件 deny/ask）+ 写入兜底审批，都来自 config.sandbox
     permissions = (
-        None
-        if readonly
-        else [FilesystemPermission(operations=["write"], paths=["/**"], mode="interrupt")]
+        None if readonly else compile_permissions(load_settings().sandbox)
     )
 
     sync_session = (session or {}).get("id", "")

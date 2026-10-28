@@ -2827,3 +2827,39 @@ textarea:focus {
   max-width: 100%;
   border-radius: 6px;
 }
+
+/* ---------- 文件权限规则 ---------- */
+
+.rule-head,
+.rule-row {
+  display: grid;
+  grid-template-columns: 1fr 62px 62px 62px 24px;
+  gap: 6px;
+  align-items: center;
+}
+
+.rule-head {
+  margin-bottom: 4px;
+  padding: 0 2px;
+  font-size: 10.5px;
+  color: var(--faint);
+}
+
+.rule-row {
+  margin-bottom: 4px;
+}
+
+.rule-row input {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+
+.rule-row select {
+  width: 100%;
+  padding: 4px 2px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 10.5px;
+}

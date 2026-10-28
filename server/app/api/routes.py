@@ -58,7 +58,7 @@ def get_config() -> dict[str, Any]:
 def put_config(payload: dict[str, Any]) -> dict[str, Any]:
     settings = load_settings()
     merged = settings.model_dump()
-    for key in ("writer", "extractor", "embedding"):
+    for key in ("writer", "extractor", "embedding", "sandbox"):
         if key in payload and isinstance(payload[key], dict):
             merged[key].update(payload[key])
     save_settings(type(settings).model_validate(merged))
