@@ -52,7 +52,8 @@ CREATE TABLE IF NOT EXISTS approvals (
     payload TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending',
     created_at TEXT NOT NULL,
-    decided_at TEXT
+    decided_at TEXT,
+    decision TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
@@ -66,7 +67,10 @@ _MIGRATIONS = {
         "expert_id": "ALTER TABLE sessions ADD COLUMN expert_id TEXT",
         "domain": "ALTER TABLE sessions ADD COLUMN domain TEXT",
         "permission_mode": "ALTER TABLE sessions ADD COLUMN permission_mode TEXT",
-    }
+    },
+    "approvals": {
+        "decision": "ALTER TABLE approvals ADD COLUMN decision TEXT",
+    },
 }
 
 
@@ -389,12 +393,31 @@ def pending_approval(session_id: str) -> dict[str, Any] | None:
     return _decode_approval(row) if row else None
 
 
-def resolve_approvals(session_id: str, status: str) -> None:
+def approval_bundle(record: dict[str, Any]) -> dict[str, Any]:
+    """把审批记录摊平成 SSE / 前端用的 bundle 形状。"""
+    payload = record.get("payload") or {}
+    return {
+        "approval_id": record["id"],
+        "interrupt_id": record.get("interrupt_id"),
+        "requests": payload.get("requests") or [],
+        "created_at": record["created_at"],
+    }
+
+
+def pending_bundle(session_id: str) -> dict[str, Any] | None:
+    record = pending_approval(session_id)
+    return approval_bundle(record) if record else None
+
+
+def resolve_approvals(
+    session_id: str, status: str, decisions: list[dict[str, Any]] | None = None
+) -> None:
+    payload = json.dumps(decisions, ensure_ascii=False) if decisions else None
     with get_conn() as conn:
         conn.execute(
-            "UPDATE approvals SET status = ?, decided_at = ? "
+            "UPDATE approvals SET status = ?, decided_at = ?, decision = COALESCE(?, decision) "
             "WHERE session_id = ? AND status = 'pending'",
-            (status, now_iso(), session_id),
+            (status, now_iso(), payload, session_id),
         )
 
 
@@ -407,7 +430,26 @@ def approval_history(session_id: str, limit: int = 20) -> list[dict[str, Any]]:
     return [_decode_approval(row) for row in rows]
 
 
+def list_approvals(
+    project_id: str, *, status: str | None = None, limit: int = 50
+) -> list[dict[str, Any]]:
+    sql = (
+        "SELECT a.*, s.title AS session_title FROM approvals a "
+        "JOIN sessions s ON s.id = a.session_id WHERE s.project_id = ?"
+    )
+    params: list[Any] = [project_id]
+    if status and status != "all":
+        sql += " AND a.status = ?"
+        params.append(status)
+    sql += " ORDER BY a.created_at DESC LIMIT ?"
+    params.append(limit)
+    with get_conn() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [_decode_approval(row) for row in rows]
+
+
 def _decode_approval(row: sqlite3.Row) -> dict[str, Any]:
     item = _row_to_dict(row)
     item["payload"] = json.loads(item["payload"]) if item["payload"] else {}
+    item["decision"] = json.loads(item["decision"]) if item.get("decision") else []
     return item

@@ -1,4 +1,15 @@
-import { Brain, Folder, Library, MessageSquare, Plus, Settings, Sparkles, Trash2, Wand2 } from 'lucide-react'
+import {
+  Brain,
+  Folder,
+  Library,
+  MessageSquare,
+  Plus,
+  Settings,
+  ShieldCheck,
+  Sparkles,
+  Trash2,
+  Wand2
+} from 'lucide-react'
 import { useAppStore } from '../store'
 
 export default function LeftSidebar(): React.JSX.Element {
@@ -89,6 +100,13 @@ export default function LeftSidebar(): React.JSX.Element {
         >
           <Brain size={14} />
           <span className="label">记忆</span>
+        </button>
+        <button
+          className={`nav-item ${view === 'approvals' ? 'active' : ''}`}
+          onClick={() => setView('approvals')}
+        >
+          <ShieldCheck size={14} />
+          <span className="label">审批</span>
         </button>
       </div>
 

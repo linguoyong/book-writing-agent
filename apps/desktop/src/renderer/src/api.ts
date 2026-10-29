@@ -1,6 +1,8 @@
 import type {
   AppConfig,
   ApprovalBundle,
+  ApprovalDecision,
+  ApprovalRecord,
   ChunkItem,
   ContextBundle,
   Entity,
@@ -53,6 +55,10 @@ interface SearchOptions {
 
 export const api = {
   listProjects: () => http<Project[]>('/projects'),
+  projectApprovals: (projectId: string, status: string) =>
+    http<ApprovalRecord[]>(
+      `/projects/${projectId}/approvals?status=${encodeURIComponent(status)}&limit=100`
+    ),
   createProject: (body: { name: string; title?: string; author?: string; path?: string }) =>
     http<Project>('/projects', { method: 'POST', body: JSON.stringify(body) }),
   defaultPath: (name: string) =>
@@ -253,7 +259,7 @@ export async function streamChat(
 
 export async function approveChat(
   sessionId: string,
-  decisions: { type: 'approve' | 'reject'; message?: string }[],
+  decisions: ApprovalDecision[],
   handlers: StreamHandlers
 ): Promise<void> {
   let response: Response

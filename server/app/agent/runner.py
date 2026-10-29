@@ -233,7 +233,7 @@ async def approve_stream(
         status = (
             "rejected" if any(item["type"] == "reject" for item in normalized) else "approved"
         )
-        db.resolve_approvals(session_id, status)
+        db.resolve_approvals(session_id, status, normalized)
 
         buffer: list[str] = []
         tool_calls: list[dict[str, Any]] = []
@@ -351,7 +351,15 @@ def _normalize_decisions(decisions: list[dict[str, Any]]) -> list[dict[str, Any]
     result: list[dict[str, Any]] = []
     for item in decisions or []:
         kind = str(item.get("type") or "")
-        if kind not in {"approve", "reject"}:
+        if kind not in {"approve", "reject", "edit"}:
+            continue
+        if kind == "edit":
+            action = item.get("edited_action") or {}
+            name = str(action.get("name") or "")
+            args = action.get("args")
+            if not name or not isinstance(args, dict):
+                continue
+            result.append({"type": "edit", "edited_action": {"name": name, "args": args}})
             continue
         decision: dict[str, Any] = {"type": kind}
         if kind == "reject":

@@ -25,6 +25,8 @@ def build_requests(project: Path, value: dict[str, Any]) -> list[dict[str, Any]]
             {
                 "name": name,
                 "args": _preview_args(args),
+                # 供「编辑后执行」使用：预览会截断长文本，编辑必须拿原文
+                "raw_args": args,
                 "description": action.get("description") or "",
                 "target": target,
                 "diff": diff,

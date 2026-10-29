@@ -175,10 +175,27 @@ export interface MemoryEntry {
 export interface ApprovalRequest {
   name: string
   args: Record<string, unknown>
+  raw_args?: Record<string, unknown>
   description: string
   target: string
   diff: string
   note: string
+}
+
+export type ApprovalDecision =
+  | { type: 'approve' }
+  | { type: 'reject'; message?: string }
+  | { type: 'edit'; edited_action: { name: string; args: Record<string, unknown> } }
+
+export interface ApprovalRecord {
+  id: string
+  session_id: string
+  session_title: string
+  status: 'pending' | 'approved' | 'rejected' | 'expired'
+  created_at: string
+  decided_at: string | null
+  payload: { requests?: ApprovalRequest[] }
+  decision: ApprovalDecision[]
 }
 
 export interface ApprovalBundle {
@@ -223,7 +240,7 @@ export interface ChunkItem {
   source: string
 }
 
-export type AppView = 'chat' | 'experts' | 'skills' | 'knowledge' | 'memory'
+export type AppView = 'chat' | 'experts' | 'skills' | 'knowledge' | 'memory' | 'approvals'
 
 export interface ModelSettings {
   base_url: string

@@ -5,6 +5,7 @@ import type {
   AppConfig,
   AppView,
   ApprovalBundle,
+  ApprovalDecision,
   ContextBundle,
   Entity,
   Expert,
@@ -114,9 +115,7 @@ interface AppState {
   refreshContext: () => Promise<void>
   refreshMemory: () => Promise<void>
   distillMemory: () => Promise<{ ok: boolean; added: number; message?: string }>
-  resolveApproval: (
-    decisions: { type: 'approve' | 'reject'; message?: string }[]
-  ) => Promise<void>
+  resolveApproval: (decisions: ApprovalDecision[]) => Promise<void>
   refreshPending: () => Promise<void>
   addReference: (item: ReferenceItem) => void
   removeReference: (index: number) => void

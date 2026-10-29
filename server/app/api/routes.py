@@ -278,6 +278,8 @@ async def post_chat(req: ChatRequest) -> StreamingResponse:
 class Decision(BaseModel):
     type: str
     message: str | None = None
+    # type=edit 时携带人工修改后的工具名与参数
+    edited_action: dict[str, Any] | None = None
 
 
 class ApproveRequest(BaseModel):
@@ -295,11 +297,19 @@ async def post_approve(req: ApproveRequest) -> StreamingResponse:
     )
 
 
+@router.get("/projects/{project_id}/approvals")
+def get_project_approvals(
+    project_id: str, status: str = "all", limit: int = 50
+) -> list[dict[str, Any]]:
+    _require_project(project_id)
+    return db.list_approvals(project_id, status=status, limit=limit)
+
+
 @router.get("/sessions/{session_id}/pending")
 def get_pending(session_id: str) -> dict[str, Any]:
     if not db.get_session(session_id):
         raise HTTPException(status_code=404, detail="会话不存在")
-    return {"approval": db.pending_approval(session_id)}
+    return {"approval": db.pending_bundle(session_id)}
 
 
 class SteerRequest(BaseModel):
