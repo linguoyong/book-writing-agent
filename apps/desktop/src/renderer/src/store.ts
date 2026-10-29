@@ -280,9 +280,13 @@ export const useAppStore = create<AppState>((set, get) => {
         if (projects.length > 0) await get().selectProject(projects[0].id)
         void get().refreshSpaceSummaries()
         return
-      } catch {
+      } catch (error) {
         if (attempt === 14) {
-          set({ ready: true, error: '无法连接本地后端，请确认服务已启动后刷新' })
+          const message = (error as Error).message
+          set({
+            ready: true,
+            error: message || '无法连接本地后端，请确认服务已启动后刷新'
+          })
           return
         }
         await new Promise((resolve) => setTimeout(resolve, 800))

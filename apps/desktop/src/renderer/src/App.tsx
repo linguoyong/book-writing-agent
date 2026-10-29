@@ -35,7 +35,7 @@ export default function App(): React.JSX.Element {
     const init = async (): Promise<void> => {
       try {
         const info = await window.desktop?.backendInfo?.()
-        if (info?.port) setApiBase(info.port)
+        if (info?.port) setApiBase(info.port, info.token ?? '')
         if (info?.error) setBootError(info.error)
       } catch {
         /* 浏览器预览没有 preload，沿用默认端口 */

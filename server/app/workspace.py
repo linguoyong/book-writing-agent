@@ -123,8 +123,14 @@ def git_diff(path: Path) -> str:
 
 
 def safe_join(root: Path, relative: str) -> Path:
-    candidate = (root / relative).resolve()
-    if not str(candidate).startswith(str(root.resolve())):
+    """把工作区相对路径解析成绝对路径，越界（含兄弟目录前缀伪装）一律拒绝。
+
+    不能用字符串 startswith：`/books/proj` 与 `/books/proj-evil` 前缀相同，
+    拼接 `../proj-evil/x` 后会绕过检查。这里按路径层级判断，并已解析符号链接。
+    """
+    base = root.resolve()
+    candidate = (base / relative).resolve()
+    if candidate != base and base not in candidate.parents:
         raise ValueError("路径越界")
     return candidate
 

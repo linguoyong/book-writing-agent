@@ -142,6 +142,9 @@ export default function SettingsModal(): React.JSX.Element | null {
                     value={draft.embedding.api_key}
                     onChange={(event) => setEmbedding({ api_key: event.target.value })}
                   />
+                  {draft.embedding.api_key === '***' && (
+                    <div className="field-hint">已配置（显示为 ***），不改动即保留；清空后保存则删除。</div>
+                  )}
                 </div>
                 <div className="field" style={{ marginTop: 8 }}>
                   <label>模型名</label>
@@ -441,6 +444,9 @@ function ModelSection({
           value={settings.api_key}
           onChange={(event) => onChange({ api_key: event.target.value })}
         />
+        {settings.api_key === '***' && (
+          <div className="field-hint">已配置（显示为 ***），不改动即保留；清空后保存则删除。</div>
+        )}
       </div>
       <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
         <div className="field" style={{ flex: 2 }}>

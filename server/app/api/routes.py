@@ -45,6 +45,19 @@ router = APIRouter()
 TREE_ROOTS = ("manuscript", "chapters", "kb")
 HIDDEN_PARTS = {".git", ".index", "node_modules", "__pycache__"}
 
+# GET /config 不返回明文密钥；PUT 时收到该占位符表示「保留原值」，
+# 收到空串表示「清除」。前端密码框因此可以安全地显示 ***。
+MASKED_KEY = "***"
+SECRET_ROLES = ("writer", "extractor", "embedding")
+
+
+def _mask_secrets(data: dict[str, Any]) -> dict[str, Any]:
+    for role in SECRET_ROLES:
+        section = data.get(role)
+        if isinstance(section, dict):
+            section["api_key"] = MASKED_KEY if section.get("api_key") else ""
+    return data
+
 
 # ---------------------------------------------------------------- 配置
 
@@ -56,7 +69,7 @@ def health() -> dict[str, str]:
 
 @router.get("/config")
 def get_config() -> dict[str, Any]:
-    return load_settings().model_dump()
+    return _mask_secrets(load_settings().model_dump())
 
 
 @router.put("/config")
@@ -65,14 +78,17 @@ def put_config(payload: dict[str, Any]) -> dict[str, Any]:
     merged = settings.model_dump()
     for key in ("writer", "extractor", "embedding", "sandbox"):
         if key in payload and isinstance(payload[key], dict):
-            merged[key].update(payload[key])
+            patch = dict(payload[key])
+            if patch.get("api_key") == MASKED_KEY:
+                patch.pop("api_key", None)
+            merged[key].update(patch)
     if isinstance(payload.get("mcp"), list):
         merged["mcp"] = payload["mcp"]
     for role in ("writer", "extractor"):
         if merged.get(role, {}).get("context_window"):
             merged[role]["context_window"] = normalize_window(merged[role]["context_window"])
     save_settings(type(settings).model_validate(merged))
-    return load_settings().model_dump()
+    return _mask_secrets(load_settings().model_dump())
 
 
 # ---------------------------------------------------------------- 项目

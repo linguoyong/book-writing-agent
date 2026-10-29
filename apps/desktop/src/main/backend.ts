@@ -1,5 +1,6 @@
 import { app } from 'electron'
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import net from 'node:net'
@@ -9,12 +10,16 @@ import { join } from 'node:path'
 export interface BackendInfo {
   port: number
   ready: boolean
+  /** 本地 API 访问令牌：只经 IPC 下发给渲染进程，不落盘、不暴露给网页 */
+  token: string
   error?: string
 }
 
 const PREFERRED_PORT = 8787
+// 每次启动生成新令牌；后端重启沿用同一个（spawn 的 env 不变）
+const TOKEN = randomBytes(24).toString('hex')
 let child: ChildProcess | null = null
-let info: BackendInfo = { port: 0, ready: false }
+let info: BackendInfo = { port: 0, ready: false, token: TOKEN }
 let quitting = false
 let starting = false
 let restarts = 0
@@ -129,18 +134,23 @@ export async function startBackend(): Promise<BackendInfo> {
     await killStale()
     const dir = serverDir()
     if (!dir) {
-      info = { port: 0, ready: false, error: '找不到后端目录（server/app/main.py）' }
+      info = { port: 0, ready: false, token: TOKEN, error: '找不到后端目录（server/app/main.py）' }
       return info
     }
     const port = (await canListen(PREFERRED_PORT)) ? PREFERRED_PORT : await freePort()
-    info = { port, ready: false }
+    info = { port, ready: false, token: TOKEN }
     const python = pythonPath(dir)
     child = spawn(
       python,
       ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', String(port)],
       {
         cwd: dir,
-        env: { ...process.env, PYTHONUNBUFFERED: '1', BOOK_AGENT_PORT: String(port) },
+        env: {
+          ...process.env,
+          PYTHONUNBUFFERED: '1',
+          BOOK_AGENT_PORT: String(port),
+          BOOK_AGENT_TOKEN: TOKEN
+        },
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe']
       }
@@ -155,7 +165,7 @@ export async function startBackend(): Promise<BackendInfo> {
       }
     }
     child.on('error', (error) => {
-      info = { port, ready: false, error: `后端启动失败：${error.message}` }
+      info = { port, ready: false, token: TOKEN, error: `后端启动失败：${error.message}` }
     })
     child.on('exit', (code) => {
       child = null
@@ -167,17 +177,22 @@ export async function startBackend(): Promise<BackendInfo> {
       if (quitting) return
       if (restarts < 3) {
         restarts += 1
-        info = { port, ready: false, error: `后端退出，正在重启（${restarts}/3）` }
+        info = {
+          port,
+          ready: false,
+          token: TOKEN,
+          error: `后端退出，正在重启（${restarts}/3）`
+        }
         setTimeout(() => void startBackend(), 1000)
       } else {
-        info = { port, ready: false, error: `后端已退出（code ${code ?? '-'}）` }
+        info = { port, ready: false, token: TOKEN, error: `后端已退出（code ${code ?? '-'}）` }
       }
     })
 
     const ok = await waitHealthy(port)
     info = ok
-      ? { port, ready: true }
-      : { port, ready: false, error: '后端启动超时，请检查 Python 依赖' }
+      ? { port, ready: true, token: TOKEN }
+      : { port, ready: false, token: TOKEN, error: '后端启动超时，请检查 Python 依赖' }
     return info
   } finally {
     starting = false

@@ -26,9 +26,16 @@ import type {
 } from './types'
 
 let API_BASE = 'http://127.0.0.1:8787/api'
+let API_TOKEN = ''
 
-export function setApiBase(port: number): void {
+export function setApiBase(port: number, token = ''): void {
   API_BASE = `http://127.0.0.1:${port}/api`
+  API_TOKEN = token
+}
+
+/** 本地后端的访问令牌：由 Electron 主进程生成，经 IPC 下发，不写入磁盘 */
+function authHeaders(): Record<string, string> {
+  return API_TOKEN ? { 'X-Book-Agent-Token': API_TOKEN } : {}
 }
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
@@ -36,12 +43,23 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...authHeaders(),
       ...(init?.headers ?? {})
     }
   })
   if (!response.ok) {
-    const detail = await response.text()
-    throw new Error(detail || `请求失败：${response.status}`)
+    const text = await response.text()
+    let message = text
+    try {
+      const parsed = JSON.parse(text) as { detail?: unknown }
+      if (typeof parsed.detail === 'string') message = parsed.detail
+    } catch {
+      /* 非 JSON 错误体，沿用原文 */
+    }
+    if (response.status === 401) {
+      message = '本地后端拒绝了请求：缺少访问令牌，请从桌面应用启动'
+    }
+    throw new Error(message || `请求失败：${response.status}`)
   }
   return (await response.json()) as T
 }
@@ -239,7 +257,7 @@ export async function streamChat(
   try {
     response = await fetch(`${API_BASE}/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({
         session_id: sessionId,
         message,
@@ -271,7 +289,7 @@ export async function approveChat(
   try {
     response = await fetch(`${API_BASE}/chat/approve`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({ session_id: sessionId, decisions })
     })
   } catch (error) {

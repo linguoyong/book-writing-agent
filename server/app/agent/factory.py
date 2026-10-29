@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from deepagents import create_deep_agent
+from deepagents import FilesystemPermission, create_deep_agent
 from deepagents.backends import CompositeBackend, FilesystemBackend
 
 from ..config import GLOBAL_SKILLS_DIR, load_settings
@@ -66,7 +66,16 @@ def build_agent(
     mode = (session or {}).get("permission_mode") or settings.sandbox.default_mode
     # 审批模式下，写工具与通用文件写入都要人工确认；完全访问模式跳过审批，但规则 deny 仍生效
     interrupt_on = None if readonly or mode == "auto" else {name: True for name in GATED_TOOLS}
-    permissions = None if readonly else compile_permissions(settings.sandbox, mode=mode)
+    if readonly:
+        # 侧问是只读会话：权限栈最前面兜一条全盘写 deny。
+        # deepagents 内置的 write_file / edit_file / delete 不受自研工具集约束，
+        # 只传 permissions=None 等于全放行；这里连规则里的 deny（.env、私钥）一起保留。
+        permissions = [
+            FilesystemPermission(operations=["write"], paths=["/**"], mode="deny"),
+            *compile_permissions(settings.sandbox, mode="auto"),
+        ]
+    else:
+        permissions = compile_permissions(settings.sandbox, mode=mode)
 
     sync_session = (session or {}).get("id", "")
     model = build_chat_model("writer")

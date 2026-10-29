@@ -10,6 +10,7 @@ from .agent.checkpointer import close_checkpointer, init_checkpointer
 from .api.routes import router
 from .config import load_settings
 from .db import init_db
+from .security import AuthMiddleware
 
 
 @asynccontextmanager
@@ -25,11 +26,16 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="Book Writing Agent", version="0.1.0", lifespan=lifespan)
 
+# 先加鉴权，再加 CORS：后添加的中间件在更外层，401 响应也会带上 CORS 头。
+app.add_middleware(AuthMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
-    # 服务只绑定 127.0.0.1；Electron 以 file:// 加载页面，Origin 为 null，
-    # 因此这里放开来源，靠 loopback 绑定与本地权限规则做边界。
-    allow_origins=["*"],
+    # 服务只绑定 127.0.0.1，但 loopback 对浏览器是可达的：
+    # 这里只放行桌面壳（file:// → Origin: null）与本地开发服务器，
+    # 真正的边界是上面的令牌校验。
+    allow_origins=["null"],
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
