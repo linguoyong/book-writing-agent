@@ -220,9 +220,13 @@ export const api = {
   tree: (projectId: string) => http<TreeNode[]>(`/projects/${projectId}/tree`),
   skills: (projectId: string) => http<Skill[]>(`/projects/${projectId}/skills`),
   readFile: (projectId: string, path: string) =>
-    http<{ path: string; content: string }>(
-      `/projects/${projectId}/file?path=${encodeURIComponent(path)}`
-    ),
+    http<{
+      path: string
+      kind: 'text' | 'image' | 'binary'
+      content?: string
+      data_url?: string
+      size?: number
+    }>(`/projects/${projectId}/file?path=${encodeURIComponent(path)}`),
   writeFile: (projectId: string, path: string, content: string) =>
     http<{ ok: boolean }>(`/projects/${projectId}/file`, {
       method: 'PUT',

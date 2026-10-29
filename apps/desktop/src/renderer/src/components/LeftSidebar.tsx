@@ -4,7 +4,6 @@ import {
   Library,
   MessageSquare,
   Plus,
-  Settings,
   ShieldCheck,
   Sparkles,
   Stethoscope,
@@ -18,7 +17,6 @@ export default function LeftSidebar(): React.JSX.Element {
   const activeProject = useAppStore((state) => state.activeProject)
   const sessions = useAppStore((state) => state.sessions)
   const activeSessionId = useAppStore((state) => state.activeSessionId)
-  const overview = useAppStore((state) => state.overview)
   const spaceSummaries = useAppStore((state) => state.spaceSummaries)
   const view = useAppStore((state) => state.view)
   const leftWidth = useAppStore((state) => state.leftWidth)
@@ -28,13 +26,9 @@ export default function LeftSidebar(): React.JSX.Element {
   const selectSession = useAppStore((state) => state.selectSession)
   const removeSession = useAppStore((state) => state.removeSession)
   const setProjectModalOpen = useAppStore((state) => state.setProjectModalOpen)
-  const setSettingsOpen = useAppStore((state) => state.setSettingsOpen)
   const setView = useAppStore((state) => state.setView)
 
   const visibleSessions = sessions.filter((session) => session.kind !== 'side')
-  const kbCount = overview
-    ? Object.values(overview.kb_counts).reduce((total, count) => total + count, 0)
-    : 0
 
   const startResize = (event: React.MouseEvent): void => {
     event.preventDefault()
@@ -93,7 +87,6 @@ export default function LeftSidebar(): React.JSX.Element {
         >
           <Library size={14} />
           <span className="label">知识库</span>
-          <span className="hint">{kbCount}</span>
         </button>
         <button
           className={`nav-item ${view === 'memory' ? 'active' : ''}`}
@@ -122,10 +115,9 @@ export default function LeftSidebar(): React.JSX.Element {
         <section>
           <div className="left-section-title">
             <span>空间</span>
-            <span className="hint">{projects.length}</span>
             <button
               className="icon-btn"
-              style={{ width: 20, height: 20 }}
+              style={{ width: 20, height: 20, marginLeft: 'auto' }}
               onClick={() => setProjectModalOpen(true)}
               title="新建或打开空间"
             >
@@ -146,7 +138,6 @@ export default function LeftSidebar(): React.JSX.Element {
                   <span className="label">{project.name}</span>
                   <span className="space-sub">{summary?.last || '暂无会话'}</span>
                 </div>
-                <span className="space-count">{summary?.count ?? 0}</span>
               </div>
             )
           })}
@@ -155,7 +146,6 @@ export default function LeftSidebar(): React.JSX.Element {
         <section>
           <div className="left-section-title">
             <span>会话</span>
-            <span className="hint">{visibleSessions.length}</span>
           </div>
           {visibleSessions.length === 0 && (
             <div style={{ padding: '4px 10px 10px', color: 'var(--faint)', fontSize: 12 }}>
@@ -188,16 +178,6 @@ export default function LeftSidebar(): React.JSX.Element {
             </div>
           ))}
         </section>
-      </div>
-
-      <div className="left-footer">
-        <button className="small-btn" onClick={() => setSettingsOpen(true)}>
-          <Settings size={12} />
-          模型设置
-        </button>
-        <span style={{ fontSize: 11, color: 'var(--faint)', marginLeft: 'auto' }}>
-          {overview?.index?.chunks ?? 0} 块索引
-        </span>
       </div>
 
       <div className="resize-handle" onMouseDown={startResize} />

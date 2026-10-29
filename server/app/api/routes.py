@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import shutil
 from pathlib import Path
 from typing import Any, Literal
@@ -805,6 +806,22 @@ def get_tree(project_id: str) -> list[dict[str, Any]]:
     return [_tree_node(root, root, git_map, budget)]
 
 
+IMAGE_MIME = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+    ".bmp": "image/bmp",
+    ".svg": "image/svg+xml",
+}
+BINARY_EXT = {
+    ".pdf", ".zip", ".gz", ".7z", ".rar", ".exe", ".dll", ".so", ".dylib",
+    ".woff", ".woff2", ".ttf", ".otf", ".ico", ".mp3", ".mp4", ".wav", ".webm",
+}
+MAX_INLINE_IMAGE = 12 * 1024 * 1024
+
+
 @router.get("/projects/{project_id}/file")
 def read_file(project_id: str, path: str) -> dict[str, Any]:
     project = _require_project(project_id)
@@ -812,7 +829,21 @@ def read_file(project_id: str, path: str) -> dict[str, Any]:
     target = _resolve_workspace_file(root, path, "read")
     if not target.exists() or target.is_dir():
         raise HTTPException(status_code=404, detail="文件不存在")
-    return {"path": path, "content": read_text(target)}
+
+    suffix = target.suffix.lower()
+    size = target.stat().st_size
+    if suffix in IMAGE_MIME and size <= MAX_INLINE_IMAGE:
+        encoded = base64.b64encode(target.read_bytes()).decode("ascii")
+        return {
+            "path": path,
+            "kind": "image",
+            "mime": IMAGE_MIME[suffix],
+            "data_url": f"data:{IMAGE_MIME[suffix]};base64,{encoded}",
+            "size": size,
+        }
+    if suffix in BINARY_EXT or suffix in IMAGE_MIME:
+        return {"path": path, "kind": "binary", "size": size}
+    return {"path": path, "kind": "text", "content": read_text(target), "size": size}
 
 
 class WriteFileRequest(BaseModel):
@@ -972,6 +1003,8 @@ def _tree_node(
                     break
                 children.append(_tree_node(root, child, git_map, budget))
         node["children"] = children
+        # 目录本身不跟踪状态，但内部有改动时给一个聚合标记，前端画小圆点
+        node["git"] = "modified" if any(child.get("git") for child in children) else ""
     else:
         node["git"] = git_map.get(relative, "")
     return node

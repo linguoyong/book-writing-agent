@@ -26,6 +26,9 @@ export interface OpenFile {
   path: string
   content: string
   dirty: boolean
+  kind: 'text' | 'image' | 'binary'
+  dataUrl?: string
+  size?: number
 }
 
 type RightTab = 'kb' | 'files' | 'diff' | 'side' | 'context'
@@ -614,7 +617,14 @@ export const useAppStore = create<AppState>((set, get) => {
     try {
       const file = await api.readFile(project.id, path)
       set({
-        openFile: { path: file.path, content: file.content, dirty: false },
+        openFile: {
+          path: file.path,
+          content: file.content ?? '',
+          dirty: false,
+          kind: file.kind,
+          dataUrl: file.data_url,
+          size: file.size
+        },
         rightTab: 'files',
         rightCollapsed: false
       })

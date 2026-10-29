@@ -32,12 +32,15 @@ export default function FileViewer({
   const setRightTab = useAppStore((state) => state.setRightTab)
 
   const [mode, setMode] = useState<'preview' | 'source'>('preview')
-  const isMarkdown = Boolean(openFile?.path.toLowerCase().endsWith('.md'))
+  const isText = !openFile || openFile.kind === 'text'
+  const isMarkdown =
+    isText && Boolean(openFile?.path.toLowerCase().endsWith('.md'))
 
   useEffect(() => {
-    const markdownFile = Boolean(openFile?.path.toLowerCase().endsWith('.md'))
+    const markdownFile =
+      openFile?.kind === 'text' && openFile.path.toLowerCase().endsWith('.md')
     setMode(markdownFile ? 'preview' : 'source')
-  }, [openFile?.path])
+  }, [openFile?.path, openFile?.kind])
 
   useEffect(() => {
     const handler = (event: KeyboardEvent): void => {
@@ -147,7 +150,20 @@ export default function FileViewer({
 
       <div className="fv-body">
         {openFile ? (
-          mode === 'preview' && isMarkdown ? (
+          openFile.kind === 'image' && openFile.dataUrl ? (
+            <div className="fv-image">
+              <img src={openFile.dataUrl} alt={openFile.path} />
+            </div>
+          ) : openFile.kind === 'binary' ? (
+            <div className="editor-empty">
+              <div>该文件不支持预览</div>
+              <div className="fv-size">{formatSize(openFile.size)}</div>
+              <button className="small-btn" onClick={reveal}>
+                <FolderOpen size={13} />
+                在文件夹中打开
+              </button>
+            </div>
+          ) : mode === 'preview' && isMarkdown ? (
             <div className="fv-preview">
               <Markdown content={openFile.content} />
             </div>
@@ -181,4 +197,11 @@ export default function FileViewer({
       </div>
     </section>
   )
+}
+
+function formatSize(size?: number): string {
+  if (!size) return ''
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / 1024 / 1024).toFixed(1)} MB`
 }

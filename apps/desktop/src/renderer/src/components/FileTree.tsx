@@ -2,11 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import {
   ChevronDown,
   ChevronRight,
+  FilePlus2,
   FileText,
   Folder,
   FolderOpen,
-  Minus,
-  Plus,
   Search
 } from 'lucide-react'
 import { api } from '../api'
@@ -152,11 +151,19 @@ export default function FileTree(): React.JSX.Element {
             onChange={(event) => setQuery(event.target.value)}
           />
         </div>
+        <button
+          className="ft-icon"
+          onClick={() => tree[0] && void create(tree[0], 'file')}
+          disabled={!tree.length}
+          title="新建文件"
+        >
+          <FilePlus2 size={12} />
+        </button>
         <button className="ft-icon" onClick={expandAll} title="全部展开">
-          <Plus size={12} />
+          <ChevronDown size={12} />
         </button>
         <button className="ft-icon" onClick={collapseAll} title="全部收起">
-          <Minus size={12} />
+          <ChevronRight size={12} />
         </button>
       </div>
 
@@ -248,11 +255,14 @@ function TreeNodeRow({
           </>
         )}
         <span className="ft-name">{node.name}</span>
-        {node.git && (
-          <span className={`ft-git ${node.git}`} title={`git: ${node.git}`}>
-            {GIT_LABEL[node.git] ?? '•'}
-          </span>
-        )}
+        {node.git &&
+          (isDir ? (
+            <span className="ft-dot" title="目录内有改动" />
+          ) : (
+            <span className={`ft-git ${node.git}`} title={`git: ${node.git}`}>
+              {GIT_LABEL[node.git] ?? '•'}
+            </span>
+          ))}
       </div>
       {open &&
         node.children?.map((child) => (

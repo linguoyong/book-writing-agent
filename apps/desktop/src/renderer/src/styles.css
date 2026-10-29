@@ -828,6 +828,106 @@ textarea:focus {
   padding-right: 6px;
 }
 
+.expert-wrap {
+  position: relative;
+}
+
+.expert-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+}
+
+.expert-pop {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 31;
+  display: flex;
+  flex-direction: column;
+  width: 312px;
+  max-height: 380px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-input);
+  box-shadow: var(--shadow);
+}
+
+.expert-pop-title {
+  padding: 2px 6px 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.expert-pop-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.expert-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border-radius: 8px;
+  color: var(--text);
+  text-align: left;
+}
+
+.expert-option:hover,
+.expert-option.active {
+  background: var(--bg-elev);
+}
+
+.expert-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: var(--bg-selected);
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.expert-option-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.expert-option-name {
+  font-size: 12px;
+}
+
+.expert-option-desc {
+  overflow: hidden;
+  font-size: 10.5px;
+  color: var(--faint);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.expert-manage {
+  margin-top: 4px;
+  padding: 7px 8px 4px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+  text-align: left;
+}
+
+.expert-manage:hover {
+  color: var(--accent);
+}
+
 .expert-selector {
   display: inline-flex;
   align-items: center;
@@ -3005,7 +3105,7 @@ textarea:focus {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  max-width: 136px;
+  max-width: 176px;
   padding: 3px 8px;
   border: 1px solid transparent;
   border-radius: 6px;
@@ -3134,11 +3234,10 @@ textarea:focus {
 
 .toast {
   position: fixed;
-  left: 50%;
-  bottom: 26px;
-  transform: translateX(-50%);
+  top: 52px;
+  right: 24px;
   z-index: 95;
-  max-width: 560px;
+  max-width: 420px;
   padding: 10px 16px;
   border-radius: 10px;
   background: #12261a;
@@ -3963,6 +4062,30 @@ textarea:focus {
   font-size: 13px;
 }
 
+.fv-image {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 16px;
+  background: repeating-conic-gradient(var(--bg-elev) 0% 25%, transparent 0% 50%) 50% / 16px
+    16px;
+}
+
+.fv-image img {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 6px;
+  object-fit: contain;
+  box-shadow: var(--shadow);
+}
+
+.fv-size {
+  font-size: 11px;
+  color: var(--faint);
+}
+
 /* 文件树 */
 
 .file-tree-panel {
@@ -4018,6 +4141,20 @@ textarea:focus {
 
 .ft-icon:hover {
   background: var(--bg-hover);
+}
+
+.ft-icon:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.ft-dot {
+  width: 5px;
+  height: 5px;
+  flex-shrink: 0;
+  margin-right: 2px;
+  border-radius: 50%;
+  background: #b45309;
 }
 
 .ft-scroll {

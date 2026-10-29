@@ -44,7 +44,15 @@ export default function SidePanel(): React.JSX.Element {
     let sid = sessionId
     if (!sid) {
       try {
-        const session = await api.createSession(project.id, { title: '侧问', kind: 'side' })
+        const state = useAppStore.getState()
+        const mainModel = state.sessions.find(
+          (item) => item.id === state.activeSessionId
+        )?.model_id
+        const session = await api.createSession(project.id, {
+          title: '侧问',
+          kind: 'side',
+          modelId: mainModel ?? undefined
+        })
         sid = session.id
         setSessionId(sid)
       } catch (error) {

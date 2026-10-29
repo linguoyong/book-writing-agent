@@ -2,7 +2,6 @@ import { Minus, PanelLeft, PanelRight, Settings, Square, X } from 'lucide-react'
 import { useAppStore } from '../store'
 
 export default function TitleBar(): React.JSX.Element {
-  const project = useAppStore((state) => state.activeProject)
   const leftCollapsed = useAppStore((state) => state.leftCollapsed)
   const rightCollapsed = useAppStore((state) => state.rightCollapsed)
   const toggleLeft = useAppStore((state) => state.toggleLeft)
@@ -23,10 +22,6 @@ export default function TitleBar(): React.JSX.Element {
         <span className="brand-mark" />
         墨阑
       </div>
-
-      <span className="project-name">
-        {project ? `《${project.meta?.title || project.name}》` : '未打开项目'}
-      </span>
 
       <div className="spacer" />
 

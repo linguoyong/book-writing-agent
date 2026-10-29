@@ -47,8 +47,6 @@ export default function ChatPane(): React.JSX.Element {
   const sendMessage = useAppStore((state) => state.sendMessage)
   const steerMessage = useAppStore((state) => state.steerMessage)
   const stopStreaming = useAppStore((state) => state.stopStreaming)
-  const currentExpertId = useAppStore((state) => state.currentExpertId)
-  const experts = useAppStore((state) => state.experts)
   const builder = useAppStore((state) => state.builder)
   const setBuilder = useAppStore((state) => state.setBuilder)
   const setView = useAppStore((state) => state.setView)
@@ -59,7 +57,6 @@ export default function ChatPane(): React.JSX.Element {
   const pendingComposer = useAppStore((state) => state.pendingComposer)
   const setPendingComposer = useAppStore((state) => state.setPendingComposer)
 
-  const expert = experts.find((item) => item.id === currentExpertId)
   const project = useAppStore((state) => state.activeProject)
   const approval = useAppStore((state) => state.approval)
   const resolveApproval = useAppStore((state) => state.resolveApproval)
@@ -283,19 +280,15 @@ export default function ChatPane(): React.JSX.Element {
               }}
             />
             <div className="composer-actions">
-              <button className="expert-selector" onClick={() => setView('experts')}>
-                <Sparkles size={12} />
-                专家 · {expert?.name ?? '通用'}
-                <ChevronDown size={11} />
-              </button>
+              <ExpertPicker />
               <PermissionPicker />
               <ModelPicker />
               <span className="composer-hint">
                 {approval
                   ? '先处理待审批的写入'
                   : streaming
-                    ? '执行中 · 发送将作为引导，不打断当前任务'
-                    : 'Enter 发送 · Shift+Enter 换行 · @ 引用'}
+                    ? '执行中 · 发送将作为引导'
+                    : ''}
               </span>
               {streaming && (
                 <button
@@ -310,7 +303,11 @@ export default function ChatPane(): React.JSX.Element {
                 className="send-btn"
                 onClick={submit}
                 disabled={!input.trim() || !!approval}
-                title={streaming ? '发送引导（不打断当前任务）' : '发送'}
+                title={
+                  streaming
+                    ? '发送引导（Enter）· 不打断当前任务'
+                    : '发送（Enter）· Shift+Enter 换行 · @ 引用'
+                }
               >
                 <ArrowUp size={15} />
               </button>
@@ -536,6 +533,68 @@ function PermissionPicker(): React.JSX.Element {
   )
 }
 
+function middleEllipsis(text: string, head = 13, tail = 5): string {
+  if (text.length <= head + tail + 1) return text
+  return `${text.slice(0, head)}…${text.slice(-tail)}`
+}
+
+function ExpertPicker(): React.JSX.Element {
+  const experts = useAppStore((state) => state.experts)
+  const currentExpertId = useAppStore((state) => state.currentExpertId)
+  const setExpert = useAppStore((state) => state.setExpert)
+  const setView = useAppStore((state) => state.setView)
+  const [open, setOpen] = useState(false)
+
+  const current = experts.find((item) => item.id === currentExpertId)
+
+  return (
+    <div className="expert-wrap">
+      {open && (
+        <>
+          <div className="expert-mask" onClick={() => setOpen(false)} />
+          <div className="expert-pop">
+            <div className="expert-pop-title">选择专家</div>
+            <div className="expert-pop-list">
+              {experts.map((item) => (
+                <button
+                  key={item.id}
+                  className={`expert-option ${item.id === currentExpertId ? 'active' : ''}`}
+                  onClick={() => {
+                    setExpert(item.id)
+                    setOpen(false)
+                  }}
+                >
+                  <span className="expert-avatar">{item.avatar || item.name.slice(0, 1)}</span>
+                  <span className="expert-option-text">
+                    <span className="expert-option-name">{item.name}</span>
+                    <span className="expert-option-desc">{item.description}</span>
+                  </span>
+                  {item.id === currentExpertId && <Check size={12} />}
+                </button>
+              ))}
+              {experts.length === 0 && <div className="panel-empty">还没有专家</div>}
+            </div>
+            <button
+              className="expert-manage"
+              onClick={() => {
+                setOpen(false)
+                setView('experts')
+              }}
+            >
+              管理专家 →
+            </button>
+          </div>
+        </>
+      )}
+      <button className="expert-selector" onClick={() => setOpen((value) => !value)}>
+        <Sparkles size={12} />
+        专家 · {current?.name ?? '通用'}
+        <ChevronDown size={11} />
+      </button>
+    </div>
+  )
+}
+
 function formatWindow(value: number): string {
   if (value >= 1_000_000) {
     const millions = value / 1_000_000
@@ -586,10 +645,12 @@ function ModelPicker(): React.JSX.Element {
       <button
         className="model-trigger"
         onClick={() => setOpen((value) => !value)}
-        title="切换模型（当前会话）"
+        title={`切换模型（当前会话）\n${current.name || current.model} · ${current.model} · ${formatWindow(
+          current.context_window
+        )}`}
       >
         <Cpu size={12} />
-        {current.name || current.model}
+        {middleEllipsis(current.name || current.model, 13, 5)}
         <ChevronDown size={10} />
       </button>
     </div>
