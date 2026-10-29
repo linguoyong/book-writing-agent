@@ -111,7 +111,7 @@ export default function SidePanel(): React.JSX.Element {
         setStreaming(false)
         setItems(settleItems)
       }
-    }, controller.signal)
+    }, controller.signal, useAppStore.getState().activeSessionId ?? undefined)
   }
 
   return (

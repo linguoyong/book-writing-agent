@@ -7,6 +7,7 @@ import type {
   EmbeddingSettings,
   McpServerSettings,
   McpServerStatus,
+  ModelProfile,
   ModelSettings,
   PathRule,
   RuleMode,
@@ -39,12 +40,44 @@ export default function SettingsModal(): React.JSX.Element | null {
 
   if (!draft) return null
 
-  const setWriter = (patch: Partial<ModelSettings>): void =>
-    setDraft({ ...draft, writer: { ...draft.writer, ...patch } })
   const setExtractor = (patch: Partial<ModelSettings>): void =>
     setDraft({ ...draft, extractor: { ...draft.extractor, ...patch } })
   const setEmbedding = (patch: Partial<EmbeddingSettings>): void =>
     setDraft({ ...draft, embedding: { ...draft.embedding, ...patch } })
+
+  const patchModel = (index: number, patch: Partial<ModelProfile>): void =>
+    setDraft({
+      ...draft,
+      models: draft.models.map((item, i) => (i === index ? { ...item, ...patch } : item))
+    })
+  const addModel = (): void =>
+    setDraft({
+      ...draft,
+      models: [
+        ...draft.models,
+        {
+          id: `model-${Date.now().toString(36)}`,
+          name: '新模型',
+          base_url: '',
+          api_key: '',
+          model: '',
+          context_window: 1_000_000,
+          max_output_tokens: 64_000,
+          temperature: 0.7
+        }
+      ]
+    })
+  const removeModel = (index: number): void => {
+    if (draft.models.length <= 1) return
+    const removed = draft.models[index]
+    const models = draft.models.filter((_, i) => i !== index)
+    setDraft({
+      ...draft,
+      models,
+      active_model_id:
+        draft.active_model_id === removed.id ? models[0].id : draft.active_model_id
+    })
+  }
 
   const setRules = (rules: PathRule[]): void =>
     setDraft({ ...draft, sandbox: { ...draft.sandbox, rules } })
@@ -97,13 +130,106 @@ export default function SettingsModal(): React.JSX.Element | null {
         </div>
 
         <div className="modal-body">
-          <ModelSection
-            title="写作模型"
-            hint="用于对话、续写与设定审校"
-            settings={draft.writer}
-            onChange={setWriter}
-            withCompaction
-          />
+          <div>
+            <div style={{ fontSize: 12.5 }}>模型</div>
+            <div style={{ fontSize: 11, color: 'var(--faint)', margin: '2px 0 8px', lineHeight: 1.6 }}>
+              可添加任意 OpenAI 兼容来源。对话按会话选择模型，新会话用标「默认」的那个；
+              上下文与输出长度用于装配/压缩预算，实际上限由服务端模型决定。
+            </div>
+            {draft.models.map((item, index) => (
+              <div className="model-card" key={item.id}>
+                <div className="model-card-head">
+                  <input
+                    className="model-card-name"
+                    value={item.name}
+                    placeholder="显示名称，例如 DeepSeek V4"
+                    onChange={(event) => patchModel(index, { name: event.target.value })}
+                  />
+                  <label className="model-default">
+                    <input
+                      type="radio"
+                      name="default-model"
+                      checked={draft.active_model_id === item.id}
+                      onChange={() => setDraft({ ...draft, active_model_id: item.id })}
+                    />
+                    默认
+                  </label>
+                  <button
+                    className="icon-btn"
+                    onClick={() => removeModel(index)}
+                    disabled={draft.models.length <= 1}
+                    title="删除模型"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+                <div className="model-grid">
+                  <label className="model-field">
+                    <span>Base URL</span>
+                    <input
+                      value={item.base_url}
+                      placeholder="https://api.deepseek.com/v1"
+                      onChange={(event) => patchModel(index, { base_url: event.target.value })}
+                    />
+                  </label>
+                  <label className="model-field">
+                    <span>模型名</span>
+                    <input
+                      value={item.model}
+                      placeholder="deepseek-chat"
+                      onChange={(event) => patchModel(index, { model: event.target.value })}
+                    />
+                  </label>
+                  <label className="model-field wide">
+                    <span>API Key</span>
+                    <input
+                      type="password"
+                      value={item.api_key}
+                      onChange={(event) => patchModel(index, { api_key: event.target.value })}
+                    />
+                  </label>
+                  <label className="model-field">
+                    <span>上下文（token）</span>
+                    <input
+                      type="number"
+                      min={8000}
+                      step={1000}
+                      value={item.context_window}
+                      onChange={(event) =>
+                        patchModel(index, {
+                          context_window: Number(event.target.value) || 1_000_000
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="model-field">
+                    <span>输出（token）</span>
+                    <input
+                      type="number"
+                      min={512}
+                      step={512}
+                      value={item.max_output_tokens}
+                      onChange={(event) =>
+                        patchModel(index, {
+                          max_output_tokens: Number(event.target.value) || 64_000
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+                {item.api_key === '***' && (
+                  <div className="field-hint">
+                    已配置（显示为 ***），不改动即保留；清空后保存则删除。
+                  </div>
+                )}
+              </div>
+            ))}
+            <button className="small-btn" style={{ marginTop: 6 }} onClick={addModel}>
+              <Plus size={12} />
+              添加模型
+            </button>
+          </div>
+
           <ModelSection
             title="抽取模型"
             hint="用于导入时的逐章结构化抽取，建议选便宜且稳定的模型"

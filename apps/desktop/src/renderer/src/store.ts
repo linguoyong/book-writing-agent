@@ -62,6 +62,7 @@ interface AppState {
   streamStartedAt: number | null
   turnDiff: TurnChanges | null
   diffMode: 'all' | 'turn'
+  toast: string | null
 
   leftCollapsed: boolean
   rightCollapsed: boolean
@@ -121,6 +122,8 @@ interface AppState {
   removeReference: (index: number) => void
   clearReferences: () => void
   saveConfig: (config: AppConfig) => Promise<void>
+  setModel: (modelId: string) => Promise<void>
+  showToast: (text: string) => void
 
   clearError: () => void
   toggleLeft: () => void
@@ -146,6 +149,7 @@ const uid = (): string => `t${Date.now()}-${seq++}`
 
 /** 当前主对话的流式请求；同一时间只允许一个（侧问有自己的 controller） */
 let streamAbort: AbortController | null = null
+let toastTimer: number | null = null
 
 export const KB_LABELS: Record<KbKind, string> = {
   characters: '角色',
@@ -273,6 +277,7 @@ export const useAppStore = create<AppState>((set, get) => {
   streamStartedAt: null,
   turnDiff: null,
   diffMode: 'all',
+  toast: null,
   leftCollapsed: false,
   rightCollapsed: false,
   leftWidth: 268,
@@ -436,7 +441,8 @@ export const useAppStore = create<AppState>((set, get) => {
       const session = await api.createSession(project.id, {
         expertId: get().currentExpertId,
         domain: 'book',
-        permissionMode: get().permissionMode
+        permissionMode: get().permissionMode,
+        modelId: get().config?.active_model_id
       })
       set({
         sessions: [session, ...get().sessions],
@@ -852,6 +858,51 @@ export const useAppStore = create<AppState>((set, get) => {
     } catch (error) {
       set({ error: (error as Error).message })
     }
+  },
+
+  setModel: async (modelId) => {
+    const state = get()
+    const config = state.config
+    if (!config) return
+    const model = config.models.find((item) => item.id === modelId)
+    const label = model?.name || model?.model || modelId
+
+    if (state.activeSessionId) {
+      try {
+        const updated = await api.updateSession(state.activeSessionId, {
+          model_id: modelId
+        })
+        set({
+          sessions: state.sessions.map((item) =>
+            item.id === state.activeSessionId ? { ...item, model_id: updated.model_id } : item
+          )
+        })
+        void get().refreshContext()
+      } catch (error) {
+        set({ error: (error as Error).message })
+        return
+      }
+    } else {
+      try {
+        const saved = await api.saveConfig({ ...config, active_model_id: modelId })
+        set({ config: saved })
+      } catch (error) {
+        set({ error: (error as Error).message })
+        return
+      }
+    }
+
+    get().showToast(
+      state.streaming
+        ? `已切换到 ${label}。当前任务仍在用旧模型执行；新模型会重新计算上下文，可能消耗更多 token。`
+        : `已切换到 ${label}，下一轮对话生效。`
+    )
+  },
+
+  showToast: (text) => {
+    if (toastTimer) window.clearTimeout(toastTimer)
+    set({ toast: text })
+    toastTimer = window.setTimeout(() => set({ toast: null }), 5000)
   },
 
   clearError: () => set({ error: null }),

@@ -35,6 +35,7 @@ def build_agent(
     project_id: str = "",
     references: list[dict[str, Any]] | None = None,
     extra_tools: list[Any] | None = None,
+    parent_messages: list[dict[str, Any]] | None = None,
 ) -> tuple[Any, ContextBundle]:
     """装配一个带持久化会话状态的 agent。
 
@@ -48,6 +49,7 @@ def build_agent(
         readonly=readonly,
         builder=builder,
         references=references,
+        parent_messages=parent_messages,
     )
     domain = get_domain(bundle.domain_id)
     ctx = tool_context(
@@ -78,8 +80,8 @@ def build_agent(
         permissions = compile_permissions(settings.sandbox, mode=mode)
 
     sync_session = (session or {}).get("id", "")
-    model = build_chat_model("writer")
-    window = normalize_window(settings.writer.context_window)
+    model = build_chat_model("writer", (session or {}).get("model_id"))
+    window = normalize_window(model.profile.get("max_input_tokens") if model.profile else None)
     middleware: list[Any] = [build_compaction(model, backend, window=window)]
     if sync_session:
         middleware.insert(0, SteeringMiddleware(sync_session))

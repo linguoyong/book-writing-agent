@@ -14,7 +14,7 @@ from ..agent.factory import resolve_expert
 from ..agent.mcp_manager import manager as mcp_manager
 from ..agent.runner import approve_stream, chat_stream
 from ..agent import steering
-from ..config import load_settings, save_settings
+from ..config import load_settings, resolve_model, save_settings
 from ..context import assemble
 from ..domains import list_domains
 from ..experts import delete_expert, get_expert, list_experts, save_expert
@@ -57,6 +57,9 @@ def _mask_secrets(data: dict[str, Any]) -> dict[str, Any]:
         section = data.get(role)
         if isinstance(section, dict):
             section["api_key"] = MASKED_KEY if section.get("api_key") else ""
+    for item in data.get("models") or []:
+        if isinstance(item, dict):
+            item["api_key"] = MASKED_KEY if item.get("api_key") else ""
     return data
 
 
@@ -85,6 +88,24 @@ def put_config(payload: dict[str, Any]) -> dict[str, Any]:
             merged[key].update(patch)
     if isinstance(payload.get("mcp"), list):
         merged["mcp"] = payload["mcp"]
+    if isinstance(payload.get("models"), list):
+        previous = {
+            str(item.get("id")): item
+            for item in (merged.get("models") or [])
+            if isinstance(item, dict)
+        }
+        models: list[dict[str, Any]] = []
+        for item in payload["models"]:
+            if not isinstance(item, dict):
+                continue
+            patch = dict(item)
+            if patch.get("api_key") == MASKED_KEY:
+                # 前端拿到的是 ***：按 id 回填原密钥，避免把占位符写进配置
+                patch["api_key"] = previous.get(str(patch.get("id")), {}).get("api_key", "")
+            models.append(patch)
+        merged["models"] = models
+    if isinstance(payload.get("active_model_id"), str):
+        merged["active_model_id"] = payload["active_model_id"]
     for role in ("writer", "extractor"):
         if merged.get(role, {}).get("context_window"):
             merged[role]["context_window"] = normalize_window(merged[role]["context_window"])
@@ -195,6 +216,7 @@ class CreateSessionRequest(BaseModel):
     expert_id: str | None = None
     domain: str | None = "book"
     permission_mode: str | None = None
+    model_id: str | None = None
 
 
 class SessionPatch(BaseModel):
@@ -202,6 +224,7 @@ class SessionPatch(BaseModel):
     expert_id: str | None = None
     domain: str | None = None
     permission_mode: str | None = None
+    model_id: str | None = None
 
 
 @router.get("/projects/{project_id}/sessions")
@@ -220,6 +243,7 @@ def post_session(project_id: str, req: CreateSessionRequest) -> dict[str, Any]:
         req.expert_id,
         req.domain,
         req.permission_mode,
+        req.model_id,
     )
 
 
@@ -250,12 +274,16 @@ def session_context(session_id: str) -> dict[str, Any]:
         readonly=session.get("kind") == "side",
     )
     settings = load_settings()
+    profile = resolve_model(settings, session.get("model_id"))
     payload = bundle.to_dict()
     payload["model"] = {
-        "name": settings.writer.model,
-        "context_window": settings.writer.context_window,
+        "id": profile.id,
+        "name": profile.name or profile.model,
+        "model": profile.model,
+        "context_window": profile.context_window,
+        "max_output_tokens": profile.max_output_tokens,
     }
-    payload["compaction"] = compaction_plan(settings.writer.context_window)
+    payload["compaction"] = compaction_plan(profile.context_window)
     return payload
 
 
@@ -282,6 +310,8 @@ class ChatRequest(BaseModel):
     mode: str = "main"
     expert_id: str | None = None
     references: list[dict[str, Any]] | None = None
+    # 侧问：只读继承哪个主会话的最近上下文
+    parent_session_id: str | None = None
 
 
 @router.post("/chat")
@@ -290,7 +320,12 @@ async def post_chat(req: ChatRequest) -> StreamingResponse:
         raise HTTPException(status_code=400, detail="消息不能为空")
     return StreamingResponse(
         chat_stream(
-            req.session_id, req.message, req.mode, req.expert_id, req.references
+            req.session_id,
+            req.message,
+            req.mode,
+            req.expert_id,
+            req.references,
+            req.parent_session_id,
         ),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},

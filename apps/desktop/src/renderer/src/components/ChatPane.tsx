@@ -5,6 +5,7 @@ import {
   Check,
   ChevronDown,
   ChevronRight,
+  Cpu,
   FileDiff,
   Loader2,
   MessageSquareReply,
@@ -288,6 +289,7 @@ export default function ChatPane(): React.JSX.Element {
                 <ChevronDown size={11} />
               </button>
               <PermissionPicker />
+              <ModelPicker />
               <span className="composer-hint">
                 {approval
                   ? '先处理待审批的写入'
@@ -528,6 +530,66 @@ function PermissionPicker(): React.JSX.Element {
       >
         {auto ? <AlertTriangle size={12} /> : <ShieldCheck size={12} />}
         {auto ? '完全访问' : '请求批准'}
+        <ChevronDown size={10} />
+      </button>
+    </div>
+  )
+}
+
+function formatWindow(value: number): string {
+  if (value >= 1_000_000) {
+    const millions = value / 1_000_000
+    return `${Number.isInteger(millions) ? millions : millions.toFixed(1)}M`
+  }
+  if (value >= 1000) return `${Math.round(value / 1000)}K`
+  return String(value)
+}
+
+function ModelPicker(): React.JSX.Element {
+  const config = useAppStore((state) => state.config)
+  const session = useAppStore((state) =>
+    state.sessions.find((item) => item.id === state.activeSessionId)
+  )
+  const setModel = useAppStore((state) => state.setModel)
+  const [open, setOpen] = useState(false)
+
+  const models = config?.models ?? []
+  if (!models.length) return <></>
+  const activeId = session?.model_id || config?.active_model_id || models[0].id
+  const current = models.find((item) => item.id === activeId) ?? models[0]
+
+  return (
+    <div className="model-wrap">
+      {open && (
+        <div className="model-pop" role="menu">
+          <div className="model-pop-title">选择模型</div>
+          {models.map((item) => (
+            <button
+              key={item.id}
+              className={`model-option ${item.id === activeId ? 'active' : ''}`}
+              onClick={() => {
+                setOpen(false)
+                if (item.id !== activeId) void setModel(item.id)
+              }}
+            >
+              <span className="model-option-main">
+                <span className="model-option-name">{item.name || item.model}</span>
+                <span className="model-option-meta">
+                  {item.model} · {formatWindow(item.context_window)}
+                </span>
+              </span>
+              {item.id === activeId && <Check size={12} />}
+            </button>
+          ))}
+        </div>
+      )}
+      <button
+        className="model-trigger"
+        onClick={() => setOpen((value) => !value)}
+        title="切换模型（当前会话）"
+      >
+        <Cpu size={12} />
+        {current.name || current.model}
         <ChevronDown size={10} />
       </button>
     </div>

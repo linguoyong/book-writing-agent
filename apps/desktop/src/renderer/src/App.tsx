@@ -26,6 +26,7 @@ export default function App(): React.JSX.Element {
   const projectModalOpen = useAppStore((state) => state.projectModalOpen)
   const error = useAppStore((state) => state.error)
   const clearError = useAppStore((state) => state.clearError)
+  const toast = useAppStore((state) => state.toast)
   const bootstrap = useAppStore((state) => state.bootstrap)
 
   const [leftHover, setLeftHover] = useState(false)
@@ -112,6 +113,8 @@ export default function App(): React.JSX.Element {
           </button>
         </div>
       )}
+
+      {toast && <div className="toast">{toast}</div>}
 
       {settingsOpen && <SettingsModal />}
       {showProjectModal && <ProjectModal canClose={projects.length > 0} />}

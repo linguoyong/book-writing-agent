@@ -23,6 +23,7 @@ export interface Session {
   expert_id?: string | null
   domain?: string | null
   permission_mode?: SessionPermission | null
+  model_id?: string | null
   created_at: string
   updated_at: string
 }
@@ -337,11 +338,24 @@ export interface McpServerStatus {
 }
 
 export interface AppConfig {
+  models: ModelProfile[]
+  active_model_id: string
   writer: ModelSettings
   extractor: ModelSettings
   embedding: EmbeddingSettings
   sandbox: SandboxSettings
   mcp: McpServerSettings[]
+}
+
+export interface ModelProfile {
+  id: string
+  name: string
+  base_url: string
+  api_key: string
+  model: string
+  context_window: number
+  max_output_tokens: number
+  temperature: number
 }
 
 export type TimelineItem =

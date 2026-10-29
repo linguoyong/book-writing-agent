@@ -6,7 +6,7 @@ from pathlib import Path
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .sandbox import SandboxSettings
 
@@ -24,9 +24,40 @@ class ModelSettings(BaseModel):
     api_key: str = ""
     model: str = "deepseek-flash"
     temperature: float = 0.7
-    # 模型上下文窗口（token）。仅 DeepSeek 两个档位：500K / 1M。
-    # 只影响上下文装配预算与自动压缩阈值，不会改变服务端真实上限。
-    context_window: int = 500_000
+    # 模型上下文窗口（token）。只影响上下文装配预算与自动压缩阈值，
+    # 不会改变服务端真实上限。
+    context_window: int = 1_000_000
+
+
+class ModelProfile(BaseModel):
+    """可切换的模型来源：一个 base_url + key + 模型名 + 窗口预算。"""
+
+    id: str
+    name: str = ""
+    base_url: str = ""
+    api_key: str = ""
+    model: str = ""
+    context_window: int = 1_000_000
+    max_output_tokens: int = 64_000
+    temperature: float = 0.7
+
+    @field_validator("id")
+    @classmethod
+    def _clean_id(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("模型 id 不能为空")
+        return cleaned
+
+    @field_validator("context_window")
+    @classmethod
+    def _window_floor(cls, value: int) -> int:
+        return max(8_000, min(int(value or 1_000_000), 4_000_000))
+
+    @field_validator("max_output_tokens")
+    @classmethod
+    def _output_floor(cls, value: int) -> int:
+        return max(512, min(int(value or 64_000), 200_000))
 
 
 class EmbeddingSettings(BaseModel):
@@ -50,6 +81,9 @@ class McpServerSettings(BaseModel):
 
 
 class Settings(BaseModel):
+    # 可切换的模型来源；为空时由旧 writer 配置自动生成一条
+    models: list[ModelProfile] = Field(default_factory=list)
+    active_model_id: str = ""
     writer: ModelSettings = Field(
         default_factory=lambda: ModelSettings(model="deepseek-flash")
     )
@@ -59,6 +93,42 @@ class Settings(BaseModel):
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     mcp: list[McpServerSettings] = Field(default_factory=list)
+
+
+def ensure_models(settings: Settings) -> Settings:
+    """保证至少有一个可用模型，并把 active 指到存在的项。"""
+    if not settings.models:
+        writer = settings.writer
+        settings.models = [
+            ModelProfile(
+                id="default",
+                name=writer.model or "默认模型",
+                base_url=writer.base_url,
+                api_key=writer.api_key,
+                model=writer.model or "deepseek-flash",
+                context_window=writer.context_window or 1_000_000,
+                max_output_tokens=64_000,
+                temperature=writer.temperature,
+            )
+        ]
+    ids = {item.id for item in settings.models}
+    if settings.active_model_id not in ids:
+        settings.active_model_id = settings.models[0].id
+    return settings
+
+
+def resolve_model(
+    settings: Settings | None = None, model_id: str | None = None
+) -> ModelProfile:
+    settings = ensure_models(settings or load_settings())
+    if model_id:
+        for item in settings.models:
+            if item.id == model_id:
+                return item
+    for item in settings.models:
+        if item.id == settings.active_model_id:
+            return item
+    return settings.models[0]
 
 
 def _ensure_home() -> None:
@@ -71,22 +141,18 @@ def _ensure_home() -> None:
 def load_settings() -> Settings:
     _ensure_home()
     if not CONFIG_FILE.exists():
-        settings = Settings()
+        settings = ensure_models(Settings())
         save_settings(settings)
         return settings
     try:
         raw = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-        return Settings.model_validate(raw)
+        return ensure_models(Settings.model_validate(raw))
     except (json.JSONDecodeError, ValueError):
-        return Settings()
+        return ensure_models(Settings())
 
 
 def save_settings(settings: Settings) -> None:
     _ensure_home()
     CONFIG_FILE.write_text(
-        settings.model_dump_json(indent=2), encoding="utf-8"
+        ensure_models(settings).model_dump_json(indent=2), encoding="utf-8"
     )
-
-
-def get_writer_model_settings() -> ModelSettings:
-    return load_settings().writer

@@ -45,6 +45,7 @@ async def chat_stream(
     mode: str = "main",
     expert_id: str | None = None,
     references: list[dict[str, Any]] | None = None,
+    parent_session_id: str | None = None,
 ) -> AsyncIterator[str]:
     session = db.get_session(session_id)
     if not session:
@@ -69,6 +70,16 @@ async def chat_stream(
     active_expert_id = expert_id or session.get("expert_id") or "general"
     expert = resolve_expert(project, active_expert_id)
 
+    # 侧问：只读继承主会话最近几轮，理解当前在聊什么；不写回、不共用 thread
+    parent_messages: list[dict[str, Any]] = []
+    if readonly and parent_session_id and parent_session_id != session_id:
+        if db.get_session(parent_session_id):
+            parent_messages = [
+                item
+                for item in db.list_messages(parent_session_id, limit=8)
+                if not (item.get("meta") or {}).get("steering")
+            ]
+
     buffer: list[str] = []
     tool_calls: list[dict[str, Any]] = []
     write_paths: set[str] = set()
@@ -90,6 +101,7 @@ async def chat_stream(
                 builder=builder,
                 project_id=session["project_id"],
                 references=references,
+                parent_messages=parent_messages,
                 extra_tools=mcp_tools,
             )
         except Exception as exc:  # noqa: BLE001

@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     expert_id TEXT,
     domain TEXT,
     permission_mode TEXT,
+    model_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -67,6 +68,7 @@ _MIGRATIONS = {
         "expert_id": "ALTER TABLE sessions ADD COLUMN expert_id TEXT",
         "domain": "ALTER TABLE sessions ADD COLUMN domain TEXT",
         "permission_mode": "ALTER TABLE sessions ADD COLUMN permission_mode TEXT",
+        "model_id": "ALTER TABLE sessions ADD COLUMN model_id TEXT",
     },
     "approvals": {
         "decision": "ALTER TABLE approvals ADD COLUMN decision TEXT",
@@ -173,13 +175,15 @@ def create_session(
     expert_id: str | None = None,
     domain: str | None = None,
     permission_mode: str | None = None,
+    model_id: str | None = None,
 ) -> dict[str, Any]:
     session_id = new_id("ses")
     ts = now_iso()
     with get_conn() as conn:
         conn.execute(
             "INSERT INTO sessions (id, project_id, title, kind, expert_id, domain, "
-            "permission_mode, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "permission_mode, model_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 session_id,
                 project_id,
@@ -188,6 +192,7 @@ def create_session(
                 expert_id,
                 domain,
                 permission_mode,
+                model_id,
                 ts,
                 ts,
             ),
@@ -198,7 +203,7 @@ def create_session(
 
 
 def update_session(session_id: str, **fields: Any) -> dict[str, Any] | None:
-    allowed = {"title", "expert_id", "domain", "kind", "permission_mode"}
+    allowed = {"title", "expert_id", "domain", "kind", "permission_mode", "model_id"}
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:
         return get_session(session_id)

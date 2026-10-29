@@ -32,6 +32,7 @@ LIMITS = {
     "user": 1600,
     "long": 2600,
     "project": 3600,
+    "parent": 6000,
     "references": 6000,
     "skills": 1600,
     "runtime": 1200,
@@ -44,6 +45,7 @@ LABELS = {
     "user": "用户记忆",
     "long": "长期记忆",
     "project": "项目记忆",
+    "parent": "主会话上下文",
     "references": "本轮引用",
     "skills": "技能索引",
     "runtime": "运行态",
@@ -96,6 +98,7 @@ def assemble(
     readonly: bool = False,
     builder: str = "",
     references: list[dict[str, Any]] | None = None,
+    parent_messages: list[dict[str, Any]] | None = None,
 ) -> ContextBundle:
     """按层装配 system prompt，并产出可展示的注入清单。"""
     domain = domain or get_domain((session or {}).get("domain") or "book")
@@ -143,6 +146,13 @@ def assemble(
         "AGENTS.md",
         memory.read("project", project),
     )
+    if parent_messages:
+        add(
+            "parent",
+            LABELS["parent"],
+            "主会话",
+            _parent_block(parent_messages),
+        )
     if references:
         add(
             "references",
@@ -195,6 +205,27 @@ def _skills_index(project: Path, domain: DomainPack) -> str:
     if not lines:
         return "（暂无技能。需要时可用 skill_write 创建。）"
     return "\n".join(lines)
+
+
+def _parent_block(messages: list[dict[str, Any]]) -> str:
+    """把主会话最近几轮只读注入侧问，让侧问知道当前在聊什么。
+
+    侧问仍有独立 thread 与独立 checkpoint，这些消息不会写回主会话。
+    """
+    lines: list[str] = []
+    for item in messages[-8:]:
+        text = str(item.get("content") or "").strip()
+        if not text:
+            continue
+        role = "用户" if item.get("role") == "user" else "助手"
+        lines.append(f"**{role}**：{text[:2000]}")
+    if not lines:
+        return ""
+    return (
+        "以下是主会话最近的对话，只用于理解当前讨论背景。\n"
+        "不要复述这些内容，也不要把自己当成这些回合的参与者。\n\n"
+        + "\n\n".join(lines)
+    )
 
 
 def _references_block(project: Path, references: list[dict[str, Any]]) -> str:

@@ -100,6 +100,7 @@ export const api = {
       expertId?: string
       domain?: string
       permissionMode?: SessionPermission
+      modelId?: string
     } = {}
   ) =>
     http<Session>(`/projects/${projectId}/sessions`, {
@@ -109,7 +110,8 @@ export const api = {
         kind: options.kind ?? 'main',
         expert_id: options.expertId ?? null,
         domain: options.domain ?? 'book',
-        permission_mode: options.permissionMode ?? null
+        permission_mode: options.permissionMode ?? null,
+        model_id: options.modelId ?? null
       })
     }),
   updateSession: (
@@ -119,6 +121,7 @@ export const api = {
       expert_id?: string | null
       domain?: string
       permission_mode?: SessionPermission
+      model_id?: string | null
     }
   ) =>
     http<Session>(`/sessions/${sessionId}`, {
@@ -258,7 +261,8 @@ export async function streamChat(
   mode: 'main' | 'side' | 'expert_builder' | 'skill_builder',
   references: ReferenceItem[],
   handlers: StreamHandlers,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  parentSessionId?: string
 ): Promise<void> {
   let response: Response
   try {
@@ -269,7 +273,8 @@ export async function streamChat(
         session_id: sessionId,
         message,
         mode,
-        references: references.length ? references : null
+        references: references.length ? references : null,
+        parent_session_id: parentSessionId ?? null
       }),
       signal
     })
