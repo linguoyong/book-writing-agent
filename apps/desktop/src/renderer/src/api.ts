@@ -242,16 +242,23 @@ interface StreamHandlers {
   onToolEnd: (name: string, output: string) => void
   onDone: (payload?: { elapsed_ms?: number; changes?: TurnChanges }) => void
   onError: (message: string) => void
+  /** 用户主动中止：不再当作错误提示 */
+  onAborted?: () => void
 }
 
 export interface StreamHandlerSet extends StreamHandlers {}
+
+function isAbort(error: unknown): boolean {
+  return (error as { name?: string } | null)?.name === 'AbortError'
+}
 
 export async function streamChat(
   sessionId: string,
   message: string,
   mode: 'main' | 'side' | 'expert_builder' | 'skill_builder',
   references: ReferenceItem[],
-  handlers: StreamHandlers
+  handlers: StreamHandlers,
+  signal?: AbortSignal
 ): Promise<void> {
   let response: Response
   try {
@@ -263,9 +270,14 @@ export async function streamChat(
         message,
         mode,
         references: references.length ? references : null
-      })
+      }),
+      signal
     })
   } catch (error) {
+    if (isAbort(error)) {
+      handlers.onAborted?.()
+      return
+    }
     handlers.onError(`无法连接后端：${(error as Error).message}`)
     handlers.onDone()
     return
@@ -283,16 +295,22 @@ export async function streamChat(
 export async function approveChat(
   sessionId: string,
   decisions: ApprovalDecision[],
-  handlers: StreamHandlers
+  handlers: StreamHandlers,
+  signal?: AbortSignal
 ): Promise<void> {
   let response: Response
   try {
     response = await fetch(`${API_BASE}/chat/approve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders() },
-      body: JSON.stringify({ session_id: sessionId, decisions })
+      body: JSON.stringify({ session_id: sessionId, decisions }),
+      signal
     })
   } catch (error) {
+    if (isAbort(error)) {
+      handlers.onAborted?.()
+      return
+    }
     handlers.onError(`无法连接后端：${(error as Error).message}`)
     handlers.onDone()
     return
@@ -316,18 +334,28 @@ async function consumeStream(response: Response, handlers: StreamHandlers): Prom
   let buffer = ''
   let doneSeen = false
 
-  while (true) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
 
-    let boundary = buffer.indexOf('\n\n')
-    while (boundary >= 0) {
-      const raw = buffer.slice(0, boundary)
-      buffer = buffer.slice(boundary + 2)
-      doneSeen = dispatchEvent(raw, handlers) || doneSeen
-      boundary = buffer.indexOf('\n\n')
+      let boundary = buffer.indexOf('\n\n')
+      while (boundary >= 0) {
+        const raw = buffer.slice(0, boundary)
+        buffer = buffer.slice(boundary + 2)
+        doneSeen = dispatchEvent(raw, handlers) || doneSeen
+        boundary = buffer.indexOf('\n\n')
+      }
     }
+  } catch (error) {
+    if (isAbort(error)) {
+      handlers.onAborted?.()
+      return
+    }
+    handlers.onError(`流式读取中断：${(error as Error).message}`)
+    handlers.onDone()
+    return
   }
   if (!doneSeen) handlers.onDone()
 }

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ArrowUp, CornerUpLeft, Eraser } from 'lucide-react'
+import { ArrowUp, CornerUpLeft, Eraser, Square } from 'lucide-react'
 import { api, streamChat } from '../api'
 import { useAppStore } from '../store'
 import type { TimelineItem } from '../types'
@@ -18,6 +18,7 @@ export default function SidePanel(): React.JSX.Element {
   const [streaming, setStreaming] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     setSessionId(null)
@@ -54,6 +55,8 @@ export default function SidePanel(): React.JSX.Element {
 
     let assistantId: string | null = null
 
+    const controller = new AbortController()
+    abortRef.current = controller
     await streamChat(sid, text, 'side', [], {
       onToken: (token) => {
         setItems((prev) => {
@@ -90,8 +93,15 @@ export default function SidePanel(): React.JSX.Element {
       },
       onError: (message) =>
         setItems((prev) => [...prev, { id: nextId(), type: 'error', content: message }]),
-      onDone: () => setStreaming(false)
-    })
+      onDone: () => {
+        abortRef.current = null
+        setStreaming(false)
+      },
+      onAborted: () => {
+        abortRef.current = null
+        setStreaming(false)
+      }
+    }, controller.signal)
   }
 
   return (
@@ -185,7 +195,16 @@ export default function SidePanel(): React.JSX.Element {
             }
           }}
         />
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 6 }}>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 6 }}>
+          {streaming && (
+            <button
+              className="stop-btn"
+              onClick={() => abortRef.current?.abort()}
+              title="停止生成（已生成的内容会保留）"
+            >
+              <Square size={11} fill="currentColor" />
+            </button>
+          )}
           <button className="send-btn" onClick={() => void send()} disabled={!input.trim() || streaming}>
             <ArrowUp size={15} />
           </button>

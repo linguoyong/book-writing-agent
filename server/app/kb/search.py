@@ -6,6 +6,7 @@ import re
 import sqlite3
 import struct
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -37,6 +38,11 @@ CREATE TABLE IF NOT EXISTS vectors (
     chunk_id TEXT PRIMARY KEY,
     dim INTEGER NOT NULL,
     data BLOB NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS index_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_chunks_kind ON chunks(kind);
@@ -113,12 +119,35 @@ class KbIndex:
                     "INSERT INTO chunks_fts (chunk_id, content) VALUES (?, ?)",
                     (chunk.id, " ".join(tokenize(f"{chunk.title} {chunk.text}"))),
                 )
+            self._mark_baseline(conn)
             conn.commit()
 
         embedded = 0
         if self.embedding.provider != "none" and chunks:
             embedded = self._embed_chunks(chunks)
         return {"chunks": len(chunks), "embedded": embedded}
+
+    def has_baseline(self) -> bool:
+        """是否做过一次全量重建。
+
+        增量写入（reindex_entity）只补单条，必须先有全量基线，
+        否则残留的旧索引会让「chunks > 0」误判为已建库。
+        """
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM index_meta WHERE key = 'baseline'"
+            ).fetchone()
+        return bool(row and row["value"] == "1")
+
+    @staticmethod
+    def _mark_baseline(conn: sqlite3.Connection) -> None:
+        conn.execute(
+            "INSERT OR REPLACE INTO index_meta (key, value) VALUES ('baseline', '1')"
+        )
+        conn.execute(
+            "INSERT OR REPLACE INTO index_meta (key, value) VALUES ('built_at', ?)",
+            (datetime.now(timezone.utc).isoformat(),),
+        )
 
     # ------------------------------------------------------------ 收集
 
@@ -176,6 +205,11 @@ class KbIndex:
         except ValueError:
             return 0
         chunk_id = f"{kind}:{safe_entity_id(entity_id)}"
+        if not self.has_baseline():
+            # 还没有全量基线时先补一次：否则只索引这一条，
+            # 已导入的章节与既有条目会被永久挡在检索之外。
+            self.rebuild()
+            return 1 if file.exists() else 0
         with self.connect() as conn:
             conn.execute("DELETE FROM chunks WHERE id = ?", (chunk_id,))
             conn.execute("DELETE FROM chunks_fts WHERE chunk_id = ?", (chunk_id,))

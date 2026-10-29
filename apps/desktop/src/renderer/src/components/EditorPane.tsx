@@ -4,10 +4,10 @@ import { markdown } from '@codemirror/lang-markdown'
 import { FilePlus2, Save } from 'lucide-react'
 import { api } from '../api'
 import { useAppStore } from '../store'
+import type { TreeNode } from '../types'
 
 export default function EditorPane(): React.JSX.Element {
   const project = useAppStore((state) => state.activeProject)
-  const overview = useAppStore((state) => state.overview)
   const openFile = useAppStore((state) => state.openFile)
   const updateOpenFile = useAppStore((state) => state.updateOpenFile)
   const saveOpenFile = useAppStore((state) => state.saveOpenFile)
@@ -27,11 +27,28 @@ export default function EditorPane(): React.JSX.Element {
 
   const createChapter = async (): Promise<void> => {
     if (!project) return
-    const next = (overview?.manuscript_count ?? 0) + 1
-    const path = `manuscript/vol-01/ch-${String(next).padStart(3, '0')}.md`
-    await api.writeFile(project.id, path, `# 第${next}章\n\n`)
-    await refreshTree()
-    await openFileByPath(path)
+    const current = useAppStore.getState().openFile
+    if (
+      current?.dirty &&
+      !window.confirm(`「${current.path}」有未保存的修改，新建章节会丢失。继续？`)
+    ) {
+      return
+    }
+    try {
+      // 用最新文件树算编号：删过章节后单看数量会撞号并覆盖已有文件
+      const tree = await api.tree(project.id)
+      const next = nextChapterNumber(tree)
+      const path = `manuscript/vol-01/ch-${String(next).padStart(3, '0')}.md`
+      if (treeHasPath(tree, path)) {
+        window.alert(`目标文件已存在：${path}`)
+        return
+      }
+      await api.writeFile(project.id, path, `# 第${next}章\n\n`)
+      await refreshTree()
+      await openFileByPath(path, true)
+    } catch (error) {
+      window.alert((error as Error).message)
+    }
   }
 
   return (
@@ -89,4 +106,28 @@ export default function EditorPane(): React.JSX.Element {
       </div>
     </div>
   )
+}
+
+/** 已有章节里最大的 ch-NNN 编号 +1；没有则从 1 开始 */
+function nextChapterNumber(nodes: TreeNode[]): number {
+  let max = 0
+  const walk = (list: TreeNode[]): void => {
+    for (const node of list) {
+      if (node.type === 'file') {
+        const match = /ch-(\d+)\.md$/i.exec(node.name)
+        if (match) max = Math.max(max, Number(match[1]))
+      }
+      if (node.children) walk(node.children)
+    }
+  }
+  walk(nodes)
+  return max + 1
+}
+
+function treeHasPath(nodes: TreeNode[], path: string): boolean {
+  for (const node of nodes) {
+    if (node.path === path) return true
+    if (node.children && treeHasPath(node.children, path)) return true
+  }
+  return false
 }

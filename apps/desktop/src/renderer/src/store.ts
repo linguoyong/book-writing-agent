@@ -95,7 +95,7 @@ interface AppState {
   stopStreaming: () => void
 
   refreshTree: () => Promise<void>
-  openFileByPath: (path: string) => Promise<void>
+  openFileByPath: (path: string, force?: boolean) => Promise<void>
   updateOpenFile: (content: string) => void
   saveOpenFile: () => Promise<void>
 
@@ -143,6 +143,9 @@ interface AppState {
 
 let seq = 0
 const uid = (): string => `t${Date.now()}-${seq++}`
+
+/** 当前主对话的流式请求；同一时间只允许一个（侧问有自己的 controller） */
+let streamAbort: AbortController | null = null
 
 export const KB_LABELS: Record<KbKind, string> = {
   characters: '角色',
@@ -200,6 +203,10 @@ export const useAppStore = create<AppState>((set, get) => {
         set((state) => ({
           timeline: [...state.timeline, { id: uid(), type: 'error', content: message }]
         }))
+      },
+      onAborted: () => {
+        // 用户主动中止：保留已生成内容，只把运行态收回来，不当作错误
+        set({ streaming: false, streamStartedAt: null })
       },
       onDone: (payload) => {
         const turn =
@@ -528,7 +535,13 @@ export const useAppStore = create<AppState>((set, get) => {
     const mode =
       builder === 'expert' ? 'expert_builder' : builder === 'skill' ? 'skill_builder' : 'main'
 
-    await streamChat(sessionId, message, mode, references, makeHandlers())
+    const controller = new AbortController()
+    streamAbort = controller
+    try {
+      await streamChat(sessionId, message, mode, references, makeHandlers(), controller.signal)
+    } finally {
+      if (streamAbort === controller) streamAbort = null
+    }
   },
 
   steerMessage: async (text) => {
@@ -548,7 +561,11 @@ export const useAppStore = create<AppState>((set, get) => {
     }
   },
 
-  stopStreaming: () => set({ streaming: false }),
+  stopStreaming: () => {
+    streamAbort?.abort()
+    streamAbort = null
+    set({ streaming: false, streamStartedAt: null })
+  },
 
   refreshTree: async () => {
     const project = get().activeProject
@@ -560,9 +577,14 @@ export const useAppStore = create<AppState>((set, get) => {
     }
   },
 
-  openFileByPath: async (path) => {
+  openFileByPath: async (path, force = false) => {
     const project = get().activeProject
     if (!project) return
+    const current = get().openFile
+    if (!force && current?.dirty && current.path !== path) {
+      const ok = window.confirm(`「${current.path}」有未保存的修改，切换会丢失。继续？`)
+      if (!ok) return
+    }
     try {
       const file = await api.readFile(project.id, path)
       set({
@@ -765,8 +787,14 @@ export const useAppStore = create<AppState>((set, get) => {
   resolveApproval: async (decisions) => {
     const sessionId = get().activeSessionId
     if (!sessionId) return
-    set({ streaming: true, approval: null, error: null })
-    await approveChat(sessionId, decisions, makeHandlers())
+    set({ streaming: true, streamStartedAt: Date.now(), approval: null, error: null })
+    const controller = new AbortController()
+    streamAbort = controller
+    try {
+      await approveChat(sessionId, decisions, makeHandlers(), controller.signal)
+    } finally {
+      if (streamAbort === controller) streamAbort = null
+    }
   },
 
   refreshPending: async () => {

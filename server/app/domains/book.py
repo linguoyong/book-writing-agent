@@ -47,7 +47,7 @@ def build_tools(ctx: ToolContext) -> list[Any]:
     index = KbIndex(project, ctx.embedding)
 
     def _ensure_index() -> None:
-        if index.stats()["chunks"] == 0:
+        if not index.has_baseline():
             index.rebuild()
 
     def _deny(path: str) -> str | None:

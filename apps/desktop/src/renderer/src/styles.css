@@ -863,6 +863,24 @@ textarea:focus {
   cursor: default;
 }
 
+.stop-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elev);
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stop-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 /* ---------------------------------------------------------- 右栏 */
 
 .right-tabs {

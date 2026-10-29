@@ -19,7 +19,7 @@ from ..context import assemble
 from ..domains import list_domains
 from ..experts import delete_expert, get_expert, list_experts, save_expert
 from ..llm import normalize_window
-from ..sandbox import check_command, check_url
+from ..sandbox import check_command, check_path, check_url
 from ..kb.lint import lint_project
 from ..kb.repository import (
     KINDS,
@@ -640,10 +640,9 @@ def knowledge_bases(project_id: str) -> dict[str, Any]:
     path = Path(project["path"])
     index = KbIndex(path, load_settings().embedding)
     counts = {kind: len(list_entities(path, kind)) for kind in KINDS}
-    chunk_stats = index.stats_by_kind()
-    if sum(counts.values()) > 0 and sum(chunk_stats.values()) == 0:
+    if not index.has_baseline():
         index.rebuild()
-        chunk_stats = index.stats_by_kind()
+    chunk_stats = index.stats_by_kind()
     return {
         "index": index.stats(),
         "config": load_kb_config(path),
@@ -669,7 +668,7 @@ def list_chunks(
 ) -> dict[str, Any]:
     project = _require_project(project_id)
     index = KbIndex(Path(project["path"]), load_settings().embedding)
-    if index.stats()["chunks"] == 0:
+    if not index.has_baseline():
         index.rebuild()
     return index.list_chunks(kind, limit, offset, q)
 
@@ -769,7 +768,7 @@ def get_tree(project_id: str) -> list[dict[str, Any]]:
 def read_file(project_id: str, path: str) -> dict[str, Any]:
     project = _require_project(project_id)
     root = Path(project["path"])
-    target = safe_join(root, path)
+    target = _resolve_workspace_file(root, path, "read")
     if not target.exists() or target.is_dir():
         raise HTTPException(status_code=404, detail="文件不存在")
     return {"path": path, "content": target.read_text(encoding="utf-8")}
@@ -784,8 +783,8 @@ class WriteFileRequest(BaseModel):
 def write_file(project_id: str, req: WriteFileRequest) -> dict[str, bool]:
     project = _require_project(project_id)
     root = Path(project["path"])
-    target = safe_join(root, req.path)
-    if any(part in HIDDEN_PARTS for part in target.relative_to(root).parts):
+    target = _resolve_workspace_file(root, req.path, "write")
+    if any(part in HIDDEN_PARTS for part in target.relative_to(root.resolve()).parts):
         raise HTTPException(status_code=400, detail="该路径不允许写入")
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(req.content, encoding="utf-8")
@@ -815,6 +814,25 @@ def _require_project(project_id: str) -> dict[str, Any]:
     if not project:
         raise HTTPException(status_code=404, detail="项目不存在")
     return project
+
+
+def _resolve_workspace_file(
+    root: Path, path: str, operation: Literal["read", "write"]
+) -> Path:
+    """REST 文件读写与 Agent 工具共用同一套边界：先防越界，再过路径规则。
+
+    这里按「真实解析后的相对路径」匹配规则，`manuscript/../.env` 这类写法
+    也会被归一化成 `.env` 后命中 deny。
+    """
+    try:
+        target = safe_join(root, path)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="路径越界") from exc
+    relative = target.relative_to(root.resolve()).as_posix()
+    if check_path(load_settings().sandbox, relative, operation) == "deny":
+        label = "读取" if operation == "read" else "写入"
+        raise HTTPException(status_code=403, detail=f"路径规则禁止{label}：{relative}")
+    return target
 
 
 def _require_kind(kind: str) -> None:

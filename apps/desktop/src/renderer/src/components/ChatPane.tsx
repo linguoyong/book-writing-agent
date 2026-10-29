@@ -10,6 +10,7 @@ import {
   MessageSquareReply,
   ShieldCheck,
   Sparkles,
+  Square,
   Wrench
 } from 'lucide-react'
 import { api } from '../api'
@@ -44,6 +45,7 @@ export default function ChatPane(): React.JSX.Element {
   const activeSessionId = useAppStore((state) => state.activeSessionId)
   const sendMessage = useAppStore((state) => state.sendMessage)
   const steerMessage = useAppStore((state) => state.steerMessage)
+  const stopStreaming = useAppStore((state) => state.stopStreaming)
   const currentExpertId = useAppStore((state) => state.currentExpertId)
   const experts = useAppStore((state) => state.experts)
   const builder = useAppStore((state) => state.builder)
@@ -293,6 +295,15 @@ export default function ChatPane(): React.JSX.Element {
                     ? '执行中 · 发送将作为引导，不打断当前任务'
                     : 'Enter 发送 · Shift+Enter 换行 · @ 引用'}
               </span>
+              {streaming && (
+                <button
+                  className="stop-btn"
+                  onClick={stopStreaming}
+                  title="停止生成（已生成的内容会保留）"
+                >
+                  <Square size={11} fill="currentColor" />
+                </button>
+              )}
               <button
                 className="send-btn"
                 onClick={submit}

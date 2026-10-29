@@ -295,28 +295,44 @@ async def _run_events(
     tool_calls: list[dict[str, Any]],
     write_paths: set[str],
 ) -> AsyncIterator[str]:
+    # deepagents 默认挂一个 general-purpose 子代理，模型调 `task` 时
+    # 子代理的模型流也会出现在 astream_events 里。不过滤的话，
+    # 子代理的过程文本会拼进主回答、并写进消息历史。
+    task_runs: set[str] = set()
+
     async for event in agent.astream_events(graph_input, config, version="v2"):
         kind = event.get("event")
+        name = event.get("name", "tool")
+        run_id = str(event.get("run_id") or "")
+        parents = {str(item) for item in (event.get("parent_ids") or [])}
+        # 只按「父链里含 task 工具 run」判定，判不出来时宁可不过滤，避免丢主回答
+        in_subagent = bool(task_runs & parents)
+
         if kind == "on_chat_model_stream":
+            if in_subagent:
+                continue
             text = _as_text(event.get("data", {}).get("chunk", {}).content)
             if text:
                 buffer.append(text)
                 yield _sse("token", {"text": text})
         elif kind == "on_tool_start":
-            name = event.get("name", "tool")
-            if name in {"write_todos"}:
-                continue
+            if name == "task" and run_id and not in_subagent:
+                task_runs.add(run_id)
             raw_input = event.get("data", {}).get("input", {})
+            # 子代理的写入同样落到磁盘，本轮 diff 仍要统计
             if name in WRITE_TOOLS and isinstance(raw_input, dict):
                 path = _write_path(name, raw_input)
                 if path:
                     write_paths.add(path)
+            if in_subagent or name in {"write_todos"}:
+                continue
             payload = {"name": name, "input": _truncate(raw_input)}
             tool_calls.append({"name": name, "input": payload["input"]})
             yield _sse("tool_start", payload)
         elif kind == "on_tool_end":
-            name = event.get("name", "tool")
-            if name in {"write_todos"}:
+            if name == "task" and run_id:
+                task_runs.discard(run_id)
+            if in_subagent or name in {"write_todos"}:
                 continue
             output = event.get("data", {}).get("output")
             content = getattr(output, "content", output)
