@@ -8,6 +8,14 @@ import Markdown from './Markdown'
 let counter = 0
 const nextId = (): string => `s${Date.now()}-${counter++}`
 
+/** 流结束时把仍在执行中的工具收尾 */
+const settleItems = (items: TimelineItem[]): TimelineItem[] =>
+  items.map((item) =>
+    item.type === 'tool' && item.status === 'running'
+      ? { ...item, status: 'cancelled' as const }
+      : item
+  )
+
 export default function SidePanel(): React.JSX.Element {
   const project = useAppStore((state) => state.activeProject)
   const setPendingComposer = useAppStore((state) => state.setPendingComposer)
@@ -96,10 +104,12 @@ export default function SidePanel(): React.JSX.Element {
       onDone: () => {
         abortRef.current = null
         setStreaming(false)
+        setItems(settleItems)
       },
       onAborted: () => {
         abortRef.current = null
         setStreaming(false)
+        setItems(settleItems)
       }
     }, controller.signal)
   }
@@ -136,7 +146,11 @@ export default function SidePanel(): React.JSX.Element {
                 <summary>
                   <span className="tool-name">{item.name}</span>
                   <span className={`status ${item.status === 'running' ? 'running' : ''}`}>
-                    {item.status === 'running' ? '检索中' : '完成'}
+                    {item.status === 'running'
+                      ? '检索中'
+                      : item.status === 'cancelled'
+                        ? '已停止'
+                        : '完成'}
                   </span>
                 </summary>
                 <div className="tool-body">

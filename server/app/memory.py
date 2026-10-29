@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import MEMORY_DIR
+from .text import read_text
 
 SEED_USER = """# USER.md — 关于用户
 
@@ -81,7 +82,7 @@ def read(scope: str, project: Path | None = None) -> str:
     file = memory_path(scope, project)
     if not file.exists():
         return ""
-    return file.read_text(encoding="utf-8")
+    return read_text(file)
 
 
 def write(scope: str, content: str, project: Path | None = None) -> dict[str, Any]:
@@ -100,7 +101,7 @@ def append(scope: str, text: str, project: Path | None = None, source: str = "")
     file.parent.mkdir(parents=True, exist_ok=True)
     if not file.exists():
         ensure_files(project)
-    existing = file.read_text(encoding="utf-8")
+    existing = read_text(file)
     normalized = _WS.sub("", text)[:80]
     if normalized and normalized in _WS.sub("", existing):
         return ""
@@ -141,7 +142,7 @@ def daily_log(text: str, project: Path | None = None, tag: str = "") -> None:
     stamp = datetime.now().strftime("%H:%M")
     prefix = f"[{tag}] " if tag else ""
     header = f"# {datetime.now():%Y-%m-%d}\n\n"
-    body = file.read_text(encoding="utf-8") if file.exists() else header
+    body = read_text(file) if file.exists() else header
     file.write_text(f"{body.rstrip()}\n- {stamp} {prefix}{text}\n", encoding="utf-8")
 
 
@@ -155,7 +156,7 @@ def status(project: Path | None = None) -> list[dict[str, Any]]:
             "scope": "daily",
             "title": "工作日志",
             "path": str(MEMORY_DIR),
-            "chars": sum(len(f.read_text(encoding="utf-8")) for f in logs),
+            "chars": sum(len(read_text(f)) for f in logs),
             "updated": logs[0].stat().st_mtime if logs else 0,
             "files": [f.name for f in logs],
         }
@@ -164,7 +165,7 @@ def status(project: Path | None = None) -> list[dict[str, Any]]:
 
 
 def _describe(scope: str, file: Path, project: Path | None) -> dict[str, Any]:
-    text = file.read_text(encoding="utf-8") if file.exists() else ""
+    text = read_text(file) if file.exists() else ""
     return {
         "scope": scope,
         "title": SCOPE_TITLES.get(scope, scope),
@@ -248,7 +249,7 @@ def delete_entry(scope: str, text: str, project: Path | None = None) -> bool:
     if not target:
         return False
 
-    lines = file.read_text(encoding="utf-8").splitlines()
+    lines = read_text(file).splitlines()
     kept: list[str] = []
     removed = False
     for line in lines:

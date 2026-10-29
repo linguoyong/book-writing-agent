@@ -6,6 +6,8 @@ from typing import Any
 
 import yaml
 
+from ..text import read_text
+
 KINDS = [
     "characters",
     "factions",
@@ -62,7 +64,7 @@ def list_entities(project: Path, kind: str) -> list[dict[str, Any]]:
         return []
     items: list[dict[str, Any]] = []
     for file in sorted(directory.glob("*.md")):
-        meta, body = parse_note(file.read_text(encoding="utf-8"))
+        meta, body = parse_note(read_text(file))
         items.append(
             {
                 "id": meta.get("id") or file.stem,

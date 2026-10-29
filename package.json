@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "pnpm --filter desktop dev",
     "build": "pnpm --filter desktop build",
-    "server": "uv run --directory server uvicorn app.main:app --port 8787 --reload"
+    "server": "uv run --directory server uvicorn app.main:app --port 8787 --reload",
+    "test": "uv run --directory server python -m unittest discover -s tests -t . -v"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

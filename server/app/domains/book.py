@@ -19,6 +19,7 @@ from ..kb.repository import (
 )
 from ..kb.search import KbIndex
 from ..sandbox import check_path
+from ..text import read_text
 from ..workspace import git_diff, read_book_meta, safe_join
 from .base import ToolContext
 
@@ -174,7 +175,7 @@ def build_tools(ctx: ToolContext) -> list[Any]:
             if not matches:
                 return f"未找到章节：{chapter}"
             candidate = matches[0]
-        return candidate.read_text(encoding="utf-8")
+        return read_text(candidate)
 
     @tool
     def manuscript_read(path: str) -> str:
@@ -182,7 +183,7 @@ def build_tools(ctx: ToolContext) -> list[Any]:
         target = safe_join(project / "manuscript", path)
         if not target.exists():
             return f"文件不存在：{path}"
-        return target.read_text(encoding="utf-8")
+        return read_text(target)
 
     @tool
     def manuscript_write(path: str, content: str, mode: str = "overwrite") -> str:
@@ -196,7 +197,7 @@ def build_tools(ctx: ToolContext) -> list[Any]:
             return "路径越界"
         target.parent.mkdir(parents=True, exist_ok=True)
         if mode == "append" and target.exists():
-            existing = target.read_text(encoding="utf-8")
+            existing = read_text(target)
             target.write_text(existing + "\n\n" + content, encoding="utf-8")
         else:
             target.write_text(content, encoding="utf-8")

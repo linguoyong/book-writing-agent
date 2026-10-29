@@ -20,6 +20,7 @@ from ..domains import list_domains
 from ..experts import delete_expert, get_expert, list_experts, save_expert
 from ..llm import normalize_window
 from ..sandbox import check_command, check_path, check_url
+from ..text import read_text
 from ..kb.lint import lint_project
 from ..kb.repository import (
     KINDS,
@@ -443,7 +444,7 @@ def reference_candidates(
     skills_dir = root / "skills"
     if skills_dir.exists():
         for file in sorted(skills_dir.glob("*/SKILL.md")):
-            meta, _ = parse_note(file.read_text(encoding="utf-8"))
+            meta, _ = parse_note(read_text(file))
             name = meta.get("display_name") or meta.get("name") or file.parent.name
             if keyword and keyword not in f"{name} {file.parent.name}".lower():
                 continue
@@ -705,7 +706,7 @@ def list_skills(project_id: str) -> list[dict[str, Any]]:
         return []
     items: list[dict[str, Any]] = []
     for file in sorted(root.glob("*/SKILL.md")):
-        meta, body = parse_note(file.read_text(encoding="utf-8"))
+        meta, body = parse_note(read_text(file))
         items.append(
             {
                 "name": meta.get("name") or file.parent.name,
@@ -771,7 +772,7 @@ def read_file(project_id: str, path: str) -> dict[str, Any]:
     target = _resolve_workspace_file(root, path, "read")
     if not target.exists() or target.is_dir():
         raise HTTPException(status_code=404, detail="文件不存在")
-    return {"path": path, "content": target.read_text(encoding="utf-8")}
+    return {"path": path, "content": read_text(target)}
 
 
 class WriteFileRequest(BaseModel):

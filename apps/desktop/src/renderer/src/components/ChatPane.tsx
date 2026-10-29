@@ -410,6 +410,9 @@ function TurnBlock({
           <div className="avatar">墨</div>
           <div className={`content md-content ${live ? 'streaming' : ''}`}>
             <Markdown content={turn.conclusion.content} />
+            {turn.conclusion.interrupted && (
+              <div className="turn-interrupted">生成已中断，以上为已生成的内容</div>
+            )}
           </div>
         </div>
       )}
@@ -438,7 +441,11 @@ function StepRow({ item }: { item: TimelineItem }): React.JSX.Element | null {
           <Wrench size={11} />
           <span className="step-name">{item.name}</span>
           <span className={`status ${item.status === 'running' ? 'running' : ''}`}>
-            {item.status === 'running' ? '执行中' : '完成'}
+            {item.status === 'running'
+              ? '执行中'
+              : item.status === 'cancelled'
+                ? '已停止'
+                : '完成'}
           </span>
         </summary>
         <div className="tool-body">

@@ -5,15 +5,17 @@ import math
 import re
 import sqlite3
 import struct
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Iterator
 
 import httpx
 import jieba
 
 from ..config import EmbeddingSettings
+from ..text import read_text
 from .repository import KINDS, parse_note
 
 INDEX_SCHEMA = """
@@ -87,12 +89,22 @@ class KbIndex:
 
     # ------------------------------------------------------------ 基础
 
-    def connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def connect(self) -> Iterator[sqlite3.Connection]:
+        """每次调用独立连接；`with` 退出时提交并关闭。
+
+        注意 sqlite3.Connection 自带的上下文管理器只提交、不关闭，
+        直接 `with sqlite3.connect(...)` 会泄漏文件句柄。
+        """
         self.index_dir.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db_path, timeout=15)
         conn.row_factory = sqlite3.Row
-        conn.executescript(INDEX_SCHEMA)
-        return conn
+        try:
+            conn.executescript(INDEX_SCHEMA)
+            yield conn
+            conn.commit()
+        finally:
+            conn.close()
 
     def rebuild(self) -> dict[str, int]:
         chunks = list(self._collect_chunks())
@@ -157,7 +169,7 @@ class KbIndex:
             if not directory.exists():
                 continue
             for file in sorted(directory.glob("*.md")):
-                meta, body = parse_note(file.read_text(encoding="utf-8"))
+                meta, body = parse_note(read_text(file))
                 entity_id = meta.get("id") or file.stem
                 title = meta.get("name") or meta.get("title") or file.stem
                 text = f"{title}\n{body}".strip()
@@ -177,7 +189,7 @@ class KbIndex:
         chapters_dir = self.project / "chapters"
         if chapters_dir.exists():
             for file in sorted(chapters_dir.glob("*.md")):
-                meta, body = parse_note(file.read_text(encoding="utf-8"))
+                meta, body = parse_note(read_text(file))
                 chapter_no = _chapter_number(meta, file.stem)
                 title = meta.get("title") or file.stem
                 for index, piece in enumerate(_split_text(body)):
@@ -217,7 +229,7 @@ class KbIndex:
             if not file.exists():
                 conn.commit()
                 return 0
-            meta, body = parse_note(file.read_text(encoding="utf-8"))
+            meta, body = parse_note(read_text(file))
             title = meta.get("name") or meta.get("title") or file.stem
             text = f"{title}\n{body}".strip()
             if not text:
@@ -339,7 +351,9 @@ class KbIndex:
             for item in items:
                 score = max(0.0, float(item["vector_score"]))
                 if score >= threshold:
-                    results.append({**item, "score": round(score, 4)})
+                    results.append(
+                        {**item, "score": round(score, 4), "raw_score": round(score, 4)}
+                    )
             return results[:top_k]
 
         lexical = self._search_lexical(query, kinds, chapter_limit, top_k * 2)
@@ -512,15 +526,21 @@ class KbIndex:
 def _normalize(
     items: list[dict[str, Any]], key: str, top_k: int, threshold: float
 ) -> list[dict[str, Any]]:
+    """把原始分归一到「相对最高分」的 0-1，同时保留 raw_score。
+
+    阈值是按相对分过滤的（0 表示不过滤）；保留原始分是为了排查检索质量，
+    也避免用户把 1.000 误读成「绝对相关」。
+    """
     if not items:
         return []
     max_value = max(float(item.get(key) or 0.0) for item in items) or 1.0
     results = []
     for item in items:
-        score = float(item.get(key) or 0.0) / max_value
+        raw = float(item.get(key) or 0.0)
+        score = raw / max_value
         if score < threshold:
             continue
-        results.append({**item, "score": round(score, 4)})
+        results.append({**item, "score": round(score, 4), "raw_score": round(raw, 4)})
     results.sort(key=lambda item: item["score"], reverse=True)
     return results[:top_k]
 

@@ -69,6 +69,14 @@ async def chat_stream(
     active_expert_id = expert_id or session.get("expert_id") or "general"
     expert = resolve_expert(project, active_expert_id)
 
+    buffer: list[str] = []
+    tool_calls: list[dict[str, Any]] = []
+    write_paths: set[str] = set()
+    config = {"configurable": {"thread_id": session_id}}
+    started = time.monotonic()
+    # 已落库的字符数：正常路径每段落库后更新；finally 据此判断是否还有未落库内容
+    committed = 0
+
     steering.begin(session_id)
     try:
         try:
@@ -108,12 +116,6 @@ async def chat_stream(
         if session["title"] == "新会话":
             db.update_session_title(session_id, user_message.strip()[:24] or "新会话")
 
-        buffer: list[str] = []
-        tool_calls: list[dict[str, Any]] = []
-        write_paths: set[str] = set()
-        config = {"configurable": {"thread_id": session_id}}
-        started = time.monotonic()
-
         try:
             async for chunk in _run_events(
                 agent,
@@ -140,6 +142,7 @@ async def chat_stream(
             elapsed_ms=elapsed_ms,
             changes=changes,
         )
+        committed = len("".join(buffer))
         if approval:
             yield approval
         else:
@@ -153,6 +156,7 @@ async def chat_stream(
                 buffer.clear()
                 tool_calls.clear()
                 write_paths.clear()
+                committed = 0
                 started = time.monotonic()
                 try:
                     async for chunk in _run_events(
@@ -177,6 +181,7 @@ async def chat_stream(
                     elapsed_ms=elapsed_ms,
                     changes=changes,
                 )
+                committed = len("".join(buffer))
                 if approval:
                     yield approval
         yield _sse(
@@ -191,7 +196,22 @@ async def chat_stream(
             },
         )
     finally:
-        steering.end(session_id)
+        # 异常、客户端断开（CancelledError）时也要保住已生成的文本，
+        # 否则用户看到的内容刷新后就消失了。
+        try:
+            text = "".join(buffer)
+            if len(text) > committed and text.strip():
+                _persist_assistant(
+                    session_id,
+                    buffer,
+                    tool_calls,
+                    awaiting=False,
+                    elapsed_ms=int((time.monotonic() - started) * 1000),
+                    changes=turn_changes(project, sorted(write_paths)),
+                    interrupted=True,
+                )
+        finally:
+            steering.end(session_id)
 
 
 async def approve_stream(
@@ -236,9 +256,14 @@ async def approve_stream(
             yield _sse("error", {"message": f"Agent 初始化失败：{type(exc).__name__}: {exc}"})
             return
 
-        status = (
-            "rejected" if any(item["type"] == "reject" for item in normalized) else "approved"
-        )
+        kinds = {item["type"] for item in normalized}
+        if kinds == {"reject"}:
+            status = "rejected"
+        elif "reject" in kinds:
+            # 一批写入里既有通过又有拒绝：不要笼统记成 approved
+            status = "partial"
+        else:
+            status = "approved"
         db.resolve_approvals(session_id, status, normalized)
 
         buffer: list[str] = []
@@ -398,6 +423,7 @@ def _persist_assistant(
     awaiting: bool,
     elapsed_ms: int = 0,
     changes: dict[str, Any] | None = None,
+    interrupted: bool = False,
 ) -> None:
     text = "".join(buffer)
     if not text.strip():
@@ -407,6 +433,9 @@ def _persist_assistant(
         meta["tool_calls"] = tool_calls
     if awaiting:
         meta["awaiting_approval"] = True
+    if interrupted:
+        # 生成被中断（用户停止 / 连接断开 / 上游报错），文本仍保留
+        meta["interrupted"] = True
     meta["turn"] = {
         "elapsed_ms": elapsed_ms,
         "changes": changes or {"files": [], "diff": "", "truncated": False},

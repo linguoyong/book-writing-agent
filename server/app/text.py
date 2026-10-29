@@ -1,10 +1,26 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 
 import jieba
 
 _TOKEN_RE = re.compile(r"[\w\u4e00-\u9fff]+")
+
+
+def read_text(path: Path | str) -> str:
+    """读用户文本：UTF-8(BOM) → GB18030 → 兜底替换非法字节。
+
+    书稿常见 GBK/GB18030，且同一本书里可能混着不同来源的文件；
+    单个文件编码不对不该让检索、上下文装配或 lint 整体 500。
+    """
+    raw = Path(path).read_bytes()
+    for encoding in ("utf-8-sig", "gb18030"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace")
 
 
 def tokenize(text: str) -> list[str]:

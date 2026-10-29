@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import BOOKS_DIR
+from .text import read_text
 
 KB_DIRS = {
     "characters": "characters",
@@ -117,9 +118,36 @@ def git_status(path: Path) -> str:
 
 
 def git_diff(path: Path) -> str:
+    """未提交的全部改动：已跟踪文件（工作区 + 暂存区）与未跟踪的新文件。
+
+    `git diff` 只覆盖已跟踪文件，新写的章节会完全看不到；
+    这里补上 `ls-files --others`，按新文件生成 unified diff。
+    """
     if not (path / ".git").exists():
         return ""
-    return _git(path, "diff", "--", ".").stdout
+
+    tracked = _git(path, "-c", "core.quotepath=false", "diff", "HEAD", "--", ".").stdout
+    if not tracked.strip():
+        tracked = _git(path, "-c", "core.quotepath=false", "diff", "--", ".").stdout
+
+    parts: list[str] = [tracked.strip()] if tracked.strip() else []
+    untracked = _git(
+        path, "-c", "core.quotepath=false", "ls-files", "--others", "--exclude-standard"
+    ).stdout
+    for line in untracked.splitlines():
+        relative = line.strip()
+        if not relative:
+            continue
+        try:
+            target = safe_join(path, relative)
+        except ValueError:
+            continue
+        if not target.is_file():
+            continue
+        diff = _new_file_diff(target, relative)
+        if diff.strip():
+            parts.append(diff)
+    return "\n".join(parts)
 
 
 def safe_join(root: Path, relative: str) -> Path:
@@ -196,8 +224,8 @@ def turn_changes(project: Path, paths: list[str], limit: int = 20000) -> dict[st
 
 def _new_file_diff(target: Path, relative: str) -> str:
     try:
-        content = target.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+        content = read_text(target)
+    except OSError:
         return ""
     lines = content.splitlines()[:400]
     header = [

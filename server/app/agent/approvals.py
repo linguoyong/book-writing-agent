@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..kb.repository import dump_note, get_entity
+from ..text import read_text
 from ..workspace import safe_join
 
 MAX_DIFF_LINES = 160
@@ -58,7 +59,7 @@ def _manuscript_diff(project: Path, args: dict[str, Any]) -> tuple[str, str, str
         target = safe_join(project / "manuscript", relative)
     except ValueError:
         return relative, "", "路径越界，无法预览"
-    old = target.read_text(encoding="utf-8") if target.exists() else ""
+    old = read_text(target) if target.exists() else ""
     new = f"{old}\n\n{content}" if mode == "append" and old else content
     label = f"manuscript/{relative}"
     return label, _diff(old, new, label), "" if target.exists() else "新建文件"
@@ -96,7 +97,7 @@ def _fs_write_diff(project: Path, args: dict[str, Any]) -> tuple[str, str, str]:
     target, relative = _fs_target(project, args)
     if target is None:
         return relative, "", "路径越界，无法预览"
-    old = target.read_text(encoding="utf-8") if target.exists() else ""
+    old = read_text(target) if target.exists() else ""
     new = str(args.get("content") or "")
     return relative, _diff(old, new, relative), "" if target.exists() else "新建文件"
 
@@ -107,7 +108,7 @@ def _fs_edit_diff(project: Path, args: dict[str, Any]) -> tuple[str, str, str]:
         return relative, "", "路径越界，无法预览"
     if not target.exists():
         return relative, "", "文件不存在"
-    old = target.read_text(encoding="utf-8")
+    old = read_text(target)
     needle = str(args.get("old_string") or "")
     replacement = str(args.get("new_string") or "")
     if not needle or needle not in old:
@@ -121,7 +122,7 @@ def _fs_delete_diff(project: Path, args: dict[str, Any]) -> tuple[str, str, str]
     target, relative = _fs_target(project, args)
     if target is None:
         return relative, "", "路径越界，无法预览"
-    old = target.read_text(encoding="utf-8") if target.exists() else ""
+    old = read_text(target) if target.exists() else ""
     return relative, _diff(old, "", relative), "删除文件"
 
 

@@ -5,6 +5,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from ..text import read_text
 from .repository import list_entities
 
 # 「X 说 / X 道」这类对白引导词，用来抽取疑似人名
@@ -49,7 +50,7 @@ def _load_chapters(project: Path) -> list[dict[str, Any]]:
     chapters: list[dict[str, Any]] = []
     for file in sorted(root.rglob("*.md")):
         try:
-            text = file.read_text(encoding="utf-8")
+            text = read_text(file)
         except OSError:
             continue
         chapters.append(

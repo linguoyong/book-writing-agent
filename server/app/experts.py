@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .kb.repository import dump_note, parse_note, safe_entity_id
+from .text import read_text
 
 DEFAULT_EXPERTS: list[dict[str, Any]] = [
     {
@@ -100,7 +101,7 @@ def list_experts(project: Path) -> list[dict[str, Any]]:
     seed_experts(project)
     items: list[dict[str, Any]] = []
     for file in sorted(expert_dir(project).glob("*.md")):
-        meta, body = parse_note(file.read_text(encoding="utf-8"))
+        meta, body = parse_note(read_text(file))
         items.append(_to_expert(meta, body, file, project))
     return items
 
@@ -110,7 +111,7 @@ def get_expert(project: Path, expert_id: str) -> dict[str, Any] | None:
     file = expert_dir(project) / f"{safe_entity_id(expert_id)}.md"
     if not file.exists():
         return None
-    meta, body = parse_note(file.read_text(encoding="utf-8"))
+    meta, body = parse_note(read_text(file))
     return _to_expert(meta, body, file, project)
 
 

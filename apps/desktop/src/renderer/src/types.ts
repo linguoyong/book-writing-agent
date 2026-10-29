@@ -47,6 +47,7 @@ export interface Message {
     tool_calls?: { name: string; input: string }[]
     turn?: TurnMeta
     awaiting_approval?: boolean
+    interrupted?: boolean
     steering?: boolean
     references?: ReferenceItem[]
   } | null
@@ -89,7 +90,10 @@ export interface SearchHit {
   chapter: number
   entities: string[]
   source: string
+  /** 相对本轮最高分的 0-1 相关度，阈值按它过滤 */
   score: number
+  /** 检索器原始分：BM25 / cosine / RRF，用于排查召回质量 */
+  raw_score?: number
 }
 
 export interface Overview {
@@ -342,14 +346,14 @@ export interface AppConfig {
 
 export type TimelineItem =
   | { id: string; type: 'user'; content: string; steering?: boolean; references?: ReferenceItem[] }
-  | { id: string; type: 'assistant'; content: string }
+  | { id: string; type: 'assistant'; content: string; interrupted?: boolean }
   | {
       id: string
       type: 'tool'
       name: string
       input: string
       output?: string
-      status: 'running' | 'done'
+      status: 'running' | 'done' | 'cancelled'
     }
   | { id: string; type: 'error'; content: string }
   | { id: string; type: 'turn_end'; meta: TurnMeta }

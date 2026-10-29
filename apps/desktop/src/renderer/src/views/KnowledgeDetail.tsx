@@ -224,7 +224,14 @@ export default function KnowledgeDetail({
                 <div key={`${hit.id}-${hit.source}`} className="hit-card">
                   <div className="hit-head">
                     <span className="hit-title">{hit.title}</span>
-                    <span className="hit-score">{hit.score.toFixed(3)}</span>
+                    <span
+                      className="hit-score"
+                      title={
+                        hit.raw_score !== undefined ? `原始分 ${hit.raw_score}` : undefined
+                      }
+                    >
+                      {hit.score.toFixed(3)}
+                    </span>
                   </div>
                   <div className="hit-source">
                     {hit.source}
@@ -259,8 +266,8 @@ export default function KnowledgeDetail({
               </button>
             </div>
             <p className="settings-hint">
-              返回数量控制注入上下文的最大条数；最低相关度为相对值，0 表示不过滤；
-              关键词权重仅在混合检索下生效；章节上限用于写作时避免剧透。
+              返回数量控制注入上下文的最大条数；最低相对分 = 命中分 ÷ 本轮最高分，
+              0 表示不过滤；关键词权重仅在混合检索下生效；章节上限用于写作时避免剧透。
             </p>
           </div>
         </div>
@@ -302,7 +309,7 @@ function ConfigFields({
       </div>
 
       <div className="field">
-        <label>最低相关度：{config.threshold.toFixed(2)}</label>
+        <label>最低相对分：{config.threshold.toFixed(2)}</label>
         <input
           type="range"
           min={0}

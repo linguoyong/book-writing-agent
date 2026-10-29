@@ -159,6 +159,14 @@ export const KB_LABELS: Record<KbKind, string> = {
 }
 
 export const useAppStore = create<AppState>((set, get) => {
+  /** 流结束时把仍标记为执行中的工具收尾，避免卡片永远停在「执行中」 */
+  const settleRunning = (items: TimelineItem[]): TimelineItem[] =>
+    items.map((item) =>
+      item.type === 'tool' && item.status === 'running'
+        ? { ...item, status: 'cancelled' as const }
+        : item
+    )
+
   const makeHandlers = (): StreamHandlerSet => {
     let assistantId: string | null = null
     return {
@@ -206,7 +214,11 @@ export const useAppStore = create<AppState>((set, get) => {
       },
       onAborted: () => {
         // 用户主动中止：保留已生成内容，只把运行态收回来，不当作错误
-        set({ streaming: false, streamStartedAt: null })
+        set((state) => ({
+          streaming: false,
+          streamStartedAt: null,
+          timeline: settleRunning(state.timeline)
+        }))
       },
       onDone: (payload) => {
         const turn =
@@ -216,13 +228,16 @@ export const useAppStore = create<AppState>((set, get) => {
                 changes: payload.changes ?? { files: [], diff: '' }
               }
             : null
-        set((state) => ({
-          streaming: false,
-          streamStartedAt: null,
-          timeline: turn
-            ? [...state.timeline, { id: uid(), type: 'turn_end', meta: turn } as TimelineItem]
-            : state.timeline
-        }))
+        set((state) => {
+          const settled = settleRunning(state.timeline)
+          return {
+            streaming: false,
+            streamStartedAt: null,
+            timeline: turn
+              ? [...settled, { id: uid(), type: 'turn_end', meta: turn } as TimelineItem]
+              : settled
+          }
+        })
         void get().refreshSessions()
         void get().refreshOverview()
         void get().refreshDiff()
@@ -474,7 +489,12 @@ export const useAppStore = create<AppState>((set, get) => {
                   steering: Boolean(meta?.steering),
                   references: meta?.references
                 }
-              : { id: `m${message.id}`, type: 'assistant', content: message.content }
+              : {
+                  id: `m${message.id}`,
+                  type: 'assistant',
+                  content: message.content,
+                  interrupted: Boolean(meta?.interrupted)
+                }
           )
         }
         if (message.role === 'assistant' && meta?.turn) {

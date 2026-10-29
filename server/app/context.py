@@ -11,6 +11,7 @@ from . import memory
 from .config import GLOBAL_SKILLS_DIR
 from .domains import DomainPack, ToolContext, get_domain
 from .kb.repository import dump_note, get_entity, parse_note
+from .text import read_text
 from .workspace import read_book_meta, safe_join
 
 IDENTITY = """你是「墨」，一个本地桌面写作 Agent 的内核。
@@ -185,7 +186,7 @@ def _skills_index(project: Path, domain: DomainPack) -> str:
         if not root.exists():
             continue
         for file in sorted(root.glob("*/SKILL.md")):
-            meta, body = parse_note(file.read_text(encoding="utf-8"))
+            meta, body = parse_note(read_text(file))
             if meta.get("enabled") is False:
                 continue
             name = meta.get("display_name") or meta.get("name") or file.parent.name
@@ -219,7 +220,7 @@ def _references_block(project: Path, references: list[dict[str, Any]]) -> str:
                 if not target.exists():
                     blocks.append(f'<ref type="{kind}" source="{path}">文件不存在</ref>')
                     continue
-                text = target.read_text(encoding="utf-8")
+                text = read_text(target)
                 blocks.append(
                     f'<ref type="{kind}" source="{path}">\n{_clip_ref(text)}\n</ref>'
                 )

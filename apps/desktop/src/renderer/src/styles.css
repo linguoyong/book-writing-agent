@@ -2826,6 +2826,12 @@ textarea:focus {
   white-space: normal;
 }
 
+.turn-interrupted {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--faint);
+}
+
 .md {
   font-size: 13.5px;
   line-height: 1.8;
