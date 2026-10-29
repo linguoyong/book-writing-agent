@@ -11,6 +11,7 @@ from .. import db, memory
 from ..agent.checkpointer import drop_thread
 from ..agent.compaction import compaction_plan
 from ..agent.factory import resolve_expert
+from ..agent.mcp_manager import manager as mcp_manager
 from ..agent.runner import approve_stream, chat_stream
 from ..agent import steering
 from ..config import load_settings, save_settings
@@ -64,6 +65,8 @@ def put_config(payload: dict[str, Any]) -> dict[str, Any]:
     for key in ("writer", "extractor", "embedding", "sandbox"):
         if key in payload and isinstance(payload[key], dict):
             merged[key].update(payload[key])
+    if isinstance(payload.get("mcp"), list):
+        merged["mcp"] = payload["mcp"]
     for role in ("writer", "extractor"):
         if merged.get(role, {}).get("context_window"):
             merged[role]["context_window"] = normalize_window(merged[role]["context_window"])
@@ -296,6 +299,18 @@ async def post_approve(req: ApproveRequest) -> StreamingResponse:
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+@router.get("/mcp/status")
+async def mcp_status() -> dict[str, Any]:
+    status = await mcp_manager.refresh()
+    return {"servers": status}
+
+
+@router.post("/mcp/reload")
+async def mcp_reload() -> dict[str, Any]:
+    status = await mcp_manager.refresh(force=True)
+    return {"servers": status}
 
 
 class SandboxCheckRequest(BaseModel):

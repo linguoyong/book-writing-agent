@@ -3,6 +3,7 @@ import type {
   ApprovalBundle,
   ApprovalDecision,
   ApprovalRecord,
+  McpServerStatus,
   ChunkItem,
   ContextBundle,
   Entity,
@@ -55,6 +56,8 @@ interface SearchOptions {
 
 export const api = {
   listProjects: () => http<Project[]>('/projects'),
+  mcpStatus: () => http<{ servers: McpServerStatus[] }>('/mcp/status'),
+  mcpReload: () => http<{ servers: McpServerStatus[] }>('/mcp/reload', { method: 'POST' }),
   projectApprovals: (projectId: string, status: string) =>
     http<ApprovalRecord[]>(
       `/projects/${projectId}/approvals?status=${encodeURIComponent(status)}&limit=100`

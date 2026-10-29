@@ -13,6 +13,7 @@ from ..workspace import turn_changes
 from . import steering
 from .approvals import build_requests
 from .factory import build_agent, resolve_expert
+from .mcp_manager import manager as mcp_manager
 
 MODE_BUILDER = {"expert_builder": "expert", "skill_builder": "skill"}
 
@@ -71,6 +72,8 @@ async def chat_stream(
     steering.begin(session_id)
     try:
         try:
+            # MCP 工具在只读侧问里不注入：它们不经路径沙箱
+            mcp_tools = [] if readonly else await mcp_manager.get_tools()
             agent, bundle = build_agent(
                 project,
                 session=session,
@@ -79,6 +82,7 @@ async def chat_stream(
                 builder=builder,
                 project_id=session["project_id"],
                 references=references,
+                extra_tools=mcp_tools,
             )
         except Exception as exc:  # noqa: BLE001
             yield _sse("error", {"message": f"Agent 初始化失败：{type(exc).__name__}: {exc}"})
@@ -220,11 +224,13 @@ async def approve_stream(
     steering.begin(session_id)
     try:
         try:
+            mcp_tools = await mcp_manager.get_tools()
             agent, _ = build_agent(
                 project,
                 session=session,
                 expert=expert,
                 project_id=session["project_id"],
+                extra_tools=mcp_tools,
             )
         except Exception as exc:  # noqa: BLE001
             yield _sse("error", {"message": f"Agent 初始化失败：{type(exc).__name__}: {exc}"})

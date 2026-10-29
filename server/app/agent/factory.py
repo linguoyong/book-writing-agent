@@ -34,6 +34,7 @@ def build_agent(
     builder: str = "",
     project_id: str = "",
     references: list[dict[str, Any]] | None = None,
+    extra_tools: list[Any] | None = None,
 ) -> tuple[Any, ContextBundle]:
     """装配一个带持久化会话状态的 agent。
 
@@ -56,6 +57,9 @@ def build_agent(
         readonly=readonly,
     )
     tools = domain.build_tools(ctx)
+    if extra_tools:
+        # MCP 工具：只读侧问不注入（见 runner），名字已带服务器前缀
+        tools = [*tools, *extra_tools]
     backend = _backend(project)
     skills = _skill_sources(project, domain.skills_subdir)
     settings = load_settings()

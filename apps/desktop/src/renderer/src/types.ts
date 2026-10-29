@@ -287,11 +287,31 @@ export interface SandboxSettings {
   network: NetworkSettings
 }
 
+export interface McpServerSettings {
+  name: string
+  transport: 'stdio' | 'http'
+  command: string
+  args: string[]
+  env: Record<string, string>
+  url: string
+  enabled: boolean
+}
+
+export interface McpServerStatus {
+  name: string
+  transport: string
+  enabled: boolean
+  connected: boolean
+  tools: string[]
+  error: string
+}
+
 export interface AppConfig {
   writer: ModelSettings
   extractor: ModelSettings
   embedding: EmbeddingSettings
   sandbox: SandboxSettings
+  mcp: McpServerSettings[]
 }
 
 export type TimelineItem =

@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from .sandbox import SandboxSettings
@@ -35,6 +37,18 @@ class EmbeddingSettings(BaseModel):
     dimensions: int = 1024
 
 
+class McpServerSettings(BaseModel):
+    """一个 MCP 服务器：stdio（本地命令）或 http（streamable http）。"""
+
+    name: str
+    transport: Literal["stdio", "http"] = "stdio"
+    command: str = ""  # stdio：可执行文件
+    args: list[str] = Field(default_factory=list)
+    env: dict[str, str] = Field(default_factory=dict)
+    url: str = ""  # http：端点
+    enabled: bool = True
+
+
 class Settings(BaseModel):
     writer: ModelSettings = Field(
         default_factory=lambda: ModelSettings(model="deepseek-flash")
@@ -44,6 +58,7 @@ class Settings(BaseModel):
     )
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
+    mcp: list[McpServerSettings] = Field(default_factory=list)
 
 
 def _ensure_home() -> None:
