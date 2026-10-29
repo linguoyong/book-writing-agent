@@ -17,6 +17,7 @@ import { useAppStore } from '../store'
 import type { ReferenceItem, TimelineItem, TurnMeta } from '../types'
 import ApprovalCard from './ApprovalCard'
 import Markdown from './Markdown'
+import MessageNav from './MessageNav'
 
 const SUGGESTIONS = [
   '根据大纲续写下一章',
@@ -135,6 +136,12 @@ export default function ChatPane(): React.JSX.Element {
   }
 
   const turns = groupTurns(timeline)
+  const navPoints = turns
+    .filter((turn) => turn.user && !turn.user.steering && turn.user.content.trim())
+    .map((turn) => ({
+      id: turn.id,
+      label: turn.user!.content.replace(/\s+/g, ' ').slice(0, 48)
+    }))
 
   return (
     <section className="chat-pane">
@@ -165,8 +172,9 @@ export default function ChatPane(): React.JSX.Element {
         </span>
       </div>
 
-      <div className="chat-scroll" ref={scrollRef}>
-        <div className="chat-inner">
+      <div className="chat-stage">
+        <div className="chat-scroll" ref={scrollRef}>
+          <div className="chat-inner">
           {turns.length === 0 ? (
             <div className="chat-empty">
               <div className="big">
@@ -205,7 +213,9 @@ export default function ChatPane(): React.JSX.Element {
               />
             ))
           )}
+          </div>
         </div>
+        <MessageNav points={navPoints} scrollRef={scrollRef} />
       </div>
 
       {approval && (
@@ -323,7 +333,7 @@ function TurnBlock({
   const files = turn.meta?.changes.files ?? []
 
   return (
-    <div className="turn">
+    <div className="turn" data-turn-id={turn.id} id={`turn-${turn.id}`}>
       {turn.user && (
         <div className="msg user">
           <div className="user-stack">
