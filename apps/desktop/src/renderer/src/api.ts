@@ -4,6 +4,7 @@ import type {
   ApprovalDecision,
   ApprovalRecord,
   McpServerStatus,
+  LintReport,
   ChunkItem,
   ContextBundle,
   Entity,
@@ -56,6 +57,7 @@ interface SearchOptions {
 
 export const api = {
   listProjects: () => http<Project[]>('/projects'),
+  lint: (projectId: string) => http<LintReport>(`/projects/${projectId}/lint`),
   mcpStatus: () => http<{ servers: McpServerStatus[] }>('/mcp/status'),
   mcpReload: () => http<{ servers: McpServerStatus[] }>('/mcp/reload', { method: 'POST' }),
   projectApprovals: (projectId: string, status: string) =>

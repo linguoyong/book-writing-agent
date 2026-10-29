@@ -20,6 +20,7 @@ from ..domains import list_domains
 from ..experts import delete_expert, get_expert, list_experts, save_expert
 from ..llm import normalize_window
 from ..sandbox import check_command, check_url
+from ..kb.lint import lint_project
 from ..kb.repository import (
     KINDS,
     delete_entity,
@@ -323,6 +324,15 @@ def sandbox_check(req: SandboxCheckRequest) -> dict[str, Any]:
     settings = load_settings()
     fn = check_command if req.kind == "command" else check_url
     return {"result": fn(settings.sandbox, req.value)}
+
+
+@router.get("/projects/{project_id}/lint")
+def get_project_lint(project_id: str) -> dict[str, Any]:
+    project = _require_project(project_id)
+    path = Path(project["path"])
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="项目目录不存在")
+    return lint_project(path)
 
 
 @router.get("/projects/{project_id}/approvals")

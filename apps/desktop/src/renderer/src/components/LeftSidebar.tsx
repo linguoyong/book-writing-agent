@@ -7,6 +7,7 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
+  Stethoscope,
   Trash2,
   Wand2
 } from 'lucide-react'
@@ -107,6 +108,13 @@ export default function LeftSidebar(): React.JSX.Element {
         >
           <ShieldCheck size={14} />
           <span className="label">审批</span>
+        </button>
+        <button
+          className={`nav-item ${view === 'diagnostics' ? 'active' : ''}`}
+          onClick={() => setView('diagnostics')}
+        >
+          <Stethoscope size={14} />
+          <span className="label">诊断</span>
         </button>
       </div>
 

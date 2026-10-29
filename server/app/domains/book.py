@@ -203,6 +203,30 @@ def build_tools(ctx: ToolContext) -> list[Any]:
         return f"已写入 {target.relative_to(project)}"
 
     @tool
+    def lint_consistency() -> str:
+        """跑一遍一致性体检：角色别称混用、未回收伏笔、时间线倒退、疑似未登记角色。
+        写完一章或改完设定后主动跑一次，把发现的问题报给用户。"""
+        from ..kb.lint import lint_project
+
+        report = lint_project(project)
+        stats = report["stats"]
+        issues = report["issues"]
+        if not issues:
+            return (
+                f"体检通过：{stats['chapters']} 章 / {stats['characters']} 个角色，"
+                "没有发现别称混用、未回收伏笔、时间线倒退或疑似漏登记的角色。"
+            )
+        lines = [
+            f"体检完成：{stats['chapters']} 章 / {stats['characters']} 个角色，"
+            f"{stats['warn']} 个警告、{stats['info']} 个提示。"
+        ]
+        for issue in issues:
+            where = f"[{issue['chapter']}]" if issue["chapter"] else ""
+            level = "警告" if issue["severity"] == "warn" else "提示"
+            lines.append(f"- {level}{where} {issue['message']}")
+        return "\n".join(lines)
+
+    @tool
     def git_view_diff() -> str:
         """查看书稿项目当前未提交的改动。"""
         diff = git_diff(project)
@@ -292,6 +316,7 @@ def build_tools(ctx: ToolContext) -> list[Any]:
         chapter_list,
         chapter_read,
         manuscript_read,
+        lint_consistency,
         git_view_diff,
         recall_conversations,
     ]

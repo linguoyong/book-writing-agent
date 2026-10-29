@@ -3556,3 +3556,109 @@ textarea:focus {
 .mcp-dot.off {
   background: var(--red);
 }
+
+/* ---------------------------------------------------------- 一致性诊断 */
+.diag-stats {
+  display: flex;
+  gap: 10px;
+  padding: 18px 32px 4px;
+  flex-shrink: 0;
+}
+
+.diag-stat {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-content);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.diag-stat .diag-num {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.diag-stat.warn .diag-num {
+  color: #b45309;
+}
+
+.diag-stat .diag-label {
+  font-size: 10.5px;
+  color: var(--faint);
+}
+
+.diag-issue {
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-content);
+}
+
+.diag-issue > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  min-width: 0;
+}
+
+.diag-issue > summary::-webkit-details-marker {
+  display: none;
+}
+
+.diag-sev {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+}
+
+.diag-sev.warn {
+  background: rgba(180, 83, 9, 0.12);
+  color: #b45309;
+}
+
+.diag-sev.info {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.diag-rule {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.diag-msg {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.diag-body {
+  margin-top: 8px;
+  border-top: 1px dashed var(--border);
+  padding-top: 8px;
+}
+
+.diag-chapter {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.diag-detail {
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.7;
+}

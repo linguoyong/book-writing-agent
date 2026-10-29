@@ -240,7 +240,14 @@ export interface ChunkItem {
   source: string
 }
 
-export type AppView = 'chat' | 'experts' | 'skills' | 'knowledge' | 'memory' | 'approvals'
+export type AppView =
+  | 'chat'
+  | 'experts'
+  | 'skills'
+  | 'knowledge'
+  | 'memory'
+  | 'approvals'
+  | 'diagnostics'
 
 export interface ModelSettings {
   base_url: string
@@ -285,6 +292,25 @@ export interface SandboxSettings {
   rules: PathRule[]
   commands: CommandRule[]
   network: NetworkSettings
+}
+
+export interface LintIssue {
+  rule: string
+  severity: 'warn' | 'info'
+  chapter: string
+  message: string
+  detail: string
+}
+
+export interface LintReport {
+  issues: LintIssue[]
+  stats: {
+    chapters: number
+    characters: number
+    foreshadows: number
+    warn: number
+    info: number
+  }
 }
 
 export interface McpServerSettings {
