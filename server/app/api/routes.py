@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 from typing import Any, Literal
 
@@ -34,8 +35,10 @@ from ..kb.search import KbIndex, load_kb_config, save_kb_config
 from ..workspace import (
     create_book,
     default_project_path,
+    git_changes,
     git_diff,
     git_status,
+    git_status_map,
     read_book_meta,
     safe_join,
     write_book_meta,
@@ -43,8 +46,9 @@ from ..workspace import (
 
 router = APIRouter()
 
-TREE_ROOTS = ("manuscript", "chapters", "kb")
 HIDDEN_PARTS = {".git", ".index", "node_modules", "__pycache__"}
+IGNORED_DIRS = HIDDEN_PARTS | {".venv", "dist", "out", ".workbuddy", ".screenshots"}
+MAX_TREE_NODES = 3000
 
 # GET /config 不返回明文密钥；PUT 时收到该占位符表示「保留原值」，
 # 收到空串表示「清除」。前端密码框因此可以安全地显示 ***。
@@ -791,13 +795,14 @@ def remove_expert(project_id: str, expert_id: str) -> dict[str, bool]:
 
 @router.get("/projects/{project_id}/tree")
 def get_tree(project_id: str) -> list[dict[str, Any]]:
+    """整个工作区的文件树（排除 .git/.index 等），带 git 状态标记。"""
     project = _require_project(project_id)
     root = Path(project["path"])
-    return [
-        _tree_node(root, root / name)
-        for name in TREE_ROOTS
-        if (root / name).exists()
-    ]
+    if not root.exists():
+        raise HTTPException(status_code=404, detail="项目目录不存在")
+    git_map = git_status_map(root) if (root / ".git").exists() else {}
+    budget = [MAX_TREE_NODES]
+    return [_tree_node(root, root, git_map, budget)]
 
 
 @router.get("/projects/{project_id}/file")
@@ -827,6 +832,71 @@ def write_file(project_id: str, req: WriteFileRequest) -> dict[str, bool]:
     return {"ok": True}
 
 
+class FsCreateRequest(BaseModel):
+    path: str
+    kind: Literal["file", "dir"] = "file"
+
+
+class FsRenameRequest(BaseModel):
+    path: str
+    new_path: str
+
+
+def _guard_visible(root: Path, target: Path) -> None:
+    if any(part in HIDDEN_PARTS for part in target.relative_to(root.resolve()).parts):
+        raise HTTPException(status_code=400, detail="该路径不允许操作")
+
+
+@router.post("/projects/{project_id}/fs/create")
+def fs_create(project_id: str, req: FsCreateRequest) -> dict[str, bool]:
+    project = _require_project(project_id)
+    root = Path(project["path"])
+    target = _resolve_workspace_file(root, req.path, "write")
+    _guard_visible(root, target)
+    if target.exists():
+        raise HTTPException(status_code=409, detail="目标已存在")
+    if req.kind == "dir":
+        target.mkdir(parents=True)
+    else:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("", encoding="utf-8")
+    return {"ok": True}
+
+
+@router.post("/projects/{project_id}/fs/rename")
+def fs_rename(project_id: str, req: FsRenameRequest) -> dict[str, bool]:
+    project = _require_project(project_id)
+    root = Path(project["path"])
+    source = _resolve_workspace_file(root, req.path, "write")
+    target = _resolve_workspace_file(root, req.new_path, "write")
+    _guard_visible(root, source)
+    _guard_visible(root, target)
+    if not source.exists():
+        raise HTTPException(status_code=404, detail="源文件不存在")
+    if target.exists():
+        raise HTTPException(status_code=409, detail="目标已存在")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    source.rename(target)
+    return {"ok": True}
+
+
+@router.delete("/projects/{project_id}/fs")
+def fs_delete(project_id: str, path: str) -> dict[str, bool]:
+    project = _require_project(project_id)
+    root = Path(project["path"])
+    target = _resolve_workspace_file(root, path, "write")
+    if target == root.resolve():
+        raise HTTPException(status_code=400, detail="不能删除工作区根目录")
+    _guard_visible(root, target)
+    if target.is_dir():
+        shutil.rmtree(target)
+    elif target.exists():
+        target.unlink()
+    else:
+        raise HTTPException(status_code=404, detail="文件不存在")
+    return {"ok": True}
+
+
 # ---------------------------------------------------------------- git
 
 
@@ -837,9 +907,15 @@ def get_git_status(project_id: str) -> dict[str, str]:
 
 
 @router.get("/projects/{project_id}/git/diff")
-def get_git_diff(project_id: str) -> dict[str, str]:
+def get_git_diff(project_id: str, path: str | None = None) -> dict[str, str]:
     project = _require_project(project_id)
-    return {"diff": git_diff(Path(project["path"]))}
+    return {"diff": git_diff(Path(project["path"]), path)}
+
+
+@router.get("/projects/{project_id}/git/changes")
+def get_git_changes(project_id: str) -> dict[str, Any]:
+    project = _require_project(project_id)
+    return {"items": git_changes(Path(project["path"]))}
 
 
 # ---------------------------------------------------------------- 工具
@@ -876,17 +952,26 @@ def _require_kind(kind: str) -> None:
         raise HTTPException(status_code=400, detail=f"未知知识库类型: {kind}")
 
 
-def _tree_node(root: Path, path: Path) -> dict[str, Any]:
+def _tree_node(
+    root: Path, path: Path, git_map: dict[str, str], budget: list[int]
+) -> dict[str, Any]:
+    budget[0] -= 1
+    relative = "" if path == root else str(path.relative_to(root)).replace("\\", "/")
     node: dict[str, Any] = {
-        "name": path.name,
-        "path": str(path.relative_to(root)).replace("\\", "/"),
+        "name": path.name or str(path),
+        "path": relative or ".",
         "type": "dir" if path.is_dir() else "file",
     }
     if path.is_dir():
-        children = []
-        for child in sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name)):
-            if child.name in HIDDEN_PARTS:
-                continue
-            children.append(_tree_node(root, child))
+        children: list[dict[str, Any]] = []
+        if budget[0] > 0:
+            for child in sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name)):
+                if child.name in IGNORED_DIRS:
+                    continue
+                if budget[0] <= 0:
+                    break
+                children.append(_tree_node(root, child, git_map, budget))
         node["children"] = children
+    else:
+        node["git"] = git_map.get(relative, "")
     return node

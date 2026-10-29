@@ -117,13 +117,33 @@ def git_status(path: Path) -> str:
     return _git(path, "status", "--porcelain").stdout
 
 
-def git_diff(path: Path) -> str:
-    """未提交的全部改动：已跟踪文件（工作区 + 暂存区）与未跟踪的新文件。
+def git_diff(path: Path, relative: str | None = None) -> str:
+    """未提交改动。
 
-    `git diff` 只覆盖已跟踪文件，新写的章节会完全看不到；
-    这里补上 `ls-files --others`，按新文件生成 unified diff。
+    - `relative` 为空：返回全部改动（工作区 + 暂存区）与未跟踪文件；
+    - `relative` 指定文件：只返回该文件的 diff（未跟踪按新文件生成）。
     """
     if not (path / ".git").exists():
+        return ""
+
+    if relative:
+        normalized = relative.replace("\\", "/")
+        try:
+            target = safe_join(path, normalized)
+        except ValueError:
+            return ""
+        tracked = _git(path, "ls-files", "--", normalized).stdout.strip()
+        if tracked:
+            diff = _git(
+                path, "-c", "core.quotepath=false", "diff", "HEAD", "--", normalized
+            ).stdout
+            if not diff.strip():
+                diff = _git(
+                    path, "-c", "core.quotepath=false", "diff", "--", normalized
+                ).stdout
+            return diff
+        if target.is_file():
+            return _new_file_diff(target, normalized)
         return ""
 
     tracked = _git(path, "-c", "core.quotepath=false", "diff", "HEAD", "--", ".").stdout
@@ -135,19 +155,85 @@ def git_diff(path: Path) -> str:
         path, "-c", "core.quotepath=false", "ls-files", "--others", "--exclude-standard"
     ).stdout
     for line in untracked.splitlines():
-        relative = line.strip()
-        if not relative:
+        relative_path = line.strip()
+        if not relative_path:
             continue
         try:
-            target = safe_join(path, relative)
+            target = safe_join(path, relative_path)
         except ValueError:
             continue
         if not target.is_file():
             continue
-        diff = _new_file_diff(target, relative)
+        diff = _new_file_diff(target, relative_path)
         if diff.strip():
             parts.append(diff)
     return "\n".join(parts)
+
+
+def git_status_map(path: Path) -> dict[str, str]:
+    """porcelain 状态 → {相对路径: untracked|added|modified|deleted}。"""
+    text = _git(
+        path, "-c", "core.quotepath=false", "status", "--porcelain", "-uall"
+    ).stdout
+    result: dict[str, str] = {}
+    for line in text.splitlines():
+        if len(line) < 4:
+            continue
+        code = line[:2]
+        name = line[3:].strip()
+        if " -> " in name:
+            name = name.split(" -> ", 1)[1]
+        if code == "??":
+            state = "untracked"
+        elif "D" in code:
+            state = "deleted"
+        elif "A" in code:
+            state = "added"
+        else:
+            state = "modified"
+        result[name.replace("\\", "/")] = state
+    return result
+
+
+def git_changes(path: Path) -> list[dict[str, Any]]:
+    """已更改文件列表：状态 + 增删行数，供变更视图的文件树使用。"""
+    if not (path / ".git").exists():
+        return []
+    states = git_status_map(path)
+    numstat = _git(
+        path, "-c", "core.quotepath=false", "diff", "--numstat", "HEAD", "--", "."
+    ).stdout
+    stats: dict[str, tuple[int, int]] = {}
+    for line in numstat.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        added, deleted, name = parts[0], parts[1], parts[2]
+        stats[name.replace("\\", "/")] = (
+            int(added) if added.isdigit() else 0,
+            int(deleted) if deleted.isdigit() else 0,
+        )
+
+    items: list[dict[str, Any]] = []
+    for name, state in states.items():
+        additions, deletions = stats.get(name, (0, 0))
+        if state == "untracked":
+            target = safe_join(path, name) if name else None
+            if target and target.is_file():
+                try:
+                    additions = len(read_text(target).splitlines())
+                except OSError:
+                    additions = 0
+        items.append(
+            {
+                "path": name,
+                "status": state,
+                "additions": additions,
+                "deletions": deletions,
+            }
+        )
+    items.sort(key=lambda item: item["path"])
+    return items
 
 
 def safe_join(root: Path, relative: str) -> Path:

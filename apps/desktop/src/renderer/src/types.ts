@@ -79,7 +79,16 @@ export interface TreeNode {
   name: string
   path: string
   type: 'dir' | 'file'
+  /** 文件节点的 git 状态：untracked / added / modified / deleted */
+  git?: string
   children?: TreeNode[]
+}
+
+export interface GitChange {
+  path: string
+  status: 'untracked' | 'added' | 'modified' | 'deleted' | string
+  additions: number
+  deletions: number
 }
 
 export interface SearchHit {

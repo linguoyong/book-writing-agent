@@ -3839,3 +3839,432 @@ textarea:focus {
   color: var(--muted);
   line-height: 1.7;
 }
+
+/* ---------- 文件面板 ---------- */
+
+.files-panel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.files-panel .file-viewer {
+  flex: 1;
+  min-width: 0;
+}
+
+.files-tree {
+  width: 200px;
+  flex-shrink: 0;
+  display: flex;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+  background: var(--bg-sidebar);
+}
+
+.file-viewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.fv-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  flex-shrink: 0;
+  padding: 0 6px 0 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.fv-crumbs {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fv-crumbs .cur {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.fv-sep {
+  margin: 0 4px;
+  color: var(--faint);
+}
+
+.fv-idle {
+  color: var(--faint);
+}
+
+.fv-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.fv-btn,
+.fv-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 24px;
+  min-width: 24px;
+  padding: 0 6px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.fv-btn:hover,
+.fv-icon:hover {
+  background: var(--bg-elev);
+}
+
+.fv-btn.on,
+.fv-icon.on {
+  color: var(--accent);
+  background: var(--bg-elev);
+}
+
+.fv-icon:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.fv-dirty {
+  font-size: 10.5px;
+  color: #b45309;
+}
+
+.fv-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.fv-preview {
+  flex: 1;
+  overflow: auto;
+  padding: 14px 16px 24px;
+}
+
+.fv-preview .md {
+  font-size: 13px;
+}
+
+/* 文件树 */
+
+.file-tree-panel {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.ft-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  padding: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.ft-search {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--faint);
+}
+
+.ft-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 11px;
+  outline: none;
+}
+
+.ft-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  color: var(--muted);
+}
+
+.ft-icon:hover {
+  background: var(--bg-hover);
+}
+
+.ft-scroll {
+  flex: 1;
+  overflow: auto;
+  padding: 4px 0 10px;
+}
+
+.ft-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding-right: 8px;
+  font-size: 11.5px;
+  color: var(--text);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ft-row:hover {
+  background: var(--bg-hover);
+}
+
+.ft-row.active {
+  color: var(--accent);
+  background: var(--bg-selected);
+}
+
+.ft-chev {
+  flex-shrink: 0;
+  color: var(--faint);
+}
+
+.ft-chev-space {
+  width: 11px;
+  flex-shrink: 0;
+}
+
+.ft-dir {
+  flex-shrink: 0;
+  color: #b58a3c;
+}
+
+.ft-file {
+  flex-shrink: 0;
+  color: var(--muted);
+}
+
+.ft-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ft-git {
+  padding: 0 3px;
+  border-radius: 3px;
+  font-size: 9.5px;
+  font-weight: 700;
+}
+
+.ft-git.modified {
+  color: #b45309;
+}
+
+.ft-git.added,
+.ft-git.untracked {
+  color: #2f7d4a;
+}
+
+.ft-git.deleted {
+  color: var(--red);
+}
+
+.ft-hint {
+  flex: 1;
+  padding-left: 4px;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.ft-menu-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+}
+
+.ft-menu {
+  position: fixed;
+  z-index: 61;
+  min-width: 168px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-input);
+  box-shadow: var(--shadow);
+}
+
+.ft-menu button {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: var(--text);
+  font-size: 11.5px;
+  text-align: left;
+}
+
+.ft-menu button:hover {
+  background: var(--bg-elev);
+}
+
+.ft-menu button.danger {
+  color: var(--red);
+}
+
+/* 变更视图 */
+
+.changes-panel {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.changes-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.changes-scroll {
+  flex: 1;
+  overflow: auto;
+}
+
+.changes-tree {
+  display: flex;
+  flex-direction: column;
+  width: 200px;
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  background: var(--bg-sidebar);
+}
+
+.changes-scroll .diff-view {
+  padding: 10px 12px 20px;
+}
+
+.ct-title {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.ct-count {
+  color: var(--faint);
+}
+
+.ct-list {
+  flex: 1;
+  overflow: auto;
+  padding-bottom: 10px;
+}
+
+.ct-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 4px 8px;
+  color: var(--text);
+  font-size: 11px;
+  text-align: left;
+}
+
+.ct-row:hover {
+  background: var(--bg-hover);
+}
+
+.ct-row.active {
+  background: var(--bg-selected);
+}
+
+.ct-status {
+  width: 12px;
+  font-size: 9.5px;
+  font-weight: 700;
+  color: var(--faint);
+}
+
+.ct-status.modified {
+  color: #b45309;
+}
+
+.ct-status.added,
+.ct-status.untracked {
+  color: #2f7d4a;
+}
+
+.ct-status.deleted {
+  color: var(--red);
+}
+
+.ct-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ct-stat {
+  display: inline-flex;
+  gap: 4px;
+  font-size: 9.5px;
+}
+
+.ct-stat b {
+  color: #2f7d4a;
+  font-weight: 600;
+}
+
+.ct-stat i {
+  color: var(--red);
+  font-style: normal;
+}
+
+.changes-single-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.changes-single-path {
+  flex: 1;
+  overflow: hidden;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

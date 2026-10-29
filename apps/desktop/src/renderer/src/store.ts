@@ -28,7 +28,7 @@ export interface OpenFile {
   dirty: boolean
 }
 
-type RightTab = 'kb' | 'files' | 'diff' | 'side' | 'doc' | 'context'
+type RightTab = 'kb' | 'files' | 'diff' | 'side' | 'context'
 
 interface AppState {
   ready: boolean
@@ -263,7 +263,7 @@ export const useAppStore = create<AppState>((set, get) => {
   streaming: false,
   tree: [],
   openFile: null,
-  rightTab: 'kb',
+  rightTab: 'files',
   kbKind: 'characters',
   kbItems: [],
   kbActive: null,
@@ -281,7 +281,7 @@ export const useAppStore = create<AppState>((set, get) => {
   leftCollapsed: false,
   rightCollapsed: false,
   leftWidth: 268,
-  rightWidth: 344,
+  rightWidth: 620,
   view: 'chat',
   experts: [],
   builder: null,
@@ -615,7 +615,7 @@ export const useAppStore = create<AppState>((set, get) => {
       const file = await api.readFile(project.id, path)
       set({
         openFile: { path: file.path, content: file.content, dirty: false },
-        rightTab: 'doc',
+        rightTab: 'files',
         rightCollapsed: false
       })
     } catch (error) {
@@ -645,6 +645,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
   setRightTab: (tab) => {
     set({ rightTab: tab })
+    if (tab === 'files' && get().rightWidth < 560) set({ rightWidth: 620 })
     if (tab === 'diff') void get().refreshDiff()
     if (tab === 'files') void get().refreshTree()
     if (tab === 'context') {
@@ -937,7 +938,7 @@ export const useAppStore = create<AppState>((set, get) => {
   },
   setBuilder: (kind) => set({ builder: kind }),
   setLeftWidth: (width) => set({ leftWidth: Math.min(460, Math.max(200, width)) }),
-  setRightWidth: (width) => set({ rightWidth: Math.min(480, Math.max(280, width)) }),
+  setRightWidth: (width) => set({ rightWidth: Math.min(960, Math.max(340, width)) }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
   setProjectModalOpen: (open) => set({ projectModalOpen: open }),
   setExpertModalOpen: (open) => set({ expertModalOpen: open }),

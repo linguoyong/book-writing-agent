@@ -1,57 +1,308 @@
-import { useState } from 'react'
-import { FileText, Folder, FolderOpen } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import {
+  ChevronDown,
+  ChevronRight,
+  FileText,
+  Folder,
+  FolderOpen,
+  Minus,
+  Plus,
+  Search
+} from 'lucide-react'
+import { api } from '../api'
 import { useAppStore } from '../store'
 import type { TreeNode } from '../types'
 
+interface MenuState {
+  x: number
+  y: number
+  node: TreeNode
+}
+
+const GIT_LABEL: Record<string, string> = {
+  untracked: 'U',
+  added: 'A',
+  modified: 'M',
+  deleted: 'D'
+}
+
 export default function FileTree(): React.JSX.Element {
   const tree = useAppStore((state) => state.tree)
+  const project = useAppStore((state) => state.activeProject)
+  const currentPath = useAppStore((state) => state.openFile?.path)
+  const openFileByPath = useAppStore((state) => state.openFileByPath)
+  const refreshTree = useAppStore((state) => state.refreshTree)
+  const showToast = useAppStore((state) => state.showToast)
 
-  if (tree.length === 0) {
-    return <div className="panel-empty">项目目录为空</div>
+  const [query, setQuery] = useState('')
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [menu, setMenu] = useState<MenuState | null>(null)
+  const initialized = useRef(false)
+
+  useEffect(() => {
+    if (initialized.current || !tree.length) return
+    initialized.current = true
+    setExpanded(new Set(collectDirs(tree[0], 1)))
+  }, [tree])
+
+  const toggle = (path: string): void => {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
   }
 
+  const expandAll = (): void => setExpanded(new Set(collectDirs(tree[0], Number.MAX_SAFE_INTEGER)))
+  const collapseAll = (): void => setExpanded(new Set(tree[0] ? [tree[0].path] : []))
+
+  const openContext = (event: React.MouseEvent, node: TreeNode): void => {
+    event.preventDefault()
+    event.stopPropagation()
+    setMenu({
+      x: Math.min(event.clientX, window.innerWidth - 200),
+      y: Math.min(event.clientY, window.innerHeight - 220),
+      node
+    })
+  }
+
+  const create = async (node: TreeNode, kind: 'file' | 'dir'): Promise<void> => {
+    if (!project) return
+    setMenu(null)
+    const name = window.prompt(kind === 'dir' ? '新建文件夹名' : '新建文件名（可含 .md）')
+    if (!name?.trim()) return
+    const base = node.type === 'dir' ? node.path : parentPath(node.path)
+    const relative = base && base !== '.' ? `${base}/${name.trim()}` : name.trim()
+    try {
+      await api.fsCreate(project.id, relative, kind)
+      await refreshTree()
+      if (kind === 'file') await openFileByPath(relative, true)
+      showToast(`已创建 ${relative}`)
+    } catch (error) {
+      showToast((error as Error).message)
+    }
+  }
+
+  const rename = async (node: TreeNode): Promise<void> => {
+    if (!project) return
+    setMenu(null)
+    const next = window.prompt('重命名', node.name)
+    if (!next?.trim() || next.trim() === node.name) return
+    const base = parentPath(node.path)
+    const target = base ? `${base}/${next.trim()}` : next.trim()
+    try {
+      await api.fsRename(project.id, node.path, target)
+      await refreshTree()
+      const opened = useAppStore.getState().openFile?.path
+      if (opened === node.path) await openFileByPath(target, true)
+      else if (opened?.startsWith(`${node.path}/`)) useAppStore.setState({ openFile: null })
+      showToast(`已重命名为 ${next.trim()}`)
+    } catch (error) {
+      showToast((error as Error).message)
+    }
+  }
+
+  const remove = async (node: TreeNode): Promise<void> => {
+    if (!project) return
+    setMenu(null)
+    if (!window.confirm(`删除 ${node.path}？\n目录会连同内部文件一起删除，此操作不可撤销。`)) {
+      return
+    }
+    try {
+      await api.fsDelete(project.id, node.path)
+      await refreshTree()
+      const opened = useAppStore.getState().openFile?.path
+      if (opened === node.path || opened?.startsWith(`${node.path}/`)) {
+        useAppStore.setState({ openFile: null })
+      }
+      showToast(`已删除 ${node.path}`)
+    } catch (error) {
+      showToast((error as Error).message)
+    }
+  }
+
+  const copy = async (node: TreeNode): Promise<void> => {
+    setMenu(null)
+    try {
+      await navigator.clipboard.writeText(node.path)
+      showToast('已复制相对路径')
+    } catch {
+      showToast('复制失败：当前环境不允许访问剪贴板')
+    }
+  }
+
+  const reveal = (node: TreeNode): void => {
+    setMenu(null)
+    if (!project) return
+    void window.desktop?.showItemInFolder?.(project.path, node.path)
+  }
+
+  const visible = query.trim() ? filterTree(tree, query.trim()) : tree
+  const forceOpen = Boolean(query.trim())
+
   return (
-    <div className="file-tree">
-      {tree.map((node) => (
-        <Node key={node.path} node={node} depth={0} />
-      ))}
+    <div className="file-tree-panel">
+      <div className="ft-toolbar">
+        <div className="ft-search">
+          <Search size={12} />
+          <input
+            value={query}
+            placeholder="筛选文件…"
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </div>
+        <button className="ft-icon" onClick={expandAll} title="全部展开">
+          <Plus size={12} />
+        </button>
+        <button className="ft-icon" onClick={collapseAll} title="全部收起">
+          <Minus size={12} />
+        </button>
+      </div>
+
+      <div className="ft-scroll">
+        {visible.length === 0 ? (
+          <div className="panel-empty">{query ? '没有匹配的文件' : '项目目录为空'}</div>
+        ) : (
+          visible.map((node) => (
+            <TreeNodeRow
+              key={node.path}
+              node={node}
+              depth={0}
+              expanded={expanded}
+              forceOpen={forceOpen}
+              currentPath={currentPath}
+              onToggle={toggle}
+              onOpen={(path) => void openFileByPath(path)}
+              onContext={openContext}
+            />
+          ))
+        )}
+      </div>
+
+      {menu && (
+        <>
+          <div className="ft-menu-mask" onClick={() => setMenu(null)} />
+          <div className="ft-menu" style={{ left: menu.x, top: menu.y }}>
+            {menu.node.type === 'dir' && (
+              <>
+                <button onClick={() => void create(menu.node, 'file')}>新建文件</button>
+                <button onClick={() => void create(menu.node, 'dir')}>新建文件夹</button>
+              </>
+            )}
+            <button onClick={() => void rename(menu.node)}>重命名</button>
+            <button className="danger" onClick={() => void remove(menu.node)}>
+              删除
+            </button>
+            <button onClick={() => void copy(menu.node)}>复制路径</button>
+            {menu.node.type === 'file' && (
+              <button onClick={() => reveal(menu.node)}>在文件夹中打开</button>
+            )}
+          </div>
+        </>
+      )}
     </div>
   )
 }
 
-function Node({ node, depth }: { node: TreeNode; depth: number }): React.JSX.Element {
-  const currentPath = useAppStore((state) => state.openFile?.path)
-  const openFileByPath = useAppStore((state) => state.openFileByPath)
-  const [open, setOpen] = useState(depth === 0)
-
-  if (node.type === 'file') {
-    return (
-      <div
-        className={`tree-node ${currentPath === node.path ? 'active' : ''}`}
-        style={{ paddingLeft: 8 + depth * 12 }}
-        onClick={() => void openFileByPath(node.path)}
-        title={node.path}
-      >
-        <FileText size={12} />
-        {node.name}
-      </div>
-    )
-  }
+function TreeNodeRow({
+  node,
+  depth,
+  expanded,
+  forceOpen,
+  currentPath,
+  onToggle,
+  onOpen,
+  onContext
+}: {
+  node: TreeNode
+  depth: number
+  expanded: Set<string>
+  forceOpen: boolean
+  currentPath?: string
+  onToggle: (path: string) => void
+  onOpen: (path: string) => void
+  onContext: (event: React.MouseEvent, node: TreeNode) => void
+}): React.JSX.Element {
+  const isDir = node.type === 'dir'
+  const open = isDir && (forceOpen || expanded.has(node.path))
 
   return (
     <>
       <div
-        className="tree-node"
-        style={{ paddingLeft: 8 + depth * 12 }}
-        onClick={() => setOpen(!open)}
+        className={`ft-row ${!isDir && currentPath === node.path ? 'active' : ''}`}
+        style={{ paddingLeft: 6 + depth * 12 }}
+        title={node.path === '.' ? node.name : node.path}
+        onClick={() => (isDir ? onToggle(node.path) : onOpen(node.path))}
+        onContextMenu={(event) => onContext(event, node)}
       >
-        {open ? <FolderOpen size={12} /> : <Folder size={12} />}
-        {node.name}
+        {isDir ? (
+          <>
+            {open ? <ChevronDown size={11} className="ft-chev" /> : <ChevronRight size={11} className="ft-chev" />}
+            {open ? <FolderOpen size={12} className="ft-dir" /> : <Folder size={12} className="ft-dir" />}
+          </>
+        ) : (
+          <>
+            <span className="ft-chev-space" />
+            <FileText size={12} className="ft-file" />
+          </>
+        )}
+        <span className="ft-name">{node.name}</span>
+        {node.git && (
+          <span className={`ft-git ${node.git}`} title={`git: ${node.git}`}>
+            {GIT_LABEL[node.git] ?? '•'}
+          </span>
+        )}
       </div>
       {open &&
         node.children?.map((child) => (
-          <Node key={child.path} node={child} depth={depth + 1} />
+          <TreeNodeRow
+            key={child.path}
+            node={child}
+            depth={depth + 1}
+            expanded={expanded}
+            forceOpen={forceOpen}
+            currentPath={currentPath}
+            onToggle={onToggle}
+            onOpen={onOpen}
+            onContext={onContext}
+          />
         ))}
     </>
   )
+}
+
+function parentPath(path: string): string {
+  const index = path.lastIndexOf('/')
+  return index < 0 ? '' : path.slice(0, index)
+}
+
+function collectDirs(node: TreeNode | undefined, maxDepth: number, depth = 0): string[] {
+  if (!node || node.type !== 'dir') return []
+  const result = [node.path]
+  if (depth >= maxDepth) return result
+  for (const child of node.children ?? []) {
+    result.push(...collectDirs(child, maxDepth, depth + 1))
+  }
+  return result
+}
+
+function filterTree(nodes: TreeNode[], query: string): TreeNode[] {
+  const keyword = query.toLowerCase()
+  const walk = (list: TreeNode[]): TreeNode[] => {
+    const result: TreeNode[] = []
+    for (const node of list) {
+      if (node.type === 'file') {
+        if (node.name.toLowerCase().includes(keyword) || node.path.toLowerCase().includes(keyword)) {
+          result.push(node)
+        }
+        continue
+      }
+      const children = walk(node.children ?? [])
+      if (children.length) result.push({ ...node, children })
+      else if (node.name.toLowerCase().includes(keyword)) result.push(node)
+    }
+    return result
+  }
+  return walk(nodes)
 }

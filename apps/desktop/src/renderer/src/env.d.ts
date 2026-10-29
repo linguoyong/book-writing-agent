@@ -7,6 +7,7 @@ interface Window {
     close: () => void
     pickDirectory: () => Promise<string | null>
     openExternal: (url: string) => Promise<boolean>
+    showItemInFolder: (root: string, relative: string) => Promise<boolean>
     backendInfo: () => Promise<{
       port: number
       ready: boolean

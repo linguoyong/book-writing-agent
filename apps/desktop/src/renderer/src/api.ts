@@ -9,6 +9,7 @@ import type {
   ContextBundle,
   Entity,
   Expert,
+  GitChange,
   KbConfig,
   KbKind,
   KnowledgeBaseSummary,
@@ -227,8 +228,26 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify({ path, content })
     }),
-  gitDiff: (projectId: string) =>
-    http<{ diff: string }>(`/projects/${projectId}/git/diff`),
+  fsCreate: (projectId: string, path: string, kind: 'file' | 'dir' = 'file') =>
+    http<{ ok: boolean }>(`/projects/${projectId}/fs/create`, {
+      method: 'POST',
+      body: JSON.stringify({ path, kind })
+    }),
+  fsRename: (projectId: string, path: string, newPath: string) =>
+    http<{ ok: boolean }>(`/projects/${projectId}/fs/rename`, {
+      method: 'POST',
+      body: JSON.stringify({ path, new_path: newPath })
+    }),
+  fsDelete: (projectId: string, path: string) =>
+    http<{ ok: boolean }>(`/projects/${projectId}/fs?path=${encodeURIComponent(path)}`, {
+      method: 'DELETE'
+    }),
+  gitDiff: (projectId: string, path?: string) =>
+    http<{ diff: string }>(
+      `/projects/${projectId}/git/diff${path ? `?path=${encodeURIComponent(path)}` : ''}`
+    ),
+  gitChanges: (projectId: string) =>
+    http<{ items: GitChange[] }>(`/projects/${projectId}/git/changes`),
   gitStatus: (projectId: string) =>
     http<{ status: string }>(`/projects/${projectId}/git/status`),
 

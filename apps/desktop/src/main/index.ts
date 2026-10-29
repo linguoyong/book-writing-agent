@@ -58,6 +58,12 @@ ipcMain.handle('shell:open-external', async (_event, url: unknown) => {
   return false
 })
 
+ipcMain.handle('shell:show-item', async (_event, root: unknown, relative: unknown) => {
+  if (typeof root !== 'string' || typeof relative !== 'string') return false
+  shell.showItemInFolder(join(root, relative))
+  return true
+})
+
 ipcMain.handle('backend:info', async () => {
   // 等后端真正 ready 再返回，渲染层首次请求就不会打到还没监听的端口
   const deadline = Date.now() + 15000

@@ -1,9 +1,8 @@
 import { useAppStore } from '../store'
 import KnowledgePanel from './KnowledgePanel'
-import FileTree from './FileTree'
+import FilesPanel from './FilesPanel'
 import DiffPanel from './DiffPanel'
 import SidePanel from './SidePanel'
-import EditorPane from './EditorPane'
 import ContextPanel from './ContextPanel'
 
 export default function RightSidebar(): React.JSX.Element {
@@ -30,10 +29,9 @@ export default function RightSidebar(): React.JSX.Element {
   }
 
   const tabs = [
-    { key: 'doc', label: '文稿' },
+    { key: 'files', label: '文件' },
     { key: 'kb', label: '知识库' },
     { key: 'context', label: '上下文' },
-    { key: 'files', label: '文件' },
     { key: 'diff', label: '变更' },
     { key: 'side', label: '侧问' }
   ] as const
@@ -53,17 +51,14 @@ export default function RightSidebar(): React.JSX.Element {
         ))}
       </div>
 
-      <div className="right-body" style={{ display: rightTab === 'doc' ? 'flex' : 'none' }}>
-        <EditorPane />
+      <div className="right-body" style={{ display: rightTab === 'files' ? 'flex' : 'none' }}>
+        <FilesPanel />
       </div>
       <div className="right-body" style={{ display: rightTab === 'kb' ? 'flex' : 'none' }}>
         <KnowledgePanel />
       </div>
       <div className="right-body" style={{ display: rightTab === 'context' ? 'flex' : 'none' }}>
         <ContextPanel />
-      </div>
-      <div className="right-body" style={{ display: rightTab === 'files' ? 'flex' : 'none' }}>
-        <FileTree />
       </div>
       <div className="right-body" style={{ display: rightTab === 'diff' ? 'flex' : 'none' }}>
         <DiffPanel />
