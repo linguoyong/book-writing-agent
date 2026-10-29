@@ -269,9 +269,22 @@ export interface PathRule {
   note?: string
 }
 
+export interface CommandRule {
+  pattern: string
+  mode: RuleMode
+  note: string
+}
+
+export interface NetworkSettings {
+  default: 'allow' | 'deny'
+  allow: string[]
+}
+
 export interface SandboxSettings {
   default_mode: SessionPermission
   rules: PathRule[]
+  commands: CommandRule[]
+  network: NetworkSettings
 }
 
 export interface AppConfig {

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
@@ -18,6 +18,7 @@ from ..context import assemble
 from ..domains import list_domains
 from ..experts import delete_expert, get_expert, list_experts, save_expert
 from ..llm import normalize_window
+from ..sandbox import check_command, check_url
 from ..kb.repository import (
     KINDS,
     delete_entity,
@@ -295,6 +296,18 @@ async def post_approve(req: ApproveRequest) -> StreamingResponse:
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
+
+
+class SandboxCheckRequest(BaseModel):
+    kind: Literal["command", "url"]
+    value: str
+
+
+@router.post("/sandbox/check")
+def sandbox_check(req: SandboxCheckRequest) -> dict[str, Any]:
+    settings = load_settings()
+    fn = check_command if req.kind == "command" else check_url
+    return {"result": fn(settings.sandbox, req.value)}
 
 
 @router.get("/projects/{project_id}/approvals")

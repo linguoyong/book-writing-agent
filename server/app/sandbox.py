@@ -45,11 +45,47 @@ DEFAULT_RULES: list[dict[str, str]] = [
 ]
 
 
+class CommandRule(BaseModel):
+    """命令规则。pattern 匹配整条命令行，如 `git status*`、`python*`、`rm*`；先匹配先生效。"""
+
+    pattern: str
+    mode: Mode = "deny"
+    note: str = ""
+
+    @field_validator("pattern")
+    @classmethod
+    def _clean(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("命令规则不能为空")
+        return value
+
+
+class NetworkSettings(BaseModel):
+    """出网策略：默认拒绝，域名后缀放行。给抓取类工具做前置门禁。"""
+
+    default: Literal["allow", "deny"] = "deny"
+    allow: list[str] = Field(default_factory=list)
+
+    @field_validator("allow")
+    @classmethod
+    def _clean(cls, value: list[str]) -> list[str]:
+        cleaned = []
+        for item in value:
+            host = item.strip().lower().replace("https://", "").replace("http://", "").rstrip("/")
+            if host:
+                cleaned.append(host.lstrip("*.") if host.startswith("*.") else host)
+        return cleaned
+
+
 class SandboxSettings(BaseModel):
     default_mode: PermissionMode = "ask"
     rules: list[PathRule] = Field(
         default_factory=lambda: [PathRule(**rule) for rule in DEFAULT_RULES]
     )
+    # 引入 shell / 抓取工具前必须先配置这里；没有规则时命令一律 deny
+    commands: list[CommandRule] = Field(default_factory=list)
+    network: NetworkSettings = Field(default_factory=NetworkSettings)
 
 
 def _expand(pattern: str) -> list[str]:
@@ -121,3 +157,39 @@ def check_path(
         ):
             return rule.read if operation == "read" else _strongest(rule.write, rule.delete)
     return "allow"
+
+
+def check_command(sandbox: SandboxSettings | None, command: str) -> str:
+    """命令门禁：先匹配先生效，没命中任何规则按白名单语义拒绝。
+
+    pattern 对整条命令行做 glob 匹配（`git status*`、`pip install*`），
+    同时对首词做匹配（规则写 `git` 就能覆盖所有 git 子命令）。
+    """
+    if sandbox is None:
+        return "deny"
+    line = " ".join(str(command).split())
+    if not line:
+        return "deny"
+    head = line.split()[0]
+    for rule in sandbox.commands:
+        if wcglob.globmatch(line, rule.pattern, flags=_GLOB_FLAGS) or wcglob.globmatch(
+            head, rule.pattern, flags=_GLOB_FLAGS
+        ):
+            return rule.mode
+    return "deny"
+
+
+def check_url(sandbox: SandboxSettings | None, url: str) -> str:
+    """出网门禁：域名后缀匹配放行表才 allow，否则按 network.default。"""
+    if sandbox is None:
+        return "deny"
+    policy = sandbox.network
+    host = str(url).strip().lower()
+    host = host.split("://", 1)[1] if "://" in host else host
+    host = host.split("/", 1)[0].split(":", 1)[0]
+    if not host:
+        return policy.default
+    for allowed in policy.allow:
+        if host == allowed or host.endswith("." + allowed):
+            return "allow"
+    return policy.default

@@ -40,6 +40,19 @@ export default function SettingsModal(): React.JSX.Element | null {
   const setMode = (index: number, op: 'read' | 'write' | 'delete', mode: RuleMode): void =>
     patchRule(index, { [op]: mode } as Partial<PathRule>)
 
+  const setSandbox = (patch: Partial<AppConfig['sandbox']>): void =>
+    setDraft({ ...draft, sandbox: { ...draft.sandbox, ...patch } })
+  const addCommand = (): void =>
+    setSandbox({
+      commands: [...draft.sandbox.commands, { pattern: 'git status*', mode: 'allow', note: '' }]
+    })
+  const patchCommand = (index: number, patch: Partial<AppConfig['sandbox']['commands'][number]>): void =>
+    setSandbox({
+      commands: draft.sandbox.commands.map((rule, i) => (i === index ? { ...rule, ...patch } : rule))
+    })
+  const removeCommand = (index: number): void =>
+    setSandbox({ commands: draft.sandbox.commands.filter((_, i) => i !== index) })
+
   return (
     <div className="modal-mask" onClick={() => setSettingsOpen(false)}>
       <div className="modal" style={{ width: 640 }} onClick={(event) => event.stopPropagation()}>
@@ -174,6 +187,81 @@ export default function SettingsModal(): React.JSX.Element | null {
               <Plus size={12} />
               添加规则
             </button>
+
+            <div style={{ borderTop: '1px solid var(--border)', marginTop: 14, paddingTop: 12 }}>
+              <div style={{ fontSize: 12.5, marginBottom: 4 }}>命令白名单</div>
+              <div className="field-hint" style={{ marginBottom: 8 }}>
+                给将来的 shell 类工具做门禁：整条命令按 glob 匹配，先命中先生效；没命中任何规则一律拒绝。
+              </div>
+              <div className="rule-head">
+                <span>命令</span>
+                <span>动作</span>
+                <span />
+              </div>
+              {draft.sandbox.commands.map((rule, index) => (
+                <div className="rule-row rule-row-2" key={`${rule.pattern}-${index}`}>
+                  <input
+                    value={rule.pattern}
+                    onChange={(event) => patchCommand(index, { pattern: event.target.value })}
+                    placeholder="git status*"
+                    title={rule.note}
+                  />
+                  <select
+                    value={rule.mode}
+                    onChange={(event) => patchCommand(index, { mode: event.target.value as RuleMode })}
+                  >
+                    <option value="allow">allow</option>
+                    <option value="ask">ask</option>
+                    <option value="deny">deny</option>
+                  </select>
+                  <button className="icon-btn" onClick={() => removeCommand(index)} title="删除规则">
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))}
+              <button className="small-btn" style={{ marginTop: 6 }} onClick={addCommand}>
+                <Plus size={12} />
+                添加命令规则
+              </button>
+
+              <div style={{ fontSize: 12.5, marginTop: 14, marginBottom: 4 }}>网络</div>
+              <div className="field-hint" style={{ marginBottom: 8 }}>
+                给抓取类工具做门禁：默认拒绝，只有放行列表里的域名（含子域名）能出网。
+              </div>
+              <div className="field">
+                <label>默认策略</label>
+                <select
+                  value={draft.sandbox.network.default}
+                  onChange={(event) =>
+                    setSandbox({
+                      network: {
+                        ...draft.sandbox.network,
+                        default: event.target.value as 'allow' | 'deny'
+                      }
+                    })
+                  }
+                >
+                  <option value="deny">拒绝（推荐）</option>
+                  <option value="allow">允许</option>
+                </select>
+              </div>
+              <div className="field" style={{ marginTop: 8 }}>
+                <label>放行域名（每行一个，如 api.deepseek.com）</label>
+                <textarea
+                  className="domain-list"
+                  value={draft.sandbox.network.allow.join('\n')}
+                  spellCheck={false}
+                  onChange={(event) =>
+                    setSandbox({
+                      network: {
+                        ...draft.sandbox.network,
+                        allow: event.target.value.split('\n').map((item) => item.trim()).filter(Boolean)
+                      }
+                    })
+                  }
+                />
+              </div>
+            </div>
           </div>
         </div>
 
