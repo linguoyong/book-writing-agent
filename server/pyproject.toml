@@ -21,6 +21,7 @@ dependencies = [
     "mcp>=1.30.0",
     "langchain-mcp-adapters>=0.3.2",
     "numpy>=2.5.4",
+    "sqlite-vec>=0.1.9",
 ]
 
 [tool.uv]
