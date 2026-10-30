@@ -6,12 +6,10 @@ import {
   Clipboard,
   Eye,
   FileCode2,
-  FilePlus2,
   FolderOpen,
   PanelRight,
   Save
 } from 'lucide-react'
-import { api } from '../api'
 import { useAppStore } from '../store'
 import Markdown from './Markdown'
 
@@ -26,10 +24,8 @@ export default function FileViewer({
   const openFile = useAppStore((state) => state.openFile)
   const updateOpenFile = useAppStore((state) => state.updateOpenFile)
   const saveOpenFile = useAppStore((state) => state.saveOpenFile)
-  const refreshTree = useAppStore((state) => state.refreshTree)
   const openFileByPath = useAppStore((state) => state.openFileByPath)
   const showToast = useAppStore((state) => state.showToast)
-  const setRightTab = useAppStore((state) => state.setRightTab)
 
   const [mode, setMode] = useState<'preview' | 'source'>('preview')
   const isText = !openFile || openFile.kind === 'text'
@@ -52,20 +48,6 @@ export default function FileViewer({
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [])
-
-  const createFile = async (): Promise<void> => {
-    if (!project) return
-    const name = window.prompt('新建文件（相对工作区的路径）', 'manuscript/vol-01/ch-001.md')
-    if (!name?.trim()) return
-    try {
-      await api.fsCreate(project.id, name.trim(), 'file')
-      await refreshTree()
-      await openFileByPath(name.trim(), true)
-      setMode('source')
-    } catch (error) {
-      showToast((error as Error).message)
-    }
-  }
 
   const copyPath = async (): Promise<void> => {
     if (!openFile) return
@@ -201,14 +183,9 @@ export default function FileViewer({
           )
         ) : (
           <div className="editor-empty">
-            <div>从右侧文件树选择文件</div>
-            <button className="small-btn primary" onClick={() => void createFile()} disabled={!project}>
-              <FilePlus2 size={13} />
-              新建文件
-            </button>
-            <button className="small-btn" onClick={() => setRightTab('diff')}>
-              查看变更
-            </button>
+            <div className="editor-empty-hint">
+              从右侧文件树选择文件，Markdown 默认预览、Ctrl+S 保存修改
+            </div>
           </div>
         )}
       </div>
