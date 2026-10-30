@@ -448,6 +448,105 @@ textarea:focus {
   outline: none;
 }
 
+/* ---------- 知识库工作台 ---------- */
+
+.kb-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.kb-detail {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.kb-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.kb-detail-head input {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.kb-detail-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px 18px;
+}
+
+.kb-md .md {
+  font-size: 12.5px;
+}
+
+.kb-source {
+  width: 100%;
+  min-height: 320px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.7;
+  resize: vertical;
+  outline: none;
+}
+
+.kb-meta-fold {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+}
+
+.kb-meta-fold > summary {
+  font-size: 11px;
+  color: var(--faint);
+  cursor: pointer;
+  list-style: none;
+}
+
+.kb-meta-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.kb-side-list {
+  display: flex;
+  flex-direction: column;
+  width: 196px;
+  flex-shrink: 0;
+  min-height: 0;
+  border-left: 1px solid var(--border);
+}
+
+.kb-side-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  padding: 8px 10px 4px;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.kb-side-list .kb-list {
+  flex: 1;
+  overflow: auto;
+  border-top: 0;
+  padding: 2px 6px 10px;
+}
+
 /* ---------- 空间树 ---------- */
 
 .section-label {
@@ -486,11 +585,32 @@ textarea:focus {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px 6px 4px;
+  padding: 6px;
   border-radius: 7px;
   color: var(--text);
   font-size: 13px;
   cursor: pointer;
+}
+
+.space-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  color: var(--faint);
+  opacity: 0;
+}
+
+.space-row:hover .space-delete {
+  opacity: 1;
+}
+
+.space-delete:hover {
+  color: var(--red);
+  background: rgba(217, 107, 107, 0.12);
 }
 
 .space-row:hover {
@@ -1071,11 +1191,24 @@ textarea:focus {
   line-height: 1.7;
 }
 
+.composer-box {
+  container-type: inline-size;
+}
+
 .composer-actions {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   padding-top: 6px;
+}
+
+/* 输入框变窄时优先保住发送按钮，专家与模型可以让位 */
+@container (max-width: 560px) {
+  .composer-actions .expert-wrap,
+  .composer-actions .model-wrap {
+    display: none;
+  }
 }
 
 .composer-hint {
@@ -1197,6 +1330,14 @@ textarea:focus {
   background: var(--bg-elev);
   color: var(--muted);
   font-size: 11.5px;
+  white-space: nowrap;
+  max-width: 168px;
+}
+
+.expert-selector-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .expert-selector:hover {

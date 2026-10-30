@@ -25,6 +25,8 @@ DEFAULT_BOOK = {
     "author": "",
     "synopsis": "",
     "progress": {"volume": 1, "chapter": 1},
+    # 每章目标字数：写作时用于篇幅提示与节奏检查
+    "words_per_chapter": 5000,
     "created_with": "book-writing-agent",
 }
 
@@ -34,7 +36,9 @@ def slugify(name: str) -> str:
     return cleaned or "book"
 
 
-def init_book_dir(path: Path, title: str, author: str = "") -> Path:
+def init_book_dir(
+    path: Path, title: str, author: str = "", words_per_chapter: int = 5000
+) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     (path / "manuscript").mkdir(exist_ok=True)
     (path / "chapters").mkdir(exist_ok=True)
@@ -55,7 +59,23 @@ def init_book_dir(path: Path, title: str, author: str = "") -> Path:
         data = dict(DEFAULT_BOOK)
         data["title"] = title
         data["author"] = author
+        data["words_per_chapter"] = max(500, int(words_per_chapter or 5000))
         book_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    else:
+        # 旧书稿补齐新字段，不改动已有设置
+        try:
+            data = json.loads(book_file.read_text(encoding="utf-8"))
+            if "words_per_chapter" not in data:
+                data["words_per_chapter"] = 5000
+                book_file.write_text(
+                    json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
+                )
+            words_per_chapter = int(data.get("words_per_chapter") or words_per_chapter)
+        except json.JSONDecodeError:
+            pass
+
+    # 目标字数落到项目记忆，Agent 每轮都能读到
+    memory.set_project_words(path, words_per_chapter)
 
     if not (path / ".gitignore").exists():
         (path / ".gitignore").write_text(".index/\n*.tmp\n", encoding="utf-8")
@@ -87,12 +107,18 @@ def _ensure_initial_commit(path: Path) -> None:
         _git(path, "commit", "-m", "初始化书稿项目")
 
 
-def create_book(name: str, title: str = "", author: str = "", target_dir: str = "") -> Path:
+def create_book(
+    name: str,
+    title: str = "",
+    author: str = "",
+    target_dir: str = "",
+    words_per_chapter: int = 5000,
+) -> Path:
     if target_dir:
         path = Path(target_dir).expanduser().resolve()
     else:
         path = (BOOKS_DIR / slugify(name)).resolve()
-    return init_book_dir(path, title or name, author)
+    return init_book_dir(path, title or name, author, words_per_chapter)
 
 
 def read_book_meta(path: Path) -> dict[str, Any]:
@@ -100,7 +126,8 @@ def read_book_meta(path: Path) -> dict[str, Any]:
     if not book_file.exists():
         return dict(DEFAULT_BOOK)
     try:
-        return json.loads(book_file.read_text(encoding="utf-8"))
+        raw = json.loads(book_file.read_text(encoding="utf-8"))
+        return {**DEFAULT_BOOK, **raw}
     except json.JSONDecodeError:
         return dict(DEFAULT_BOOK)
 

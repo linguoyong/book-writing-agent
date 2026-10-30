@@ -156,6 +156,11 @@ def list_projects() -> list[dict[str, Any]]:
     return [_row_to_dict(r) for r in rows]
 
 
+def delete_project(project_id: str) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+
+
 def get_project(project_id: str) -> dict[str, Any] | None:
     with get_conn() as conn:
         row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()

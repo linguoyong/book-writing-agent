@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Database, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react'
 import { KB_LABELS, useAppStore } from '../store'
 import type { KbKind, SearchHit } from '../types'
+import Markdown from './Markdown'
 
 const KINDS: KbKind[] = [
   'characters',
@@ -32,6 +33,11 @@ export default function KnowledgePanel(): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
+  const [mode, setMode] = useState<'preview' | 'edit'>('preview')
+
+  useEffect(() => {
+    setMode('preview')
+  }, [kbActive?.id])
 
   const runSearch = (): void => {
     if (!query.trim()) {
@@ -99,87 +105,117 @@ export default function KnowledgePanel(): React.JSX.Element {
         </button>
       </div>
 
-      <div className="kb-list">
-        {query && kbSearch.length > 0
-          ? kbSearch.map((hit) => (
-              <div
-                key={`${hit.id}-${hit.source}`}
-                className="search-hit"
-                onClick={() => void openHit(hit)}
-              >
-                <div className="hit-title">
-                  <span className="hit-kind">
-                    {KB_LABELS[hit.kind as KbKind] ?? '原文'}
-                  </span>
-                  {hit.title}
-                </div>
-                <div className="hit-text">{hit.text.slice(0, 160)}</div>
+      <div className="kb-workspace">
+        <div className="kb-detail">
+          {kbActive ? (
+            <>
+              <div className="kb-detail-head">
+                <input
+                  value={kbActive.title}
+                  onChange={(event) =>
+                    patchKbActive({
+                      title: event.target.value,
+                      meta: { ...kbActive.meta, name: event.target.value }
+                    })
+                  }
+                />
+                <button
+                  className="small-btn"
+                  onClick={() => setMode(mode === 'preview' ? 'edit' : 'preview')}
+                  title={mode === 'preview' ? '编辑 Markdown' : '预览'}
+                >
+                  {mode === 'preview' ? '编辑' : '预览'}
+                </button>
+                <button className="small-btn" onClick={() => void saveKbActive()} title="保存">
+                  保存
+                </button>
+                <button
+                  className="icon-btn"
+                  onClick={() => {
+                    if (window.confirm(`删除「${kbActive.title}」？`)) void deleteKbActive()
+                  }}
+                  title="删除"
+                >
+                  <Trash2 size={13} />
+                </button>
               </div>
-            ))
-          : kbItems.map((item) => (
-              <div
-                key={item.id}
-                className={`kb-item ${item.id === kbActive?.id ? 'active' : ''}`}
-                onClick={() => selectKbEntity(item)}
-              >
-                <div className="title">{item.title}</div>
-                <div className="meta-line">
-                  {String(item.meta.aliases ?? item.meta.status ?? item.meta.type ?? item.id)}
-                </div>
+
+              <div className="kb-detail-body">
+                {mode === 'preview' ? (
+                  <div className="kb-md">
+                    <Markdown content={kbActive.body || '（暂无正文）'} />
+                  </div>
+                ) : (
+                  <textarea
+                    className="kb-source"
+                    value={kbActive.body}
+                    placeholder="正文内容（Markdown）"
+                    onChange={(event) => patchKbActive({ body: event.target.value })}
+                  />
+                )}
+                <details className="kb-meta-fold">
+                  <summary>元数据</summary>
+                  <pre className="kb-meta">{JSON.stringify(kbActive.meta, null, 2)}</pre>
+                </details>
               </div>
-            ))}
-
-        {kbItems.length === 0 && !query && (
-          <div className="panel-empty">还没有{KB_LABELS[kbKind]}条目</div>
-        )}
-        {query && kbSearch.length === 0 && <div className="panel-empty">没有检索结果</div>}
-      </div>
-
-      {kbActive && (
-        <div className="kb-editor">
-          <div className="kb-editor-header">
-            <input
-              value={kbActive.title}
-              onChange={(event) =>
-                patchKbActive({
-                  title: event.target.value,
-                  meta: { ...kbActive.meta, name: event.target.value }
-                })
-              }
-            />
-            <button
-              className="small-btn"
-              onClick={() => void saveKbActive()}
-              title="保存"
-            >
-              保存
-            </button>
-            <button
-              className="icon-btn"
-              onClick={() => {
-                if (window.confirm(`删除「${kbActive.title}」？`)) void deleteKbActive()
-              }}
-              title="删除"
-            >
-              <Trash2 size={13} />
-            </button>
-          </div>
-          <div className="kb-editor-body">
-            <pre className="kb-meta">{JSON.stringify(kbActive.meta, null, 2)}</pre>
-            <textarea
-              value={kbActive.body}
-              placeholder="正文内容（Markdown）"
-              onChange={(event) => patchKbActive({ body: event.target.value })}
-            />
-            <div className="kb-editor-actions">
-              <button className="small-btn" onClick={() => void loadKb(kbKind)} title="刷新列表">
-                <RefreshCw size={12} />
-                刷新
-              </button>
+            </>
+          ) : (
+            <div className="editor-empty">
+              <div className="editor-empty-hint">
+                从右侧选择条目；正文默认 Markdown 预览，可切换编辑
+              </div>
             </div>
-          </div>
+          )}
         </div>
-      )}
+
+        <aside className="kb-side-list">
+          <div className="kb-side-title">
+            条目 · {query && kbSearch.length > 0 ? kbSearch.length : kbItems.length}
+            <button className="ft-icon" onClick={() => void loadKb(kbKind)} title="刷新列表">
+              <RefreshCw size={11} />
+            </button>
+          </div>
+          <div className="kb-list">
+            {query && kbSearch.length > 0
+              ? kbSearch.map((hit) => (
+                  <div
+                    key={`${hit.id}-${hit.source}`}
+                    className="search-hit"
+                    onClick={() => void openHit(hit)}
+                  >
+                    <div className="hit-title">
+                      <span className="hit-kind">
+                        {KB_LABELS[hit.kind as KbKind] ?? '原文'}
+                      </span>
+                      {hit.title}
+                    </div>
+                    <div className="hit-text">{hit.text.slice(0, 120)}</div>
+                  </div>
+                ))
+              : kbItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className={`kb-item ${item.id === kbActive?.id ? 'active' : ''}`}
+                    onClick={() => selectKbEntity(item)}
+                  >
+                    <div className="title">{item.title}</div>
+                    <div className="meta-line">
+                      {String(
+                        item.meta.aliases ?? item.meta.status ?? item.meta.type ?? item.id
+                      )}
+                    </div>
+                  </div>
+                ))}
+
+            {kbItems.length === 0 && !query && (
+              <div className="panel-empty">还没有{KB_LABELS[kbKind]}条目</div>
+            )}
+            {query && kbSearch.length === 0 && (
+              <div className="panel-empty">没有检索结果</div>
+            )}
+          </div>
+        </aside>
+      </div>
 
       {creating && (
         <div className="modal-mask" onClick={() => setCreating(false)}>

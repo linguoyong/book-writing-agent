@@ -87,7 +87,14 @@ interface AppState {
   pendingComposer: string | null
 
   bootstrap: () => Promise<void>
-  createProject: (name: string, title: string, author?: string, path?: string) => Promise<void>
+  createProject: (
+    name: string,
+    title: string,
+    author?: string,
+    path?: string,
+    wordsPerChapter?: number
+  ) => Promise<void>
+  deleteProject: (projectId: string, purge?: boolean) => Promise<void>
   openProject: (path: string) => Promise<void>
   refreshSpaceSummaries: () => Promise<void>
   selectProject: (projectId: string, options?: { sessionId?: string }) => Promise<void>
@@ -353,13 +360,50 @@ export const useAppStore = create<AppState>((set, get) => {
     }
   },
 
-  createProject: async (name, title, author, path) => {
+  createProject: async (name, title, author, path, wordsPerChapter) => {
     try {
-      const project = await api.createProject({ name, title, author, path })
+      const project = await api.createProject({
+        name,
+        title,
+        author,
+        path,
+        words_per_chapter: wordsPerChapter
+      })
       const projects = await api.listProjects()
       set({ projects, projectModalOpen: false })
       await get().selectProject(project.id)
       await get().refreshSpaceSummaries()
+    } catch (error) {
+      set({ error: (error as Error).message })
+    }
+  },
+
+  deleteProject: async (projectId, purge = false) => {
+    const state = get()
+    try {
+      await api.deleteProject(projectId, purge)
+      const projects = state.projects.filter((item) => item.id !== projectId)
+      const summaries = { ...state.spaceSummaries }
+      delete summaries[projectId]
+      set({
+        projects,
+        spaceSummaries: summaries,
+        allSessions: state.allSessions.filter((item) => item.project_id !== projectId)
+      })
+      if (state.activeProject?.id === projectId) {
+        set({
+          activeProject: null,
+          overview: null,
+          sessions: [],
+          activeSessionId: null,
+          sideSessionId: null,
+          timeline: [],
+          tree: [],
+          openFile: null
+        })
+        if (projects.length > 0) await get().selectProject(projects[0].id)
+        else get().setProjectModalOpen(true)
+      }
     } catch (error) {
       set({ error: (error as Error).message })
     }

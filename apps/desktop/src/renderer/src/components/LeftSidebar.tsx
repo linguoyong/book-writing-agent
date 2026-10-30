@@ -34,6 +34,7 @@ export default function LeftSidebar(): React.JSX.Element {
   const removeSession = useAppStore((state) => state.removeSession)
   const renameSession = useAppStore((state) => state.renameSession)
   const archiveSession = useAppStore((state) => state.archiveSession)
+  const deleteProject = useAppStore((state) => state.deleteProject)
   const setProjectModalOpen = useAppStore((state) => state.setProjectModalOpen)
   const setView = useAppStore((state) => state.setView)
 
@@ -82,6 +83,24 @@ export default function LeftSidebar(): React.JSX.Element {
       else next.add(id)
       return next
     })
+  }
+
+  const removeProject = async (project: {
+    id: string
+    name: string
+    path: string
+  }): Promise<void> => {
+    if (
+      !window.confirm(
+        `删除空间「${project.name}」及其中全部会话？\n\n磁盘目录会保留：${project.path}`
+      )
+    ) {
+      return
+    }
+    const purge = window.confirm(
+      '是否同时删除磁盘上的书稿目录？\n\n确定 = 连同文件一起删除（不可恢复）\n取消 = 只删除空间与会话记录'
+    )
+    await deleteProject(project.id, purge)
   }
 
   const startResize = (event: React.MouseEvent): void => {
@@ -208,6 +227,18 @@ export default function LeftSidebar(): React.JSX.Element {
                   }}
                   title={project.path}
                 >
+                  <Folder size={13} className="space-folder" />
+                  <span className="space-name">{project.name}</span>
+                  <button
+                    className="space-delete"
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      void removeProject(project)
+                    }}
+                    title="删除空间"
+                  >
+                    <Trash2 size={12} />
+                  </button>
                   <button
                     className="space-toggle"
                     onClick={(event) => {
@@ -218,8 +249,6 @@ export default function LeftSidebar(): React.JSX.Element {
                   >
                     {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
                   </button>
-                  <Folder size={13} className="space-folder" />
-                  <span className="space-name">{project.name}</span>
                 </div>
 
                 {expanded && (

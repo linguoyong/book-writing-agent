@@ -129,6 +129,7 @@ class CreateProjectRequest(BaseModel):
     title: str = ""
     author: str = ""
     path: str = ""
+    words_per_chapter: int = 5000
 
 
 @router.get("/projects")
@@ -144,12 +145,28 @@ def get_projects() -> list[dict[str, Any]]:
 def post_project(req: CreateProjectRequest) -> dict[str, Any]:
     if not req.name.strip():
         raise HTTPException(status_code=400, detail="项目名不能为空")
-    path = create_book(req.name, req.title, req.author, req.path)
+    path = create_book(
+        req.name, req.title, req.author, req.path, req.words_per_chapter
+    )
     existing = next((p for p in db.list_projects() if p["path"] == str(path)), None)
     if existing:
         return {**existing, "meta": read_book_meta(path)}
     project = db.create_project(req.name, str(path))
     return {**project, "meta": read_book_meta(path)}
+
+
+@router.delete("/projects/{project_id}")
+def delete_project(project_id: str, purge: bool = False) -> dict[str, bool]:
+    project = db.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="空间不存在")
+    # 先删会话（连带消息与审批），再删空间记录
+    for session in db.list_sessions(project_id):
+        db.delete_session(session["id"])
+    db.delete_project(project_id)
+    if purge:
+        shutil.rmtree(Path(project["path"]), ignore_errors=True)
+    return {"ok": True}
 
 
 @router.get("/projects/default-path")

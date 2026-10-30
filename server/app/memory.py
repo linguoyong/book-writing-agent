@@ -78,6 +78,24 @@ def _seed_project(project: Path) -> str:
     )
 
 
+def set_project_words(project: Path, words: int) -> None:
+    """把「每章目标字数」写进项目记忆的写作约定，供 Agent 每轮读取。"""
+    file = memory_path("project", project)
+    if not file.exists():
+        return
+    # Windows 下文件是 CRLF，先归一化再匹配
+    text = read_text(file).replace("\r\n", "\n")
+    line = f"- 每章目标约 {max(500, int(words or 5000))} 字"
+    pattern = re.compile(r"^- 每章目标约 \d+ 字$", re.M)
+    if pattern.search(text):
+        text = pattern.sub(line, text, count=1)
+    elif "## 写作约定" in text:
+        text = text.replace("## 写作约定\n", f"## 写作约定\n{line}\n", 1)
+    else:
+        text = text.rstrip() + f"\n\n## 写作约定\n{line}\n"
+    file.write_text(text, encoding="utf-8")
+
+
 def read(scope: str, project: Path | None = None) -> str:
     file = memory_path(scope, project)
     if not file.exists():

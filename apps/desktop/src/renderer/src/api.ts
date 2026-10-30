@@ -84,7 +84,17 @@ export const api = {
     http<ApprovalRecord[]>(
       `/projects/${projectId}/approvals?status=${encodeURIComponent(status)}&limit=100`
     ),
-  createProject: (body: { name: string; title?: string; author?: string; path?: string }) =>
+  deleteProject: (projectId: string, purge = false) =>
+    http<{ ok: boolean }>(`/projects/${projectId}?purge=${purge}`, {
+      method: 'DELETE'
+    }),
+  createProject: (body: {
+    name: string
+    title?: string
+    author?: string
+    path?: string
+    words_per_chapter?: number
+  }) =>
     http<Project>('/projects', { method: 'POST', body: JSON.stringify(body) }),
   defaultPath: (name: string) =>
     http<{ path: string }>(`/projects/default-path?name=${encodeURIComponent(name)}`),

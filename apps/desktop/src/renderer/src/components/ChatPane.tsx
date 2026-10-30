@@ -645,7 +645,9 @@ function ExpertPicker(): React.JSX.Element {
       )}
       <button className="expert-selector" onClick={() => setOpen((value) => !value)}>
         <Sparkles size={12} />
-        专家 · {current?.name ?? '通用'}
+        <span className="expert-selector-label">
+          专家 · {current?.name ?? '通用'}
+        </span>
         <ChevronDown size={11} />
       </button>
     </div>

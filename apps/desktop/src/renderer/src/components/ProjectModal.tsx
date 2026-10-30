@@ -12,6 +12,7 @@ export default function ProjectModal({ canClose }: { canClose: boolean }): React
   const [name, setName] = useState('')
   const [title, setTitle] = useState('')
   const [author, setAuthor] = useState('')
+  const [wordsPerChapter, setWordsPerChapter] = useState(5000)
   const [path, setPath] = useState('')
   const [pathTouched, setPathTouched] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -41,7 +42,15 @@ export default function ProjectModal({ canClose }: { canClose: boolean }): React
     if (busy) return
     setBusy(true)
     if (mode === 'create') {
-      if (name.trim()) await createProject(name.trim(), title.trim() || name.trim(), author.trim(), path.trim() || undefined)
+      if (name.trim()) {
+        await createProject(
+          name.trim(),
+          title.trim() || name.trim(),
+          author.trim(),
+          path.trim() || undefined,
+          wordsPerChapter
+        )
+      }
     } else if (path.trim()) {
       await openProject(path.trim())
     }
@@ -93,6 +102,21 @@ export default function ProjectModal({ canClose }: { canClose: boolean }): React
               <div className="field">
                 <label>作者（可选）</label>
                 <input value={author} onChange={(event) => setAuthor(event.target.value)} />
+              </div>
+              <div className="field">
+                <label>每章目标字数</label>
+                <input
+                  type="number"
+                  min={500}
+                  step={500}
+                  value={wordsPerChapter}
+                  onChange={(event) =>
+                    setWordsPerChapter(Number(event.target.value) || 5000)
+                  }
+                />
+                <div className="field-hint">
+                  写作篇幅与节奏检查会参考这个值，默认 5000 字，之后可在 book.json 调整。
+                </div>
               </div>
               <div className="field">
                 <label>存放目录</label>
