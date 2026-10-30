@@ -45,6 +45,7 @@ interface AppState {
 
   sessions: Session[]
   activeSessionId: string | null
+  sideSessionId: string | null
   timeline: TimelineItem[]
   streaming: boolean
 
@@ -92,7 +93,10 @@ interface AppState {
   refreshSessions: () => Promise<void>
   newSession: () => Promise<Session | null>
   selectSession: (sessionId: string) => Promise<void>
+  setSideSessionId: (sessionId: string | null) => void
   removeSession: (sessionId: string) => Promise<void>
+  renameSession: (sessionId: string, title: string) => Promise<void>
+  archiveSession: (sessionId: string, archived: boolean) => Promise<void>
 
   sendMessage: (text: string) => Promise<void>
   steerMessage: (text: string) => Promise<void>
@@ -262,6 +266,7 @@ export const useAppStore = create<AppState>((set, get) => {
   spaceSummaries: {},
   sessions: [],
   activeSessionId: null,
+  sideSessionId: null,
   timeline: [],
   streaming: false,
   tree: [],
@@ -375,6 +380,7 @@ export const useAppStore = create<AppState>((set, get) => {
       overview: null,
       sessions: [],
       activeSessionId: null,
+      sideSessionId: window.localStorage.getItem(`book-agent:side:${project.id}`),
       timeline: [],
       tree: [],
       openFile: null,
@@ -462,8 +468,17 @@ export const useAppStore = create<AppState>((set, get) => {
     }
   },
 
-  selectSession: async (sessionId) => {
-    const session = get().sessions.find((item) => item.id === sessionId)
+  setSideSessionId: (sessionId) => {
+    const projectId = get().activeProject?.id
+    if (projectId) {
+      const key = `book-agent:side:${projectId}`
+      if (sessionId) window.localStorage.setItem(key, sessionId)
+      else window.localStorage.removeItem(key)
+    }
+    set({ sideSessionId: sessionId })
+  },
+
+  selectSession: async (sessionId) => {    const session = get().sessions.find((item) => item.id === sessionId)
     set({
       activeSessionId: sessionId,
       timeline: [],
@@ -521,11 +536,43 @@ export const useAppStore = create<AppState>((set, get) => {
   removeSession: async (sessionId) => {
     try {
       await api.deleteSession(sessionId)
+      if (get().sideSessionId === sessionId) get().setSideSessionId(null)
       const sessions = get().sessions.filter((item) => item.id !== sessionId)
       set({ sessions })
       if (get().activeSessionId === sessionId) {
         set({ activeSessionId: null, timeline: [] })
         if (sessions.length > 0) await get().selectSession(sessions[0].id)
+      }
+    } catch (error) {
+      set({ error: (error as Error).message })
+    }
+  },
+
+  renameSession: async (sessionId, title) => {
+    const clean = title.trim()
+    if (!clean) return
+    try {
+      const updated = await api.updateSession(sessionId, { title: clean })
+      set({
+        sessions: get().sessions.map((item) => (item.id === sessionId ? updated : item))
+      })
+    } catch (error) {
+      set({ error: (error as Error).message })
+    }
+  },
+
+  archiveSession: async (sessionId, archived) => {
+    try {
+      const updated = await api.updateSession(sessionId, { archived })
+      set({
+        sessions: get().sessions.map((item) => (item.id === sessionId ? updated : item))
+      })
+      if (archived && get().activeSessionId === sessionId) {
+        const next = get().sessions.find(
+          (item) => item.id !== sessionId && item.kind !== 'side' && !item.archived
+        )
+        if (next) await get().selectSession(next.id)
+        else await get().newSession()
       }
     } catch (error) {
       set({ error: (error as Error).message })

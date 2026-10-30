@@ -24,6 +24,7 @@ export interface Session {
   domain?: string | null
   permission_mode?: SessionPermission | null
   model_id?: string | null
+  archived?: number | boolean
   created_at: string
   updated_at: string
 }

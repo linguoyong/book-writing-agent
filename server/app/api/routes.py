@@ -230,6 +230,7 @@ class SessionPatch(BaseModel):
     domain: str | None = None
     permission_mode: str | None = None
     model_id: str | None = None
+    archived: bool | None = None
 
 
 @router.get("/projects/{project_id}/sessions")

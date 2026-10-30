@@ -1,9 +1,15 @@
+import { useState } from 'react'
 import {
+  Archive,
   Brain,
+  ChevronDown,
+  ChevronRight,
   Folder,
   Library,
   MessageSquare,
+  Pencil,
   Plus,
+  RotateCcw,
   ShieldCheck,
   Sparkles,
   Stethoscope,
@@ -25,10 +31,21 @@ export default function LeftSidebar(): React.JSX.Element {
   const newSession = useAppStore((state) => state.newSession)
   const selectSession = useAppStore((state) => state.selectSession)
   const removeSession = useAppStore((state) => state.removeSession)
+  const renameSession = useAppStore((state) => state.renameSession)
+  const archiveSession = useAppStore((state) => state.archiveSession)
   const setProjectModalOpen = useAppStore((state) => state.setProjectModalOpen)
   const setView = useAppStore((state) => state.setView)
 
-  const visibleSessions = sessions.filter((session) => session.kind !== 'side')
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [draftTitle, setDraftTitle] = useState('')
+  const [showArchived, setShowArchived] = useState(false)
+
+  const visibleSessions = sessions.filter(
+    (session) => session.kind !== 'side' && !session.archived
+  )
+  const archivedSessions = sessions.filter(
+    (session) => session.kind !== 'side' && Boolean(session.archived)
+  )
 
   const startResize = (event: React.MouseEvent): void => {
     event.preventDefault()
@@ -159,12 +176,57 @@ export default function LeftSidebar(): React.JSX.Element {
                 view === 'chat' && session.id === activeSessionId ? 'active' : ''
               }`}
               onClick={() => {
+                if (editingId === session.id) return
                 setView('chat')
                 void selectSession(session.id)
               }}
             >
               <MessageSquare size={13} />
-              <span className="label">{session.title}</span>
+              {editingId === session.id ? (
+                <input
+                  className="session-rename"
+                  value={draftTitle}
+                  autoFocus
+                  onClick={(event) => event.stopPropagation()}
+                  onChange={(event) => setDraftTitle(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                      void renameSession(session.id, draftTitle)
+                      setEditingId(null)
+                    }
+                    if (event.key === 'Escape') setEditingId(null)
+                  }}
+                  onBlur={() => {
+                    if (draftTitle.trim() && draftTitle.trim() !== session.title) {
+                      void renameSession(session.id, draftTitle)
+                    }
+                    setEditingId(null)
+                  }}
+                />
+              ) : (
+                <span className="label">{session.title}</span>
+              )}
+              <button
+                className="row-action"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setEditingId(session.id)
+                  setDraftTitle(session.title)
+                }}
+                title="重命名"
+              >
+                <Pencil size={11} />
+              </button>
+              <button
+                className="row-action"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  void archiveSession(session.id, true)
+                }}
+                title="归档"
+              >
+                <Archive size={11} />
+              </button>
               <button
                 className="delete"
                 onClick={(event) => {
@@ -173,10 +235,36 @@ export default function LeftSidebar(): React.JSX.Element {
                 }}
                 title="删除会话"
               >
-                <Trash2 size={12} />
+                <Trash2 size={11} />
               </button>
             </div>
           ))}
+
+          {archivedSessions.length > 0 && (
+            <div className="archived-block">
+              <button
+                className="archived-toggle"
+                onClick={() => setShowArchived((value) => !value)}
+              >
+                {showArchived ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                已归档 · {archivedSessions.length}
+              </button>
+              {showArchived &&
+                archivedSessions.map((session) => (
+                  <div key={session.id} className="list-item archived">
+                    <Archive size={12} />
+                    <span className="label">{session.title}</span>
+                    <button
+                      className="row-action"
+                      onClick={() => void archiveSession(session.id, false)}
+                      title="恢复会话"
+                    >
+                      <RotateCcw size={11} />
+                    </button>
+                  </div>
+                ))}
+            </div>
+          )}
         </section>
       </div>
 

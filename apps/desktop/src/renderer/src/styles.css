@@ -414,6 +414,60 @@ textarea:focus {
   background: rgba(217, 107, 107, 0.12);
 }
 
+.list-item .row-action {
+  opacity: 0;
+  padding: 2px;
+  border-radius: 4px;
+  color: var(--faint);
+}
+
+.list-item:hover .row-action {
+  opacity: 1;
+}
+
+.list-item .row-action:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.session-rename {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 12.5px;
+  outline: none;
+}
+
+.archived-block {
+  margin-top: 4px;
+}
+
+.archived-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  padding: 6px 10px;
+  border-radius: 6px;
+  color: var(--faint);
+  font-size: 11px;
+  text-align: left;
+}
+
+.archived-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--muted);
+}
+
+.list-item.archived {
+  color: var(--faint);
+}
+
 .expert-grid {
   display: flex;
   flex-wrap: wrap;

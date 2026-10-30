@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowUp, CornerUpLeft, Eraser, Square } from 'lucide-react'
 import { api, streamChat } from '../api'
 import { useAppStore } from '../store'
-import type { TimelineItem } from '../types'
+import type { Message, TimelineItem } from '../types'
 import Markdown from './Markdown'
 
 let counter = 0
@@ -16,11 +16,37 @@ const settleItems = (items: TimelineItem[]): TimelineItem[] =>
       : item
   )
 
+/** 把已落库的侧问消息还原成时间线（工具卡用 meta.tool_calls 重建） */
+function toTimeline(messages: Message[]): TimelineItem[] {
+  const items: TimelineItem[] = []
+  for (const message of messages) {
+    if (message.role === 'user') {
+      items.push({ id: `h${message.id}`, type: 'user', content: message.content })
+      continue
+    }
+    const calls = message.meta?.tool_calls ?? []
+    calls.forEach((call, index) => {
+      items.push({
+        id: `h${message.id}-t${index}`,
+        type: 'tool',
+        name: call.name,
+        input: call.input,
+        status: 'done'
+      })
+    })
+    if (message.content.trim()) {
+      items.push({ id: `h${message.id}`, type: 'assistant', content: message.content })
+    }
+  }
+  return items
+}
+
 export default function SidePanel(): React.JSX.Element {
   const project = useAppStore((state) => state.activeProject)
   const setPendingComposer = useAppStore((state) => state.setPendingComposer)
+  const sessionId = useAppStore((state) => state.sideSessionId)
+  const setSideSessionId = useAppStore((state) => state.setSideSessionId)
 
-  const [sessionId, setSessionId] = useState<string | null>(null)
   const [items, setItems] = useState<TimelineItem[]>([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
@@ -29,9 +55,25 @@ export default function SidePanel(): React.JSX.Element {
   const abortRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
-    setSessionId(null)
-    setItems([])
+    let cancelled = false
     setInput('')
+    const load = async (): Promise<void> => {
+      const sid = useAppStore.getState().sideSessionId
+      if (!sid) {
+        setItems([])
+        return
+      }
+      try {
+        const messages = await api.messages(sid)
+        if (!cancelled) setItems(toTimeline(messages))
+      } catch {
+        if (!cancelled) setItems([])
+      }
+    }
+    void load()
+    return () => {
+      cancelled = true
+    }
   }, [project?.id])
 
   useEffect(() => {
@@ -54,7 +96,7 @@ export default function SidePanel(): React.JSX.Element {
           modelId: mainModel ?? undefined
         })
         sid = session.id
-        setSessionId(sid)
+        setSideSessionId(sid)
       } catch (error) {
         setItems((prev) => [
           ...prev,
@@ -131,7 +173,10 @@ export default function SidePanel(): React.JSX.Element {
         <button
           className="small-btn"
           onClick={() => {
-            setSessionId(null)
+            abortRef.current?.abort()
+            abortRef.current = null
+            setStreaming(false)
+            setSideSessionId(null)
             setItems([])
           }}
           title="开启新的侧问"

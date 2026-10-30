@@ -123,6 +123,7 @@ export const api = {
       domain?: string
       permission_mode?: SessionPermission
       model_id?: string | null
+      archived?: boolean
     }
   ) =>
     http<Session>(`/sessions/${sessionId}`, {
