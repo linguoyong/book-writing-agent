@@ -288,11 +288,7 @@ export default function ChatPane(): React.JSX.Element {
               <PermissionPicker />
               <ModelPicker />
               <span className="composer-hint">
-                {approval
-                  ? '先处理待审批的写入'
-                  : streaming
-                    ? '执行中 · 发送将作为引导'
-                    : ''}
+                {approval ? '先处理待审批的写入' : ''}
               </span>
               {streaming && (
                 <button
@@ -397,66 +393,82 @@ function TurnBlock({
         </div>
       )}
 
-      {turn.process.length > 0 &&
-        (running ? (
-          <div className="turn-live">
-            <div className="turn-live-head">
-              <Loader2 size={12} className="spin" />
-              处理中 · {formatDuration(elapsed)}
-            </div>
-            {turn.process.map((item) => (
-              <StepRow key={item.id} item={item} />
-            ))}
-          </div>
-        ) : (
-          <details className="turn-fold">
-            <summary>
-              <Check size={12} />
-              <span>已完成</span>
-              {turn.meta && (
-                <>
-                  <span className="turn-dot">·</span>
-                  <span>{formatDuration(elapsed)}</span>
-                </>
-              )}
-              {steps.length > 0 && (
-                <>
-                  <span className="turn-dot">·</span>
-                  <span>{steps.length} 步</span>
-                </>
-              )}
-              <ChevronRight size={12} className="turn-chev" />
-            </summary>
-            <div className="turn-live">
-              {turn.process.map((item) => (
-                <StepRow key={item.id} item={item} />
-              ))}
-            </div>
-          </details>
-        ))}
-
-      {turn.conclusion && (
+      {(turn.process.length > 0 || turn.conclusion) && (
         <div className="msg assistant">
           <div className="avatar">墨</div>
-          <div className={`content md-content ${live ? 'streaming' : ''}`}>
-            <Markdown content={turn.conclusion.content} />
-            {turn.conclusion.interrupted && (
-              <div className="turn-interrupted">生成已中断，以上为已生成的内容</div>
+          <div className="assistant-body">
+            {turn.process.length > 0 &&
+              (running ? (
+                <div className="turn-live">
+                  <div className="turn-live-head">
+                    <Loader2 size={12} className="spin" />
+                    处理中 · {formatDuration(elapsed)}
+                  </div>
+                  {turn.process.map((item) => (
+                    <StepRow key={item.id} item={item} />
+                  ))}
+                </div>
+              ) : (
+                <details className="turn-fold">
+                  <summary>
+                    <Check size={12} />
+                    <span>已完成</span>
+                    {turn.meta && (
+                      <>
+                        <span className="turn-dot">·</span>
+                        <span>{formatDuration(elapsed)}</span>
+                      </>
+                    )}
+                    {steps.length > 0 && (
+                      <>
+                        <span className="turn-dot">·</span>
+                        <span>{steps.length} 步</span>
+                      </>
+                    )}
+                    <ChevronRight size={12} className="turn-chev" />
+                  </summary>
+                  <div className="turn-live">
+                    {turn.process.map((item) => (
+                      <StepRow key={item.id} item={item} />
+                    ))}
+                  </div>
+                </details>
+              ))}
+
+            {turn.conclusion && (
+              <div className={`content md-content ${live ? 'streaming' : ''}`}>
+                <Markdown content={turn.conclusion.content} />
+                {turn.conclusion.interrupted && (
+                  <div className="turn-interrupted">生成已中断，以上为已生成的内容</div>
+                )}
+                {turn.conclusion.awaiting && (
+                  <div className="turn-interrupted">
+                    <span>这一轮在等待写入审批时暂停，可重新生成继续</span>
+                    <button
+                      className="link-btn"
+                      onClick={() => void regenerate()}
+                      disabled={streaming}
+                    >
+                      重新生成
+                    </button>
+                  </div>
+                )}
+                <div className="msg-actions">
+                  <button onClick={() => copy(turn.conclusion?.content ?? '')} title="复制">
+                    <Copy size={11} />
+                  </button>
+                  {isLast && !live && (
+                    <button
+                      onClick={() => void regenerate()}
+                      disabled={streaming}
+                      title="重新生成这一轮"
+                    >
+                      <RotateCcw size={11} />
+                    </button>
+                  )}
+                </div>
+              </div>
             )}
-            <div className="msg-actions">
-              <button onClick={() => copy(turn.conclusion?.content ?? '')} title="复制">
-                <Copy size={11} />
-              </button>
-              {isLast && !live && (
-                <button
-                  onClick={() => void regenerate()}
-                  disabled={streaming}
-                  title="重新生成这一轮"
-                >
-                  <RotateCcw size={11} />
-                </button>
-              )}
-            </div>
           </div>
         </div>
       )}

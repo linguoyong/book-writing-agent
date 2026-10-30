@@ -377,7 +377,7 @@ export interface ModelProfile {
 
 export type TimelineItem =
   | { id: string; type: 'user'; content: string; steering?: boolean; references?: ReferenceItem[] }
-  | { id: string; type: 'assistant'; content: string; interrupted?: boolean }
+  | { id: string; type: 'assistant'; content: string; interrupted?: boolean; awaiting?: boolean }
   | {
       id: string
       type: 'tool'

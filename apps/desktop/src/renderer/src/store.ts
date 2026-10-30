@@ -583,7 +583,8 @@ export const useAppStore = create<AppState>((set, get) => {
                   id: `m${message.id}`,
                   type: 'assistant',
                   content: message.content,
-                  interrupted: Boolean(meta?.interrupted)
+                  interrupted: Boolean(meta?.interrupted),
+                  awaiting: Boolean(meta?.awaiting_approval)
                 }
           )
         }
