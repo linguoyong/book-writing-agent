@@ -221,6 +221,14 @@ export const api = {
     }),
 
   experts: (projectId: string) => http<Expert[]>(`/projects/${projectId}/experts`),
+  importStyle: (projectId: string, path: string) =>
+    http<{
+      expert: { id: string; name: string }
+      skill: { id: string; name: string } | null
+    }>(`/projects/${projectId}/import-style`, {
+      method: 'POST',
+      body: JSON.stringify({ path })
+    }),
   saveExpert: (
     projectId: string,
     expertId: string,

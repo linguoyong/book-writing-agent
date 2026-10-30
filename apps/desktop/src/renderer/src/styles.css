@@ -1784,6 +1784,41 @@ textarea:focus {
   gap: 8px;
 }
 
+.confirm-modal {
+  width: 380px;
+}
+
+.confirm-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 14px 16px 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.confirm-warn {
+  color: #b45309;
+}
+
+.confirm-body {
+  padding: 10px 16px 4px;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.7;
+  white-space: pre-line;
+}
+
+.confirm-danger {
+  background: #b3402f;
+  border-color: #b3402f;
+  color: #fff;
+}
+
+.confirm-danger:hover {
+  background: #993626;
+}
+
 .expert-list {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -3269,36 +3304,32 @@ textarea:focus {
   font-size: 10px;
 }
 
-.turn-changes {
+.composer-turn-changes {
+  padding: 0 16px 6px;
+}
+
+.composer-turn-changes button {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-left: 34px;
-}
-
-.turn-changes button {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 4px 9px;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 12px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--bg-input);
-  font-size: 11px;
+  font-size: 11.5px;
   color: var(--accent);
+  text-align: left;
 }
 
-.turn-changes button:hover {
+.composer-turn-changes button:hover {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
 
-.turn-files {
-  font-size: 10.5px;
+.composer-turn-changes .turn-chev {
+  margin-left: auto;
   color: var(--faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 /* ---------- 变更面板 ---------- */
@@ -4806,11 +4837,11 @@ textarea:focus {
 .ct-row {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   width: 100%;
-  padding: 4px 8px;
+  padding: 6px 10px;
   color: var(--text);
-  font-size: 11px;
+  font-size: 11.5px;
   text-align: left;
 }
 
@@ -4822,10 +4853,17 @@ textarea:focus {
   background: var(--bg-selected);
 }
 
+.ct-icon {
+  color: var(--faint);
+  flex-shrink: 0;
+}
+
 .ct-status {
-  width: 12px;
-  font-size: 9.5px;
+  width: 11px;
+  font-size: 10px;
   font-weight: 700;
+  text-align: center;
+  flex-shrink: 0;
   color: var(--faint);
 }
 
@@ -4845,6 +4883,21 @@ textarea:focus {
 .ct-name {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+}
+
+.ct-file {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ct-dir {
+  font-size: 9.5px;
+  color: var(--faint);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -4854,6 +4907,7 @@ textarea:focus {
   display: inline-flex;
   gap: 4px;
   font-size: 9.5px;
+  flex-shrink: 0;
 }
 
 .ct-stat b {

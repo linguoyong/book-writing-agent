@@ -11,6 +11,7 @@ import {
 import { api } from '../api'
 import { useAppStore } from '../store'
 import type { TreeNode } from '../types'
+import ConfirmDialog, { type ConfirmRequest } from './ConfirmDialog'
 
 interface MenuState {
   x: number
@@ -36,6 +37,7 @@ export default function FileTree(): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [menu, setMenu] = useState<MenuState | null>(null)
+  const [confirm, setConfirm] = useState<ConfirmRequest | null>(null)
   const initialized = useRef(false)
 
   useEffect(() => {
@@ -102,23 +104,31 @@ export default function FileTree(): React.JSX.Element {
     }
   }
 
-  const remove = async (node: TreeNode): Promise<void> => {
+  const remove = (node: TreeNode): void => {
     if (!project) return
     setMenu(null)
-    if (!window.confirm(`删除 ${node.path}？\n目录会连同内部文件一起删除，此操作不可撤销。`)) {
-      return
-    }
-    try {
-      await api.fsDelete(project.id, node.path)
-      await refreshTree()
-      const opened = useAppStore.getState().openFile?.path
-      if (opened === node.path || opened?.startsWith(`${node.path}/`)) {
-        useAppStore.setState({ openFile: null })
+    setConfirm({
+      title: node.type === 'dir' ? '删除文件夹' : '删除文件',
+      message: `${node.path}\n${node.type === 'dir' ? '文件夹会连同内部文件一起删除' : '文件将被删除'}，此操作不可恢复。`,
+      danger: true,
+      confirmLabel: '删除',
+      onConfirm: () => {
+        void (async () => {
+          if (!project) return
+          try {
+            await api.fsDelete(project.id, node.path)
+            await refreshTree()
+            const opened = useAppStore.getState().openFile?.path
+            if (opened === node.path || opened?.startsWith(`${node.path}/`)) {
+              useAppStore.setState({ openFile: null })
+            }
+            showToast(`已删除 ${node.path}`)
+          } catch (error) {
+            showToast((error as Error).message)
+          }
+        })()
       }
-      showToast(`已删除 ${node.path}`)
-    } catch (error) {
-      showToast((error as Error).message)
-    }
+    })
   }
 
   const copy = async (node: TreeNode): Promise<void> => {
@@ -198,7 +208,7 @@ export default function FileTree(): React.JSX.Element {
               </>
             )}
             <button onClick={() => void rename(menu.node)}>重命名</button>
-            <button className="danger" onClick={() => void remove(menu.node)}>
+            <button className="danger" onClick={() => remove(menu.node)}>
               删除
             </button>
             <button onClick={() => void copy(menu.node)}>复制路径</button>
@@ -208,6 +218,7 @@ export default function FileTree(): React.JSX.Element {
           </div>
         </>
       )}
+      <ConfirmDialog request={confirm} onClose={() => setConfirm(null)} />
     </div>
   )
 }

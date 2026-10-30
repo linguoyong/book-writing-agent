@@ -66,6 +66,7 @@ export default function ChatPane(): React.JSX.Element {
   const references = useAppStore((state) => state.references)
   const addReference = useAppStore((state) => state.addReference)
   const removeReference = useAppStore((state) => state.removeReference)
+  const showTurnDiff = useAppStore((state) => state.showTurnDiff)
 
   const [candidates, setCandidates] = useState<ReferenceItem[]>([])
   const [refOpen, setRefOpen] = useState(false)
@@ -139,6 +140,9 @@ export default function ChatPane(): React.JSX.Element {
   }
 
   const turns = groupTurns(timeline)
+  const lastChange = [...turns]
+    .reverse()
+    .find((turn) => (turn.meta?.changes.files.length ?? 0) > 0)
   const navPoints = turns
     .filter((turn) => turn.user && !turn.user.steering && turn.user.content.trim())
     .map((turn) => ({
@@ -229,6 +233,19 @@ export default function ChatPane(): React.JSX.Element {
             streaming={streaming}
             onSubmit={(decisions) => void resolveApproval(decisions)}
           />
+        </div>
+      )}
+
+      {lastChange && (
+        <div className="composer-turn-changes">
+          <button
+            onClick={() => showTurnDiff(lastChange.meta!.changes)}
+            title="在右侧「变更」页查看本轮改动的文件"
+          >
+            <FileDiff size={12} />
+            <span>本轮变更 · {lastChange.meta!.changes.files.length} 个文件</span>
+            <ChevronRight size={12} className="turn-chev" />
+          </button>
         </div>
       )}
 
@@ -330,7 +347,6 @@ function TurnBlock({
   isLast?: boolean
   startedAt: number | null
 }): React.JSX.Element {
-  const showTurnDiff = useAppStore((state) => state.showTurnDiff)
   const regenerate = useAppStore((state) => state.regenerate)
   const setPendingComposer = useAppStore((state) => state.setPendingComposer)
   const showToast = useAppStore((state) => state.showToast)
@@ -353,7 +369,6 @@ function TurnBlock({
   const running = live && !turn.meta
   const elapsed = turn.meta?.elapsed_ms ?? (running && startedAt ? now - startedAt : 0)
   const steps = turn.process.filter((item) => item.type === 'tool')
-  const files = turn.meta?.changes.files ?? []
 
   return (
     <div className="turn" data-turn-id={turn.id} id={`turn-${turn.id}`}>
@@ -473,18 +488,6 @@ function TurnBlock({
         </div>
       )}
 
-      {files.length > 0 && turn.meta && (
-        <div className="turn-changes">
-          <button onClick={() => showTurnDiff(turn.meta!.changes)}>
-            <FileDiff size={12} />
-            查看变更 · {files.length} 个文件
-          </button>
-          <span className="turn-files">
-            {files.slice(0, 3).join('、')}
-            {files.length > 3 ? '…' : ''}
-          </span>
-        </div>
-      )}
     </div>
   )
 }

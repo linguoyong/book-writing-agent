@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { RefreshCw } from 'lucide-react'
+import { FileText, RefreshCw } from 'lucide-react'
 import { api } from '../api'
 import { useAppStore } from '../store'
 import type { GitChange } from '../types'
@@ -161,25 +161,34 @@ export default function DiffPanel(): React.JSX.Element {
           <span className="ct-count">{files.length}</span>
         </div>
         <div className="ct-list">
-          {files.map((file) => (
-            <button
-              key={file.path}
-              className={`ct-row ${selected === file.path ? 'active' : ''}`}
-              onClick={() => void pick(file.path)}
-              title={file.path}
-            >
-              <span className={`ct-status ${file.status}`}>
-                {STATUS_LABEL[file.status] ?? '·'}
-              </span>
-              <span className="ct-name">{file.path}</span>
-              {(file.additions > 0 || file.deletions > 0) && (
-                <span className="ct-stat">
-                  <b>+{file.additions}</b>
-                  <i>-{file.deletions}</i>
+          {files.map((file) => {
+            const segments = file.path.split('/')
+            const name = segments[segments.length - 1]
+            const dir = segments.slice(0, -1).join('/')
+            return (
+              <button
+                key={file.path}
+                className={`ct-row ${selected === file.path ? 'active' : ''}`}
+                onClick={() => void pick(file.path)}
+                title={file.path}
+              >
+                <span className={`ct-status ${file.status}`}>
+                  {STATUS_LABEL[file.status] ?? '·'}
                 </span>
-              )}
-            </button>
-          ))}
+                <FileText size={12} className="ct-icon" />
+                <span className="ct-name">
+                  <span className="ct-file">{name}</span>
+                  {dir && <span className="ct-dir">{dir}</span>}
+                </span>
+                {(file.additions > 0 || file.deletions > 0) && (
+                  <span className="ct-stat">
+                    <b>+{file.additions}</b>
+                    <i>-{file.deletions}</i>
+                  </span>
+                )}
+              </button>
+            )
+          })}
           {files.length === 0 && <div className="panel-empty">没有更改</div>}
         </div>
       </aside>

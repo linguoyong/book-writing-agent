@@ -50,6 +50,18 @@ ipcMain.handle('dialog:pick-directory', async () => {
   return result.canceled ? null : result.filePaths[0]
 })
 
+ipcMain.handle('dialog:pick-text-file', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    title: '选择要提炼的作品文件',
+    filters: [
+      { name: '文本文件', extensions: ['txt', 'md'] },
+      { name: '所有文件', extensions: ['*'] }
+    ]
+  })
+  return result.canceled ? null : result.filePaths[0]
+})
+
 ipcMain.handle('shell:open-external', async (_event, url: unknown) => {
   if (typeof url === 'string' && /^https?:\/\//i.test(url)) {
     await shell.openExternal(url)

@@ -22,6 +22,7 @@ from ..config import load_settings, resolve_model, save_settings
 from ..context import assemble
 from ..domains import list_domains
 from ..experts import delete_expert, get_expert, list_experts, save_expert
+from ..style_import import StyleImportError, import_style
 from ..llm import normalize_window
 from ..sandbox import check_command, check_path, check_url
 from ..text import read_text
@@ -909,6 +910,23 @@ def put_expert(project_id: str, expert_id: str, req: ExpertRequest) -> dict[str,
 def remove_expert(project_id: str, expert_id: str) -> dict[str, bool]:
     project = _require_project(project_id)
     return {"ok": delete_expert(Path(project["path"]), expert_id)}
+
+
+class ImportStyleRequest(BaseModel):
+    path: str
+
+
+@router.post("/projects/{project_id}/import-style")
+def import_style_from_work(project_id: str, req: ImportStyleRequest) -> dict[str, Any]:
+    """从已有作品提炼写作风格：生成风格专家 + 写作技能（不保留原文）。"""
+    project = _require_project(project_id)
+    source = Path(req.path).expanduser()
+    try:
+        return import_style(Path(project["path"]), source)
+    except StyleImportError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    except Exception as error:  # 模型调用失败等
+        raise HTTPException(status_code=502, detail=f"提炼失败：{error}") from error
 
 
 # ---------------------------------------------------------------- 文件

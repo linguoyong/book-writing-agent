@@ -19,6 +19,7 @@ import {
   Wand2
 } from 'lucide-react'
 import { useAppStore } from '../store'
+import ConfirmDialog, { type ConfirmRequest } from './ConfirmDialog'
 
 export default function LeftSidebar(): React.JSX.Element {
   const projects = useAppStore((state) => state.projects)
@@ -43,6 +44,7 @@ export default function LeftSidebar(): React.JSX.Element {
   const [expandedSpaces, setExpandedSpaces] = useState<Set<string>>(new Set())
   const [spacesTouched, setSpacesTouched] = useState(false)
   const [archivedOpen, setArchivedOpen] = useState<Set<string>>(new Set())
+  const [confirm, setConfirm] = useState<ConfirmRequest | null>(null)
 
   const isSpaceExpanded = (id: string): boolean =>
     spacesTouched ? expandedSpaces.has(id) : true
@@ -90,17 +92,13 @@ export default function LeftSidebar(): React.JSX.Element {
     name: string
     path: string
   }): Promise<void> => {
-    if (
-      !window.confirm(
-        `删除空间「${project.name}」及其中全部会话？\n\n磁盘目录会保留：${project.path}`
-      )
-    ) {
-      return
-    }
-    const purge = window.confirm(
-      '是否同时删除磁盘上的书稿目录？\n\n确定 = 连同文件一起删除（不可恢复）\n取消 = 只删除空间与会话记录'
-    )
-    await deleteProject(project.id, purge)
+    setConfirm({
+      title: `删除空间「${project.name}」`,
+      message: `空间下的全部会话与磁盘目录将一并删除：\n${project.path}\n\n此操作不可恢复。`,
+      danger: true,
+      confirmLabel: '删除空间',
+      onConfirm: () => void deleteProject(project.id, true)
+    })
   }
 
   const startResize = (event: React.MouseEvent): void => {
@@ -312,7 +310,13 @@ export default function LeftSidebar(): React.JSX.Element {
                           <button
                             onClick={(event) => {
                               event.stopPropagation()
-                              if (window.confirm('删除这个会话？')) void removeSession(session.id)
+                              setConfirm({
+                                title: '删除会话',
+                                message: `「${session.title}」的对话记录将一并删除，不可恢复。`,
+                                danger: true,
+                                confirmLabel: '删除',
+                                onConfirm: () => void removeSession(session.id)
+                              })
                             }}
                             title="删除会话"
                           >
@@ -364,6 +368,7 @@ export default function LeftSidebar(): React.JSX.Element {
       </div>
 
       <div className="resize-handle" onMouseDown={startResize} />
+      <ConfirmDialog request={confirm} onClose={() => setConfirm(null)} />
     </aside>
   )
 }
