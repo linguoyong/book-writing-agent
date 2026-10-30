@@ -167,6 +167,8 @@ pnpm build            # 构建 renderer / main / preload
 
 详细设计与每一轮的取舍记录在 [`doc/需求与架构方案.md`](doc/需求与架构方案.md)。
 
+目前只提供源码运行方式，暂未打包安装包；功能稳定后再做 electron-builder 分发。
+
 ## 许可
 
-仓库暂未指定开源协议，如需开源请补充 `LICENSE`。
+[MIT](LICENSE) © 2026 乎游上仙 (xymylove)
