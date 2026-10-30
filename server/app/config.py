@@ -61,11 +61,13 @@ class ModelProfile(BaseModel):
 
 
 class EmbeddingSettings(BaseModel):
-    provider: str = "none"  # none | openai
+    # none：只用 FTS5 关键词检索；local：本地 ONNX 模型；openai：OpenAI 兼容 /embeddings
+    provider: str = "none"
     base_url: str = "https://api.openai.com/v1"
     api_key: str = ""
     model: str = "bge-m3"
-    dimensions: int = 1024
+    dimensions: int = 0  # 仅作提示，实际维度以模型返回为准
+    local_model: str = "BAAI/bge-small-zh-v1.5"
 
 
 class McpServerSettings(BaseModel):

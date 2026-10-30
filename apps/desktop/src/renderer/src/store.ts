@@ -1091,6 +1091,9 @@ export const useAppStore = create<AppState>((set, get) => {
     try {
       const saved = await api.saveConfig(config)
       set({ config: saved, settingsOpen: false })
+      if ((saved as AppConfig & { embedding_changed?: boolean }).embedding_changed) {
+        get().showToast('向量配置已变更，请到知识库页点「重建索引」，否则语义检索为空')
+      }
     } catch (error) {
       set({ error: (error as Error).message })
     }

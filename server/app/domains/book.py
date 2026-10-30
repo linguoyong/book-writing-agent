@@ -49,7 +49,9 @@ def build_tools(ctx: ToolContext) -> list[Any]:
 
     def _ensure_index() -> None:
         if not index.has_baseline():
-            index.rebuild()
+            # 只补文本索引：向量编码可能跑几十秒，不能挂在一次工具调用里，
+            # 由知识库页的后台重建补齐（界面上会提示向量缺失）
+            index.rebuild(embed=False)
 
     def _deny(path: str) -> str | None:
         """路径规则 deny 是硬边界：完全访问模式下也不能写。"""

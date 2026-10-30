@@ -8,6 +8,9 @@ import type {
   ChunkItem,
   ContextBundle,
   Entity,
+  EmbeddingOption,
+  EmbeddingProbe,
+  EmbeddingSettings,
   Expert,
   GitChange,
   IndexJob,
@@ -206,9 +209,20 @@ export const api = {
     }),
 
   knowledgeBases: (projectId: string) =>
-    http<{ items: KnowledgeBaseSummary[]; index: { chunks: number; embedded: number }; config: KbConfig }>(
-      `/projects/${projectId}/knowledge-bases`
-    ),
+    http<{
+      items: KnowledgeBaseSummary[]
+      index: {
+        chunks: number
+        embedded: number
+        provider?: string
+        model?: string
+        dim?: number
+        expected_dim?: number
+        backend?: string
+        error?: string
+      }
+      config: KbConfig
+    }>(`/projects/${projectId}/knowledge-bases`),
   chunks: (projectId: string, kind?: string, limit = 50, offset = 0) =>
     http<{ total: number; items: ChunkItem[] }>(
       `/projects/${projectId}/chunks?limit=${limit}&offset=${offset}${kind ? `&kind=${kind}` : ''}`
@@ -294,7 +308,20 @@ export const api = {
 
   getConfig: () => http<AppConfig>('/config'),
   saveConfig: (config: AppConfig) =>
-    http<AppConfig>('/config', { method: 'PUT', body: JSON.stringify(config) })
+    http<AppConfig>('/config', { method: 'PUT', body: JSON.stringify(config) }),
+  embeddingOptions: () =>
+    http<{ default: string; local: EmbeddingOption[] }>('/embeddings/options'),
+  testEmbedding: (settings: EmbeddingSettings) =>
+    http<EmbeddingProbe>('/embeddings/test', {
+      method: 'POST',
+      body: JSON.stringify({
+        provider: settings.provider,
+        base_url: settings.base_url,
+        api_key: settings.api_key,
+        model: settings.model,
+        local_model: settings.local_model
+      })
+    })
 }
 
 interface StreamHandlers {

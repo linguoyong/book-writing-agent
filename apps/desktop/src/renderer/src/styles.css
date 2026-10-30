@@ -1899,6 +1899,9 @@ textarea:focus {
 }
 
 .ghost-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   height: 30px;
   padding: 0 12px;
   border-radius: 6px;
@@ -2243,6 +2246,31 @@ textarea:focus {
   gap: 12px;
 }
 
+.kb-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding: 9px 12px;
+  border: 1px solid rgba(214, 138, 42, 0.3);
+  border-radius: 8px;
+  background: rgba(214, 138, 42, 0.08);
+  color: #92400e;
+  font-size: 11.5px;
+  line-height: 1.7;
+}
+
+.kb-notice svg {
+  margin-top: 2px;
+  flex: none;
+}
+
+.kb-notice.warn {
+  border-color: rgba(220, 38, 38, 0.25);
+  background: rgba(220, 38, 38, 0.06);
+  color: var(--red);
+}
+
 .kb-card {
   display: flex;
   align-items: center;
@@ -2494,6 +2522,31 @@ textarea:focus {
 .hit-score {
   font-family: 'Cascadia Code', Consolas, monospace;
   font-size: 11px;
+  color: var(--accent);
+}
+
+.hit-tags {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.hit-tag {
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.hit-tag.kw {
+  background: var(--bg-elev);
+  color: var(--muted);
+}
+
+.hit-tag.vec {
+  background: var(--accent-soft);
   color: var(--accent);
 }
 

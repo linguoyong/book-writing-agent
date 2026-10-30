@@ -1,20 +1,29 @@
 import { useEffect, useState } from 'react'
-import { ChevronRight, Database, RefreshCw } from 'lucide-react'
+import { AlertTriangle, ChevronRight, Database, RefreshCw } from 'lucide-react'
 import { api } from '../api'
 import { useAppStore } from '../store'
-import type { KbKind, KnowledgeBaseSummary } from '../types'
+import type { IndexJob, KbKind, KnowledgeBaseSummary } from '../types'
 import KnowledgeDetail from './KnowledgeDetail'
+
+interface IndexInfo {
+  chunks: number
+  embedded: number
+  provider?: string
+  model?: string
+  dim?: number
+  expected_dim?: number
+  backend?: string
+  error?: string
+}
 
 export default function KnowledgePage(): React.JSX.Element {
   const project = useAppStore((state) => state.activeProject)
   const [items, setItems] = useState<KnowledgeBaseSummary[]>([])
-  const [indexInfo, setIndexInfo] = useState<{ chunks: number; embedded: number }>({
-    chunks: 0,
-    embedded: 0
-  })
+  const [indexInfo, setIndexInfo] = useState<IndexInfo>({ chunks: 0, embedded: 0 })
   const [selected, setSelected] = useState<KbKind | null>(null)
   const [loading, setLoading] = useState(true)
   const [reindexing, setReindexing] = useState(false)
+  const [job, setJob] = useState<IndexJob | null>(null)
 
   const load = async (): Promise<void> => {
     if (!project) {
@@ -25,7 +34,7 @@ export default function KnowledgePage(): React.JSX.Element {
     try {
       const data = await api.knowledgeBases(project.id)
       setItems(data.items)
-      setIndexInfo(data.index)
+      setIndexInfo(data.index as IndexInfo)
     } catch {
       setItems([])
     } finally {
@@ -40,8 +49,16 @@ export default function KnowledgePage(): React.JSX.Element {
   const reindexAll = async (): Promise<void> => {
     if (!project) return
     setReindexing(true)
+    setJob(null)
     try {
       await api.reindex(project.id)
+      // 后台重建：本地向量要逐批编码，可能跑几分钟，轮询到结束为止
+      for (let tick = 0; tick < 900; tick += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 1000))
+        const status = await api.indexStatus(project.id)
+        setJob(status)
+        if (!status.running) break
+      }
       await load()
     } finally {
       setReindexing(false)
@@ -61,27 +78,74 @@ export default function KnowledgePage(): React.JSX.Element {
   }
 
   const totalEntries = items.reduce((sum, item) => sum + item.count, 0)
+  const vectorOn = (indexInfo.provider ?? 'none') !== 'none'
+  const missingVectors = vectorOn && indexInfo.chunks > 0 && indexInfo.embedded < indexInfo.chunks
+  const expectedDim = indexInfo.expected_dim ?? 0
+  const dimMismatch =
+    vectorOn &&
+    expectedDim > 0 &&
+    (indexInfo.dim ?? 0) > 0 &&
+    expectedDim !== indexInfo.dim
+
+  const subtitle = [
+    `共 ${totalEntries} 个条目`,
+    `${indexInfo.chunks} 个切片`,
+    vectorOn
+      ? `${indexInfo.embedded} 个向量${indexInfo.dim ? ` · ${indexInfo.dim} 维` : ''}`
+      : '仅关键词检索',
+    indexInfo.model ? indexInfo.model.split('/').pop() : ''
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
     <div className="page">
       <div className="page-header">
         <div className="page-title-block">
           <h1>知识库</h1>
-          <p>
-            共 {totalEntries} 个条目 · {indexInfo.chunks} 个切片
-            {indexInfo.embedded > 0 ? ` · ${indexInfo.embedded} 个向量` : ''}
-          </p>
+          <p>{subtitle}</p>
         </div>
         <div className="page-actions">
           <button className="ghost-btn" onClick={() => void reindexAll()} disabled={reindexing}>
-            <RefreshCw size={13} />
-            {reindexing ? '重建中…' : '重建索引'}
+            <RefreshCw size={13} className={reindexing ? 'spin' : ''} />
+            {reindexing
+              ? job?.total
+                ? `重建中 ${job.done ?? 0}/${job.total}`
+                : '重建中…'
+              : '重建索引'}
           </button>
         </div>
       </div>
 
       <div className="page-scroll">
         {loading && <div className="panel-empty">正在读取知识库…</div>}
+
+        {!loading && dimMismatch && (
+          <div className="kb-notice">
+            <AlertTriangle size={13} />
+            <span>
+              索引里是 {indexInfo.dim} 维向量，当前模型输出 {expectedDim} 维。换过模型或维度后必须重建索引，
+              否则语义检索会一直为空。
+            </span>
+          </div>
+        )}
+        {!loading && !dimMismatch && missingVectors && (
+          <div className="kb-notice">
+            <AlertTriangle size={13} />
+            <span>
+              {indexInfo.provider === 'local'
+                ? '本地向量模型已启用，但索引里还没有向量'
+                : '向量服务已启用，但索引里还没有向量'}
+              （{indexInfo.embedded}/{indexInfo.chunks}）。点右上角「重建索引」补齐，否则语义检索为空。
+            </span>
+          </div>
+        )}
+        {!loading && indexInfo.error && !missingVectors && !dimMismatch && (
+          <div className="kb-notice warn">
+            <AlertTriangle size={13} />
+            <span>{indexInfo.error}</span>
+          </div>
+        )}
 
         <div className="kb-page-grid">
           {items.map((item) => (

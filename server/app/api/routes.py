@@ -36,6 +36,7 @@ from ..kb.repository import (
     save_entity,
 )
 from ..kb.search import KbIndex, load_kb_config, save_kb_config
+from ..kb.embedding import DEFAULT_LOCAL_MODEL, LOCAL_MODELS, probe as probe_embedding
 from ..workspace import (
     create_book,
     default_project_path,
@@ -89,6 +90,7 @@ def get_config() -> dict[str, Any]:
 def put_config(payload: dict[str, Any]) -> dict[str, Any]:
     settings = load_settings()
     merged = settings.model_dump()
+    before_embedding = dict(merged.get("embedding") or {})
     for key in ("writer", "extractor", "embedding", "sandbox"):
         if key in payload and isinstance(payload[key], dict):
             patch = dict(payload[key])
@@ -119,7 +121,51 @@ def put_config(payload: dict[str, Any]) -> dict[str, Any]:
         if merged.get(role, {}).get("context_window"):
             merged[role]["context_window"] = normalize_window(merged[role]["context_window"])
     save_settings(type(settings).model_validate(merged))
-    return _mask_secrets(load_settings().model_dump())
+    saved = load_settings()
+    after_embedding = saved.embedding
+    changed = any(
+        before_embedding.get(key) != getattr(after_embedding, key)
+        for key in ("provider", "local_model", "model", "base_url")
+    )
+    result = _mask_secrets(saved.model_dump())
+    # 前端的 AppConfig 不认识这个字段也没关系：只是用来提示「需要重建索引」
+    result["embedding_changed"] = changed
+    return result
+
+
+# ---------------------------------------------------------------- 向量服务
+
+
+class EmbeddingTestRequest(BaseModel):
+    provider: str = "none"
+    base_url: str = ""
+    api_key: str = ""
+    model: str = ""
+    local_model: str = ""
+
+
+@router.get("/embeddings/options")
+def embedding_options() -> dict[str, Any]:
+    return {
+        "default": DEFAULT_LOCAL_MODEL,
+        "local": [{"id": key, **value} for key, value in LOCAL_MODELS.items()],
+    }
+
+
+@router.post("/embeddings/test")
+def test_embedding(req: EmbeddingTestRequest) -> dict[str, Any]:
+    """真跑一次编码：本地模型首次会下载/加载，可能要几十秒。"""
+    cfg = load_settings().embedding.model_copy(deep=True)
+    cfg.provider = req.provider or cfg.provider
+    if req.base_url:
+        cfg.base_url = req.base_url
+    if req.model:
+        cfg.model = req.model
+    if req.local_model:
+        cfg.local_model = req.local_model
+    if req.api_key and req.api_key != MASKED_KEY:
+        cfg.api_key = req.api_key
+    return probe_embedding(cfg)
 
 
 # ---------------------------------------------------------------- 项目
@@ -734,15 +780,29 @@ _index_jobs: dict[str, dict[str, Any]] = {}
 _index_lock = threading.Lock()
 
 
+def _patch_job(project_id: str, **fields: Any) -> None:
+    with _index_lock:
+        current = dict(_index_jobs.get(project_id) or {})
+        current.update(fields)
+        _index_jobs[project_id] = current
+
+
 def _run_index_job(project_id: str, root: Path) -> None:
+    def progress(stage: str, done: int, total: int) -> None:
+        # 重建可能跑几分钟（本地嵌入逐批编码），进度要能被前端轮询到
+        _patch_job(project_id, stage=stage, done=done, total=total)
+
     try:
         index = KbIndex(root, load_settings().embedding)
-        result = index.rebuild()
+        result = index.rebuild(progress)
         payload: dict[str, Any] = {
             "running": False,
             "chunks": result["chunks"],
             "embedded": result["embedded"],
-            "error": None,
+            "error": index.last_vector_error or None,
+            "stage": "done",
+            "done": result["embedded"],
+            "total": result["chunks"],
         }
     except Exception as exc:  # noqa: BLE001
         payload = {
@@ -750,9 +810,11 @@ def _run_index_job(project_id: str, root: Path) -> None:
             "chunks": 0,
             "embedded": 0,
             "error": f"{type(exc).__name__}: {exc}",
+            "stage": "error",
+            "done": 0,
+            "total": 0,
         }
-    with _index_lock:
-        _index_jobs[project_id] = payload
+    _patch_job(project_id, **payload)
 
 
 @router.post("/projects/{project_id}/reindex")
@@ -768,13 +830,24 @@ def reindex_kb(project_id: str) -> dict[str, Any]:
             "chunks": 0,
             "embedded": 0,
             "error": None,
+            "stage": "collect",
+            "done": 0,
+            "total": 0,
         }
     threading.Thread(
         target=_run_index_job,
         args=(project_id, Path(project["path"])),
         daemon=True,
     ).start()
-    return {"running": True, "chunks": 0, "embedded": 0, "error": None}
+    return {
+        "running": True,
+        "chunks": 0,
+        "embedded": 0,
+        "error": None,
+        "stage": "collect",
+        "done": 0,
+        "total": 0,
+    }
 
 
 @router.get("/projects/{project_id}/index/status")
@@ -785,6 +858,9 @@ def index_status(project_id: str) -> dict[str, Any]:
             "chunks": None,
             "embedded": None,
             "error": None,
+            "stage": "idle",
+            "done": 0,
+            "total": 0,
         }
 
 
@@ -808,9 +884,8 @@ def knowledge_bases(project_id: str) -> dict[str, Any]:
     path = Path(project["path"])
     index = KbIndex(path, load_settings().embedding)
     counts = {kind: len(list_entities(path, kind)) for kind in KINDS}
-    if not index.has_baseline():
-        index.rebuild()
-    chunk_stats = index.stats_by_kind()
+    # 不在这里触发重建：开了本地向量后首次建库要跑模型，页面加载会被挂住
+    chunk_stats = index.stats_by_kind() if index.has_baseline() else {}
     return {
         "index": index.stats(),
         "config": load_kb_config(path),
@@ -837,7 +912,8 @@ def list_chunks(
     project = _require_project(project_id)
     index = KbIndex(Path(project["path"]), load_settings().embedding)
     if not index.has_baseline():
-        index.rebuild()
+        # 打开切片页只补文本索引，向量交给「重建索引」的后台任务
+        index.rebuild(embed=False)
     return index.list_chunks(kind, limit, offset, q)
 
 

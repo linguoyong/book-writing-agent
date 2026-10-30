@@ -4,6 +4,8 @@ import { api } from '../api'
 import { useAppStore } from '../store'
 import type {
   AppConfig,
+  EmbeddingOption,
+  EmbeddingProbe,
   EmbeddingSettings,
   McpServerSettings,
   McpServerStatus,
@@ -22,6 +24,9 @@ export default function SettingsModal(): React.JSX.Element | null {
   const [draft, setDraft] = useState<AppConfig | null>(config)
   const [mcpServers, setMcpServers] = useState<McpServerStatus[]>([])
   const [mcpBusy, setMcpBusy] = useState(false)
+  const [embedOptions, setEmbedOptions] = useState<EmbeddingOption[]>([])
+  const [embedProbe, setEmbedProbe] = useState<EmbeddingProbe | null>(null)
+  const [probing, setProbing] = useState(false)
 
   const loadMcp = async (force = false): Promise<void> => {
     setMcpBusy(true)
@@ -38,7 +43,31 @@ export default function SettingsModal(): React.JSX.Element | null {
     void loadMcp()
   }, [])
 
+  useEffect(() => {
+    void api
+      .embeddingOptions()
+      .then((result) => setEmbedOptions(result.local))
+      .catch(() => setEmbedOptions([]))
+  }, [])
+
   if (!draft) return null
+
+  const testEmbedding = async (): Promise<void> => {
+    setProbing(true)
+    setEmbedProbe(null)
+    try {
+      setEmbedProbe(await api.testEmbedding(draft.embedding))
+    } catch (error) {
+      setEmbedProbe({
+        ok: false,
+        error: (error as Error).message || '测试失败',
+        dim: 0,
+        ms: 0
+      })
+    } finally {
+      setProbing(false)
+    }
+  }
 
   const setExtractor = (patch: Partial<ModelSettings>): void =>
     setDraft({ ...draft, extractor: { ...draft.extractor, ...patch } })
@@ -243,15 +272,47 @@ export default function SettingsModal(): React.JSX.Element | null {
               <label>向量服务</label>
               <select
                 value={draft.embedding.provider}
-                onChange={(event) =>
-                  setEmbedding({ provider: event.target.value as 'none' | 'openai' })
-                }
+                onChange={(event) => {
+                  setEmbedProbe(null)
+                  setEmbedding({
+                    provider: event.target.value as 'none' | 'local' | 'openai'
+                  })
+                }}
               >
-                <option value="none">关闭（仅全文检索）</option>
+                <option value="none">关闭（仅关键词检索）</option>
+                <option value="local">本地模型（推荐 · 免费 · 无需联网）</option>
                 <option value="openai">OpenAI 兼容 embedding 接口</option>
               </select>
+              <div className="field-hint">
+                关键词检索负责精确命中，向量检索负责「换个说法也能搜到」。关闭不影响写作，
+                只是检索退化成字面匹配。
+              </div>
             </div>
-            {draft.embedding.provider !== 'none' && (
+
+            {draft.embedding.provider === 'local' && (
+              <div className="field" style={{ marginTop: 8 }}>
+                <label>本地模型</label>
+                <select
+                  value={draft.embedding.local_model}
+                  onChange={(event) => {
+                    setEmbedProbe(null)
+                    setEmbedding({ local_model: event.target.value })
+                  }}
+                >
+                  {embedOptions.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.label} · {item.dim} 维 · {item.size_mb}MB
+                    </option>
+                  ))}
+                </select>
+                <div className="field-hint">
+                  {embedOptions.find((item) => item.id === draft.embedding.local_model)?.note ??
+                    '首次启用会自动下载模型，之后离线可用；CPU 编码，不需要显卡。'}
+                </div>
+              </div>
+            )}
+
+            {draft.embedding.provider === 'openai' && (
               <>
                 <div className="field" style={{ marginTop: 8 }}>
                   <label>Embedding Base URL</label>
@@ -282,6 +343,35 @@ export default function SettingsModal(): React.JSX.Element | null {
                 </div>
               </>
             )}
+
+            {draft.embedding.provider !== 'none' && (
+              <div className="row" style={{ marginTop: 8, alignItems: 'center', gap: 8 }}>
+                <button
+                  className="ghost-btn"
+                  onClick={() => void testEmbedding()}
+                  disabled={probing}
+                >
+                  <RefreshCw size={12} className={probing ? 'spin' : ''} />
+                  {probing ? '测试中…' : '测试连接'}
+                </button>
+                {embedProbe && (
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: embedProbe.ok ? 'var(--accent)' : 'var(--red)'
+                    }}
+                  >
+                    {embedProbe.ok
+                      ? `${embedProbe.dim} 维 · ${embedProbe.ms}ms`
+                      : embedProbe.error}
+                  </span>
+                )}
+              </div>
+            )}
+
+            <div className="field-hint" style={{ marginTop: 6 }}>
+              换模型或改维度后必须重建索引（知识库页 → 重建索引），否则向量检索为空。
+            </div>
           </div>
 
           <div style={{ borderTop: '1px solid var(--border)', marginTop: 14, paddingTop: 12 }}>

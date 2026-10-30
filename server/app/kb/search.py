@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import math
 import re
 import sqlite3
 import struct
@@ -9,18 +8,18 @@ from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Iterator
+from typing import Any, Callable, Iterable, Iterator
 
-import httpx
 import jieba
 
-try:
-    import numpy as np
-except ImportError:  # pragma: no cover - numpy 是可选加速
-    np = None
+try:  # 可选依赖：没有 sqlite-vec 时自动退回关键词检索
+    import sqlite_vec
+except ImportError:  # pragma: no cover
+    sqlite_vec = None
 
 from ..config import EmbeddingSettings
 from ..text import read_text
+from .embedding import EmbeddingError, LOCAL_MODELS, try_build_embedder
 from .repository import KINDS, parse_note
 
 INDEX_SCHEMA = """
@@ -41,12 +40,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
     tokenize='unicode61'
 );
 
-CREATE TABLE IF NOT EXISTS vectors (
-    chunk_id TEXT PRIMARY KEY,
-    dim INTEGER NOT NULL,
-    data BLOB NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS index_meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -56,8 +49,14 @@ CREATE INDEX IF NOT EXISTS idx_chunks_kind ON chunks(kind);
 CREATE INDEX IF NOT EXISTS idx_chunks_chapter ON chunks(chapter);
 """
 
+_LEGACY_SCHEMA = """
+DROP TABLE IF EXISTS vectors;
+"""
+
 _TOKEN_RE = re.compile(r"[\w\u4e00-\u9fff]+")
 _SENTENCE_SPLIT = re.compile(r"(?<=[。！？!?…])\s*")
+
+ProgressHook = Callable[[str, int, int], None]
 
 
 @dataclass
@@ -85,12 +84,19 @@ def _fts_query(query: str) -> str:
     return " OR ".join(f'"{t}"' for t in unique[:24])
 
 
+def _pack(vector: list[float]) -> bytes:
+    return struct.pack(f"<{len(vector)}f", *vector)
+
+
 class KbIndex:
     def __init__(self, project: Path, embedding: EmbeddingSettings | None = None):
         self.project = project
         self.index_dir = project / ".index"
         self.db_path = self.index_dir / "search.db"
         self.embedding = embedding or EmbeddingSettings()
+        self._embedder: Any = None
+        self._embedder_ready = False
+        self.last_vector_error = ""
 
     # ------------------------------------------------------------ 基础
 
@@ -105,43 +111,47 @@ class KbIndex:
         conn = sqlite3.connect(self.db_path, timeout=15)
         conn.row_factory = sqlite3.Row
         try:
+            _load_sqlite_vec(conn)
             conn.executescript(INDEX_SCHEMA)
+            conn.executescript(_LEGACY_SCHEMA)
             yield conn
             conn.commit()
         finally:
             conn.close()
 
-    def rebuild(self) -> dict[str, int]:
+    def embedder(self) -> Any:
+        """惰性构造嵌入器：配置了本地模型时首次调用会加载模型（约几秒）。"""
+        if self._embedder_ready:
+            return self._embedder
+        self._embedder_ready = True
+        self._embedder, error = try_build_embedder(self.embedding)
+        if error:
+            self.last_vector_error = error
+        return self._embedder
+
+    def rebuild(
+        self, progress: ProgressHook | None = None, embed: bool = True
+    ) -> dict[str, int]:
+        """重建切片索引。
+
+        embed=False 只重建文本索引（关键词检索）：隐式触发（打开切片页、
+        对话里首次检索）时不能把整个书稿的向量编码塞进请求里，向量交给
+        知识库页的「重建索引」后台任务或导入流程补齐。
+        """
         chunks = list(self._collect_chunks())
         with self.connect() as conn:
             conn.execute("DELETE FROM chunks")
             conn.execute("DELETE FROM chunks_fts")
-            conn.execute("DELETE FROM vectors")
             for chunk in chunks:
-                conn.execute(
-                    "INSERT INTO chunks (id, kind, ref, title, text, chapter, entities, source) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        chunk.id,
-                        chunk.kind,
-                        chunk.ref,
-                        chunk.title,
-                        chunk.text,
-                        chunk.chapter,
-                        json.dumps(chunk.entities, ensure_ascii=False),
-                        chunk.source,
-                    ),
-                )
-                conn.execute(
-                    "INSERT INTO chunks_fts (chunk_id, content) VALUES (?, ?)",
-                    (chunk.id, " ".join(tokenize(f"{chunk.title} {chunk.text}"))),
-                )
+                _insert_chunk(conn, chunk)
             self._mark_baseline(conn)
             conn.commit()
 
         embedded = 0
-        if self.embedding.provider != "none" and chunks:
-            embedded = self._embed_chunks(chunks)
+        if embed and chunks:
+            embedded = self._embed_chunks(chunks, progress)
+        elif progress:
+            progress("done", 0, len(chunks))
         return {"chunks": len(chunks), "embedded": embedded}
 
     def has_baseline(self) -> bool:
@@ -177,19 +187,23 @@ class KbIndex:
                 meta, body = parse_note(read_text(file))
                 entity_id = meta.get("id") or file.stem
                 title = meta.get("name") or meta.get("title") or file.stem
-                text = f"{title}\n{body}".strip()
-                if not text:
+                pieces = _split_entity(str(title), body)
+                if not pieces:
                     continue
-                yield Chunk(
-                    id=f"{kind}:{entity_id}",
-                    kind=kind,
-                    ref=entity_id,
-                    title=str(title),
-                    text=text,
-                    chapter=int(meta.get("first_chapter") or 0),
-                    entities=[str(entity_id)],
-                    source=str(file.relative_to(self.project)),
-                )
+                for index, piece in enumerate(pieces):
+                    yield Chunk(
+                        # 单切片沿用旧 id（增量写入按它定位），拆开后才带序号
+                        id=f"{kind}:{entity_id}"
+                        if len(pieces) == 1
+                        else f"{kind}:{entity_id}:{index}",
+                        kind=kind,
+                        ref=entity_id,
+                        title=str(title),
+                        text=piece,
+                        chapter=int(meta.get("first_chapter") or 0),
+                        entities=[str(entity_id)],
+                        source=str(file.relative_to(self.project)),
+                    )
 
         chapters_dir = self.project / "chapters"
         if chapters_dir.exists():
@@ -228,107 +242,95 @@ class KbIndex:
             self.rebuild()
             return 1 if file.exists() else 0
         with self.connect() as conn:
-            conn.execute("DELETE FROM chunks WHERE id = ?", (chunk_id,))
-            conn.execute("DELETE FROM chunks_fts WHERE chunk_id = ?", (chunk_id,))
-            conn.execute("DELETE FROM vectors WHERE chunk_id = ?", (chunk_id,))
+            # 拆开后的切片是 kind:entity:0/1/2…，增量写入要把这一组一起换掉
+            stale = conn.execute(
+                "SELECT id FROM chunks WHERE id = ? OR id LIKE ?",
+                (chunk_id, f"{chunk_id}:%"),
+            ).fetchall()
+            for row in stale:
+                conn.execute("DELETE FROM chunks WHERE id = ?", (row["id"],))
+                conn.execute("DELETE FROM chunks_fts WHERE chunk_id = ?", (row["id"],))
+                _delete_vector(conn, row["id"])
+            conn.commit()
             if not file.exists():
-                conn.commit()
                 return 0
             meta, body = parse_note(read_text(file))
             title = meta.get("name") or meta.get("title") or file.stem
-            text = f"{title}\n{body}".strip()
-            if not text:
-                conn.commit()
+            pieces = _split_entity(str(title), body)
+            if not pieces:
                 return 0
-            chunk = Chunk(
-                id=chunk_id,
-                kind=kind,
-                ref=str(meta.get("id") or file.stem),
-                title=str(title),
-                text=text,
-                chapter=int(meta.get("first_chapter") or 0),
-                entities=[str(entity_id)],
-                source=str(file.relative_to(self.project)),
-            )
-            conn.execute(
-                "INSERT INTO chunks (id, kind, ref, title, text, chapter, entities, source) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    chunk.id,
-                    chunk.kind,
-                    chunk.ref,
-                    chunk.title,
-                    chunk.text,
-                    chunk.chapter,
-                    json.dumps(chunk.entities, ensure_ascii=False),
-                    chunk.source,
-                ),
-            )
-            conn.execute(
-                "INSERT INTO chunks_fts (chunk_id, content) VALUES (?, ?)",
-                (chunk.id, " ".join(tokenize(f"{chunk.title} {chunk.text}"))),
-            )
+            chunks = [
+                Chunk(
+                    id=chunk_id if len(pieces) == 1 else f"{chunk_id}:{index}",
+                    kind=kind,
+                    ref=str(meta.get("id") or file.stem),
+                    title=str(title),
+                    text=piece,
+                    chapter=int(meta.get("first_chapter") or 0),
+                    entities=[str(entity_id)],
+                    source=str(file.relative_to(self.project)),
+                )
+                for index, piece in enumerate(pieces)
+            ]
+            for chunk in chunks:
+                _insert_chunk(conn, chunk)
             conn.commit()
-        if self.embedding.provider != "none":
-            self._embed_chunks([chunk])
-        return 1
+        self._embed_chunks(chunks, None)
+        return len(chunks)
 
     # ------------------------------------------------------------ 向量
 
-    def _embed_chunks(self, chunks: list[Chunk]) -> int:
-        cfg = self.embedding
-        if not cfg.base_url or not cfg.model:
+    def _embed_chunks(self, chunks: list[Chunk], progress: ProgressHook | None) -> int:
+        embedder = self.embedder()
+        if embedder is None or not chunks:
+            if progress:
+                progress("done", 0, len(chunks))
             return 0
-        headers = {"Content-Type": "application/json"}
-        if cfg.api_key:
-            headers["Authorization"] = f"Bearer {cfg.api_key}"
 
+        batch_size = 32
+        total = len(chunks)
         written = 0
-        batch_size = 16
-        with httpx.Client(timeout=120) as client:
+        started = 0
+        while started < total:
+            batch = chunks[started : started + batch_size]
+            try:
+                vectors = embedder.encode([f"{c.title}\n{c.text}" for c in batch])
+            except EmbeddingError as exc:
+                self.last_vector_error = str(exc)
+                if progress:
+                    progress("error", written, total)
+                return written
+            dim = embedder.dim or (len(vectors[0]) if vectors else 0)
+            if not dim:
+                return written
             with self.connect() as conn:
-                for start in range(0, len(chunks), batch_size):
-                    batch = chunks[start : start + batch_size]
-                    payload = {
-                        "model": cfg.model,
-                        "input": [f"{c.title}\n{c.text}" for c in batch],
-                    }
-                    response = client.post(
-                        f"{cfg.base_url.rstrip('/')}/embeddings",
-                        headers=headers,
-                        json=payload,
+                _ensure_vec_table(conn, dim, embedder.name, embedder.provider)
+                for chunk, vector in zip(batch, vectors):
+                    _delete_vector(conn, chunk.id)
+                    conn.execute(
+                        "INSERT INTO vec_chunks (chunk_id, kind, chapter, embedding) "
+                        "VALUES (?, ?, ?, ?)",
+                        (chunk.id, chunk.kind, chunk.chapter, _pack(vector)),
                     )
-                    response.raise_for_status()
-                    data = response.json()["data"]
-                    for chunk, item in zip(batch, data):
-                        vector = item["embedding"]
-                        blob = struct.pack(f"<{len(vector)}f", *vector)
-                        conn.execute(
-                            "INSERT OR REPLACE INTO vectors (chunk_id, dim, data) VALUES (?, ?, ?)",
-                            (chunk.id, len(vector), blob),
-                        )
-                        written += 1
+                    written += 1
                 conn.commit()
+            started += len(batch)
+            if progress:
+                progress("embed", written, total)
+        if progress:
+            progress("done", written, total)
         return written
 
     def _query_vector(self, query: str) -> list[float] | None:
-        cfg = self.embedding
-        if cfg.provider == "none" or not cfg.base_url:
+        embedder = self.embedder()
+        if embedder is None:
             return None
-        headers = {"Content-Type": "application/json"}
-        if cfg.api_key:
-            headers["Authorization"] = f"Bearer {cfg.api_key}"
         try:
-            with httpx.Client(timeout=60) as client:
-                response = client.post(
-                    f"{cfg.base_url.rstrip('/')}/embeddings",
-                    headers=headers,
-                    json={"model": cfg.model, "input": [query]},
-                )
-                response.raise_for_status()
-                return response.json()["data"][0]["embedding"]
-        except (httpx.HTTPError, KeyError, IndexError):
+            vectors = embedder.encode([query])
+        except EmbeddingError as exc:
+            self.last_vector_error = str(exc)
             return None
+        return vectors[0] if vectors else None
 
     # ------------------------------------------------------------ 检索
 
@@ -348,10 +350,10 @@ class KbIndex:
 
         if mode == "keyword":
             items = self._search_lexical(query, kinds, chapter_limit, top_k * 2)
-            return _normalize(items, "lexical_score", top_k, threshold)
+            return _normalize(_dedupe_hits(items), "lexical_score", top_k, threshold)
 
         if mode == "vector":
-            items = self._search_vector(query, kinds, chapter_limit, top_k * 2)
+            items = _dedupe_hits(self._search_vector(query, kinds, chapter_limit, top_k * 2))
             results = []
             for item in items:
                 score = max(0.0, float(item["vector_score"]))
@@ -374,7 +376,8 @@ class KbIndex:
             entry["score"] += (1 - alpha) / (60 + rank + 1)
             entry.setdefault("vector_score", item["vector_score"])
 
-        return _normalize(list(fused.values()), "score", top_k, threshold)
+        ranked = sorted(fused.values(), key=lambda item: item["score"], reverse=True)
+        return _normalize(_dedupe_hits(ranked), "score", top_k, threshold)
 
     def list_chunks(
         self,
@@ -382,7 +385,7 @@ class KbIndex:
         limit: int = 50,
         offset: int = 0,
         query: str | None = None,
-    ) -> list[dict[str, Any]]:
+    ) -> dict[str, Any]:
         sql = ["SELECT * FROM chunks WHERE 1=1"]
         params: list[Any] = []
         if kind:
@@ -456,7 +459,7 @@ class KbIndex:
             rows = conn.execute(" ".join(sql), params).fetchall()
 
         results = []
-        for row in rows:
+        for index, row in enumerate(rows):
             results.append(
                 {
                     "id": row["id"],
@@ -468,6 +471,9 @@ class KbIndex:
                     "entities": json.loads(row["entities"] or "[]"),
                     "source": row["source"],
                     "lexical_score": float(-row["rank"]),
+                    # bm25 的绝对值随语料规模漂移（小语料里只有 1e-6），
+                    # 界面上展示名次比展示分数更有意义
+                    "lexical_rank": index + 1,
                 }
             )
         return results
@@ -483,51 +489,39 @@ class KbIndex:
         if not query_vector:
             return []
 
-        sql = [
-            "SELECT c.*, v.data, v.dim FROM vectors v JOIN chunks c ON c.id = v.chunk_id WHERE 1=1"
-        ]
-        params: list[Any] = []
+        sql = ["SELECT chunk_id, distance FROM vec_chunks WHERE embedding MATCH ? AND k = ?"]
+        params: list[Any] = [_pack(query_vector), max(limit, 1)]
         if kinds:
             placeholders = ",".join("?" for _ in kinds)
-            sql.append(f"AND c.kind IN ({placeholders})")
+            sql.append(f"AND kind IN ({placeholders})")
             params.extend(kinds)
         if chapter_limit:
-            sql.append("AND c.chapter <= ?")
+            sql.append("AND chapter <= ?")
             params.append(chapter_limit)
+        sql.append("ORDER BY distance")
 
-        with self.connect() as conn:
-            rows = conn.execute(" ".join(sql), params).fetchall()
+        try:
+            with self.connect() as conn:
+                hits = conn.execute(" ".join(sql), params).fetchall()
+                if not hits:
+                    return []
+                ids = [hit["chunk_id"] for hit in hits]
+                placeholders = ",".join("?" for _ in ids)
+                rows = conn.execute(
+                    f"SELECT * FROM chunks WHERE id IN ({placeholders})", ids
+                ).fetchall()
+        except sqlite3.OperationalError as exc:
+            # 向量表还没建（首次开启向量但未重建索引）：降级为空，关键词仍然可用
+            self.last_vector_error = f"向量索引不可用：{exc}"
+            return []
 
-        scored: list[tuple[float, sqlite3.Row]] = []
-        if np is not None and rows:
-            # 批量矩阵乘：10 万切片也只是几十次 BLAS 调用，避免逐条 struct.unpack
-            query_array = np.asarray(query_vector, dtype=np.float32)
-            query_norm = float(np.linalg.norm(query_array)) or 1.0
-            batch_size = 2048
-            for start in range(0, len(rows), batch_size):
-                batch = [
-                    item
-                    for item in rows[start : start + batch_size]
-                    if int(item["dim"]) == query_array.shape[0]
-                ]
-                if not batch:
-                    continue
-                matrix = np.vstack(
-                    [np.frombuffer(item["data"], dtype=np.float32) for item in batch]
-                )
-                norms = np.linalg.norm(matrix, axis=1)
-                norms[norms == 0] = 1.0
-                scores = (matrix @ query_array) / (norms * query_norm)
-                for item, score in zip(batch, scores):
-                    scored.append((float(score), item))
-        else:
-            for row in rows:
-                vector = struct.unpack(f"<{row['dim']}f", row["data"])
-                scored.append((_cosine(query_vector, vector), row))
-        scored.sort(key=lambda pair: pair[0], reverse=True)
-
-        results = []
-        for score, row in scored[:limit]:
+        by_id = {row["id"]: row for row in rows}
+        results: list[dict[str, Any]] = []
+        for hit in hits:
+            row = by_id.get(hit["chunk_id"])
+            if row is None:
+                continue
+            # vec0 的 cosine distance = 1 - cos，换成相似度便于和阈值对齐
             results.append(
                 {
                     "id": row["id"],
@@ -538,7 +532,7 @@ class KbIndex:
                     "chapter": row["chapter"],
                     "entities": json.loads(row["entities"] or "[]"),
                     "source": row["source"],
-                    "vector_score": score,
+                    "vector_score": 1.0 - float(hit["distance"]),
                 }
             )
         return results
@@ -546,8 +540,117 @@ class KbIndex:
     def stats(self) -> dict[str, Any]:
         with self.connect() as conn:
             total = conn.execute("SELECT COUNT(*) AS n FROM chunks").fetchone()["n"]
-            embedded = conn.execute("SELECT COUNT(*) AS n FROM vectors").fetchone()["n"]
-        return {"chunks": total, "embedded": embedded, "provider": self.embedding.provider}
+            embedded = 0
+            dim = 0
+            if _vec_table_exists(conn):
+                embedded = conn.execute("SELECT COUNT(*) AS n FROM vec_chunks").fetchone()["n"]
+                dim = _meta_int(conn, "vec_dim")
+        provider = (self.embedding.provider or "none").lower()
+        model = (
+            self.embedding.local_model
+            if provider == "local"
+            else self.embedding.model
+            if provider == "openai"
+            else ""
+        )
+        # 本地模型的维度是已知的：和索引里的实际维度对不上就说明要重建
+        expected_dim = int((LOCAL_MODELS.get(model) or {}).get("dim") or 0) if provider == "local" else 0
+        return {
+            "chunks": total,
+            "embedded": embedded,
+            "provider": provider,
+            "model": model,
+            "dim": dim,
+            "expected_dim": expected_dim,
+            "backend": "sqlite-vec" if sqlite_vec is not None else "none",
+            "error": self.last_vector_error,
+        }
+
+
+def _load_sqlite_vec(conn: sqlite3.Connection) -> bool:
+    if sqlite_vec is None or not hasattr(conn, "enable_load_extension"):
+        return False
+    try:
+        conn.enable_load_extension(True)
+        sqlite_vec.load(conn)
+        conn.enable_load_extension(False)
+        return True
+    except Exception:  # noqa: BLE001 - 加载失败就只做关键词检索
+        return False
+
+
+def _meta_int(conn: sqlite3.Connection, key: str) -> int:
+    row = conn.execute("SELECT value FROM index_meta WHERE key = ?", (key,)).fetchone()
+    try:
+        return int(row["value"]) if row else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def _meta_set(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute("INSERT OR REPLACE INTO index_meta (key, value) VALUES (?, ?)", (key, value))
+
+
+def _vec_table_exists(conn: sqlite3.Connection) -> bool:
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'vec_chunks'"
+    ).fetchone()
+    return bool(row)
+
+
+def _ensure_vec_table(
+    conn: sqlite3.Connection, dim: int, model: str, provider: str
+) -> bool:
+    """保证 vec0 表存在且维度匹配。
+
+    vec0 的维度建表时固定，换嵌入模型只能重建；这里发现不一致就重建空表，
+    并把 vec_dim / vec_model 写回 meta，由 stats() 暴露给界面提示「需重建」。
+    """
+    if not _load_sqlite_vec(conn):
+        return False
+    current = _meta_int(conn, "vec_dim")
+    exists = _vec_table_exists(conn)
+    if exists and current == dim:
+        return True
+    if exists:
+        conn.execute("DROP TABLE vec_chunks")
+    conn.execute(
+        "CREATE VIRTUAL TABLE vec_chunks USING vec0("
+        "chunk_id TEXT PRIMARY KEY, "
+        "kind TEXT partition key, "
+        "chapter INTEGER, "
+        f"embedding FLOAT[{dim}] distance_metric=cosine)"
+    )
+    _meta_set(conn, "vec_dim", str(dim))
+    _meta_set(conn, "vec_model", f"{provider}:{model}")
+    conn.commit()
+    return True
+
+
+def _delete_vector(conn: sqlite3.Connection, chunk_id: str) -> None:
+    if _vec_table_exists(conn):
+        conn.execute("DELETE FROM vec_chunks WHERE chunk_id = ?", (chunk_id,))
+
+
+def _insert_chunk(conn: sqlite3.Connection, chunk: Chunk) -> None:
+    conn.execute(
+        "INSERT INTO chunks (id, kind, ref, title, text, chapter, entities, source) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            chunk.id,
+            chunk.kind,
+            chunk.ref,
+            chunk.title,
+            chunk.text,
+            chunk.chapter,
+            json.dumps(chunk.entities, ensure_ascii=False),
+            chunk.source,
+        ),
+    )
+    conn.execute(
+        "INSERT INTO chunks_fts (chunk_id, content) VALUES (?, ?)",
+        (chunk.id, " ".join(tokenize(f"{chunk.title} {chunk.text}"))),
+    )
 
 
 def _normalize(
@@ -572,19 +675,68 @@ def _normalize(
     return results[:top_k]
 
 
-def _cosine(a: list[float], b: Iterable[float]) -> float:
-    b_list = list(b)
-    if len(a) != len(b_list):
-        return 0.0
-    dot = sum(x * y for x, y in zip(a, b_list))
-    norm_a = math.sqrt(sum(x * x for x in a))
-    norm_b = math.sqrt(sum(y * y for y in b_list))
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    return dot / (norm_a * norm_b)
+def _dedupe_hits(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """同一张实体卡拆成多个切片时只留最高分那一段；章节切片不去重。
+
+    不这么做的话，一个长角色卡会在结果里连刷好几条同名命中，挤掉别的资料。
+    """
+    seen: set[tuple[str, str]] = set()
+    result: list[dict[str, Any]] = []
+    for item in items:
+        if item.get("kind") == "chapters":
+            result.append(item)
+            continue
+        key = (str(item.get("kind")), str(item.get("ref")))
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(item)
+    return result
 
 
-def _split_text(text: str, max_len: int = 600, overlap: int = 80) -> list[str]:
+def _split_entity(title: str, body: str, max_len: int = 700) -> list[str]:
+    """实体卡切片：短卡整张保留，长卡按二级标题拆小节。
+
+    角色卡的「外貌 / 性格 / 成长路线」放在一个切片里会被嵌入模型截断，
+    拆开之后「他是什么性格」这类问题才能命中对应小节。
+    """
+    body = (body or "").strip()
+    title = (title or "").strip()
+    if not body:
+        return [title] if title else []
+    if len(body) <= max_len:
+        return [f"{title}\n{body}".strip()]
+
+    parts = re.split(r"(?m)^(#{2,6}\s+.+)$", body)
+    sections: list[str] = []
+    if parts[0].strip():
+        sections.append(parts[0].strip())
+    for index in range(1, len(parts), 2):
+        heading = parts[index].strip()
+        content = parts[index + 1].strip() if index + 1 < len(parts) else ""
+        sections.append(f"{heading}\n{content}".strip())
+
+    pieces: list[str] = []
+    buffer = ""
+    for section in sections:
+        if not section:
+            continue
+        if len(buffer) + len(section) + 1 <= max_len:
+            buffer = f"{buffer}\n{section}".strip()
+            continue
+        if buffer:
+            pieces.append(buffer)
+            buffer = ""
+        if len(section) <= max_len:
+            buffer = section
+        else:
+            pieces.extend(_split_text(section, max_len=max_len, overlap=60))
+    if buffer:
+        pieces.append(buffer)
+    return [f"{title}\n{piece}".strip() for piece in pieces] or [f"{title}\n{body[:max_len]}"]
+
+
+def _split_text(text: str, max_len: int = 480, overlap: int = 60) -> list[str]:
     paragraphs = [p.strip() for p in re.split(r"\n{2,}", text) if p.strip()]
     if not paragraphs:
         return []

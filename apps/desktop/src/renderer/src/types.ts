@@ -97,6 +97,9 @@ export interface IndexJob {
   chunks: number | null
   embedded: number | null
   error?: string | null
+  stage?: string
+  done?: number
+  total?: number
 }
 
 export interface SearchHit {
@@ -112,6 +115,10 @@ export interface SearchHit {
   score: number
   /** 检索器原始分：BM25 / cosine / RRF，用于排查召回质量 */
   raw_score?: number
+  /** 两路原始分：混合检索时能看出这条是被关键词还是向量召回的 */
+  lexical_score?: number
+  lexical_rank?: number
+  vector_score?: number
 }
 
 export interface Overview {
@@ -279,12 +286,28 @@ export interface ModelSettings {
   context_window: number
 }
 
+export interface EmbeddingOption {
+  id: string
+  dim: number
+  size_mb: number
+  label: string
+  note: string
+}
+
+export interface EmbeddingProbe {
+  ok: boolean
+  error: string
+  dim: number
+  ms: number
+}
+
 export interface EmbeddingSettings {
-  provider: 'none' | 'openai'
+  provider: 'none' | 'local' | 'openai'
   base_url: string
   api_key: string
   model: string
   dimensions: number
+  local_model: string
 }
 
 export type RuleMode = 'allow' | 'ask' | 'deny'

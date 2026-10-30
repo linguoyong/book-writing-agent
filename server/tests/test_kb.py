@@ -73,5 +73,55 @@ class ChapterNumberTest(unittest.TestCase):
         self.assertEqual(_chapter_number({}, "序章"), 0)
 
 
+class EntityChunkSplitTest(unittest.TestCase):
+    """长角色卡按小节拆分，且增量写入不会留下重复切片。"""
+
+    def setUp(self) -> None:
+        self.project = Path(tempfile.mkdtemp(prefix="kb-split-"))
+        self.index = KbIndex(self.project, EmbeddingSettings())
+        self.body = (
+            "## 外貌\n" + "眉目清冷，一身青衣。" * 60 + "\n"
+            "## 性格\n" + "沉默寡言，认死理。" * 60 + "\n"
+            "## 成长路线\n" + "十二岁入门，十八岁筑基。" * 60
+        )
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.project, ignore_errors=True)
+
+    def _chunk_ids(self) -> list[str]:
+        return [item["id"] for item in self.index.list_chunks(kind="characters")["items"]]
+
+    def test_long_card_splits_into_sections(self) -> None:
+        save_entity(self.project, "characters", "lin", {"name": "林昭"}, self.body)
+        self.index.rebuild()
+
+        ids = self._chunk_ids()
+        self.assertGreaterEqual(len(ids), 2)
+        self.assertIn("characters:lin:0", ids)
+
+    def test_short_card_stays_single_chunk(self) -> None:
+        save_entity(self.project, "characters", "su", {"name": "苏晴"}, "落霞城医女。")
+        self.index.rebuild()
+
+        self.assertEqual(self._chunk_ids(), ["characters:su"])
+
+    def test_reindex_replaces_whole_group(self) -> None:
+        save_entity(self.project, "characters", "lin", {"name": "林昭"}, self.body)
+        self.index.rebuild()
+        before = self._chunk_ids()
+
+        self.index.reindex_entity("characters", "lin")
+
+        self.assertEqual(self._chunk_ids(), before)
+
+    def test_search_dedupes_split_sections(self) -> None:
+        save_entity(self.project, "characters", "lin", {"name": "林昭"}, self.body)
+        self.index.rebuild()
+
+        hits = self.index.search("眉目清冷 沉默寡言 十二岁入门", kinds=["characters"], top_k=10)
+
+        self.assertEqual(len([hit for hit in hits if hit["ref"] == "lin"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()

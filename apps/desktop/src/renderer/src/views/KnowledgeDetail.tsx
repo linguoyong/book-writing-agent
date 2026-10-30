@@ -224,13 +224,25 @@ export default function KnowledgeDetail({
                 <div key={`${hit.id}-${hit.source}`} className="hit-card">
                   <div className="hit-head">
                     <span className="hit-title">{hit.title}</span>
-                    <span
-                      className="hit-score"
-                      title={
-                        hit.raw_score !== undefined ? `原始分 ${hit.raw_score}` : undefined
-                      }
-                    >
-                      {hit.score.toFixed(3)}
+                    <span className="hit-tags">
+                      {hit.lexical_rank !== undefined && (
+                        <span className="hit-tag kw" title="BM25 关键词检索中的名次">
+                          关键词 #{hit.lexical_rank}
+                        </span>
+                      )}
+                      {hit.vector_score !== undefined && (
+                        <span className="hit-tag vec" title="余弦相似度（1 − distance）">
+                          向量 {hit.vector_score.toFixed(3)}
+                        </span>
+                      )}
+                      <span
+                        className="hit-score"
+                        title={
+                          hit.raw_score !== undefined ? `融合后原始分 ${hit.raw_score}` : undefined
+                        }
+                      >
+                        {hit.score.toFixed(3)}
+                      </span>
                     </span>
                   </div>
                   <div className="hit-source">
