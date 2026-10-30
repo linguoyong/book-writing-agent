@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     permission_mode TEXT,
     model_id TEXT,
     archived INTEGER NOT NULL DEFAULT 0,
+    thread_id TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -71,6 +72,7 @@ _MIGRATIONS = {
         "permission_mode": "ALTER TABLE sessions ADD COLUMN permission_mode TEXT",
         "model_id": "ALTER TABLE sessions ADD COLUMN model_id TEXT",
         "archived": "ALTER TABLE sessions ADD COLUMN archived INTEGER NOT NULL DEFAULT 0",
+        "thread_id": "ALTER TABLE sessions ADD COLUMN thread_id TEXT",
     },
     "approvals": {
         "decision": "ALTER TABLE approvals ADD COLUMN decision TEXT",
@@ -205,7 +207,16 @@ def create_session(
 
 
 def update_session(session_id: str, **fields: Any) -> dict[str, Any] | None:
-    allowed = {"title", "expert_id", "domain", "kind", "permission_mode", "model_id", "archived"}
+    allowed = {
+        "title",
+        "expert_id",
+        "domain",
+        "kind",
+        "permission_mode",
+        "model_id",
+        "archived",
+        "thread_id",
+    }
     updates = {k: v for k, v in fields.items() if k in allowed}
     if "archived" in updates:
         updates["archived"] = 1 if updates["archived"] else 0
@@ -253,6 +264,12 @@ def session_titles(session_ids: list[str]) -> dict[str, str]:
             session_ids,
         ).fetchall()
     return {row["id"]: row["title"] for row in rows}
+
+
+def delete_message(message_id: int) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM messages_fts WHERE message_id = ?", (message_id,))
+        conn.execute("DELETE FROM messages WHERE id = ?", (message_id,))
 
 
 def delete_session(session_id: str) -> None:

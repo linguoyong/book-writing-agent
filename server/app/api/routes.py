@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import shutil
+import time
 from pathlib import Path
 from typing import Any, Literal
 
@@ -348,6 +349,49 @@ class Decision(BaseModel):
 class ApproveRequest(BaseModel):
     session_id: str
     decisions: list[Decision]
+
+
+@router.post("/sessions/{session_id}/regenerate")
+def regenerate_session(session_id: str) -> StreamingResponse:
+    """删掉最后一轮回答，换一个 thread 重放历史消息后重新生成。"""
+    session = db.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    if db.pending_approval(session_id):
+        raise HTTPException(status_code=400, detail="当前有待审批的写操作，处理后再重新生成")
+
+    messages = db.list_messages(session_id)
+    last_user_index = -1
+    for index in range(len(messages) - 1, -1, -1):
+        if messages[index]["role"] == "user":
+            last_user_index = index
+            break
+    if last_user_index < 0:
+        raise HTTPException(status_code=400, detail="没有可重新生成的消息")
+
+    for item in messages[last_user_index + 1 :]:
+        db.delete_message(int(item["id"]))
+
+    # 换 thread：旧 checkpoint 里还有上一轮回答，继续用会让模型重复原答案
+    db.update_session(
+        session_id, thread_id=f"{session_id}-r{int(time.time() * 1000)}"
+    )
+    history = db.list_messages(session_id)
+    mode = "side" if session.get("kind") == "side" else "main"
+    return StreamingResponse(
+        chat_stream(
+            session_id,
+            str(messages[last_user_index]["content"]),
+            mode,
+            session.get("expert_id"),
+            None,
+            None,
+            history,
+            False,
+        ),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/chat/approve")
@@ -832,7 +876,9 @@ def read_file(project_id: str, path: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="文件不存在")
 
     suffix = target.suffix.lower()
-    size = target.stat().st_size
+    stat = target.stat()
+    size = stat.st_size
+    mtime = int(stat.st_mtime * 1000)
     if suffix in IMAGE_MIME and size <= MAX_INLINE_IMAGE:
         encoded = base64.b64encode(target.read_bytes()).decode("ascii")
         return {
@@ -841,27 +887,42 @@ def read_file(project_id: str, path: str) -> dict[str, Any]:
             "mime": IMAGE_MIME[suffix],
             "data_url": f"data:{IMAGE_MIME[suffix]};base64,{encoded}",
             "size": size,
+            "mtime": mtime,
         }
     if suffix in BINARY_EXT or suffix in IMAGE_MIME:
-        return {"path": path, "kind": "binary", "size": size}
-    return {"path": path, "kind": "text", "content": read_text(target), "size": size}
+        return {"path": path, "kind": "binary", "size": size, "mtime": mtime}
+    return {
+        "path": path,
+        "kind": "text",
+        "content": read_text(target),
+        "size": size,
+        "mtime": mtime,
+    }
 
 
 class WriteFileRequest(BaseModel):
     path: str
     content: str
+    # 打开文件时的 mtime；不一致说明已被 Agent 或其他操作改过
+    expected_mtime: int | None = None
 
 
 @router.put("/projects/{project_id}/file")
-def write_file(project_id: str, req: WriteFileRequest) -> dict[str, bool]:
+def write_file(project_id: str, req: WriteFileRequest) -> dict[str, Any]:
     project = _require_project(project_id)
     root = Path(project["path"])
     target = _resolve_workspace_file(root, req.path, "write")
     if any(part in HIDDEN_PARTS for part in target.relative_to(root.resolve()).parts):
         raise HTTPException(status_code=400, detail="该路径不允许写入")
+    if req.expected_mtime is not None and target.exists():
+        current = int(target.stat().st_mtime * 1000)
+        if abs(current - req.expected_mtime) > 2:
+            raise HTTPException(
+                status_code=409, detail="文件已被其他操作修改，请重新加载后再保存"
+            )
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(req.content, encoding="utf-8")
-    return {"ok": True}
+    return {"ok": True, "mtime": int(target.stat().st_mtime * 1000)}
 
 
 class FsCreateRequest(BaseModel):

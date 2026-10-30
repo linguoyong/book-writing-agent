@@ -6,9 +6,12 @@ import {
   ChevronDown,
   ChevronRight,
   Cpu,
+  Copy,
   FileDiff,
   Loader2,
   MessageSquareReply,
+  Pencil,
+  RotateCcw,
   ShieldCheck,
   Sparkles,
   Square,
@@ -209,6 +212,7 @@ export default function ChatPane(): React.JSX.Element {
                 key={turn.id}
                 turn={turn}
                 live={streaming && index === turns.length - 1}
+                isLast={index === turns.length - 1}
                 startedAt={streamStartedAt}
               />
             ))
@@ -322,14 +326,27 @@ export default function ChatPane(): React.JSX.Element {
 function TurnBlock({
   turn,
   live,
+  isLast,
   startedAt
 }: {
   turn: TurnView
   live: boolean
+  isLast?: boolean
   startedAt: number | null
 }): React.JSX.Element {
   const showTurnDiff = useAppStore((state) => state.showTurnDiff)
+  const regenerate = useAppStore((state) => state.regenerate)
+  const setPendingComposer = useAppStore((state) => state.setPendingComposer)
+  const showToast = useAppStore((state) => state.showToast)
+  const streaming = useAppStore((state) => state.streaming)
   const [now, setNow] = useState(Date.now())
+
+  const copy = (text: string): void => {
+    void navigator.clipboard
+      .writeText(text)
+      .then(() => showToast('已复制'))
+      .catch(() => showToast('复制失败：当前环境不允许访问剪贴板'))
+  }
 
   useEffect(() => {
     if (!live) return
@@ -362,6 +379,20 @@ function TurnBlock({
               </div>
             )}
             <div className="bubble">{turn.user.content}</div>
+            <div className="msg-actions">
+              <button onClick={() => copy(turn.user?.content ?? '')} title="复制">
+                <Copy size={11} />
+              </button>
+              <button
+                onClick={() => {
+                  setPendingComposer(turn.user?.content ?? '')
+                  showToast('已填入输入框，修改后可直接发送')
+                }}
+                title="编辑后重发"
+              >
+                <Pencil size={11} />
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -412,6 +443,20 @@ function TurnBlock({
             {turn.conclusion.interrupted && (
               <div className="turn-interrupted">生成已中断，以上为已生成的内容</div>
             )}
+            <div className="msg-actions">
+              <button onClick={() => copy(turn.conclusion?.content ?? '')} title="复制">
+                <Copy size={11} />
+              </button>
+              {isLast && !live && (
+                <button
+                  onClick={() => void regenerate()}
+                  disabled={streaming}
+                  title="重新生成这一轮"
+                >
+                  <RotateCcw size={11} />
+                </button>
+              )}
+            </div>
           </div>
         </div>
       )}

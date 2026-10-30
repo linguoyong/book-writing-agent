@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { api, approveChat, streamChat } from './api'
+import { api, approveChat, regenerateChat, streamChat } from './api'
 import type { StreamHandlerSet } from './api'
 import type {
   AppConfig,
@@ -29,6 +29,7 @@ export interface OpenFile {
   kind: 'text' | 'image' | 'binary'
   dataUrl?: string
   size?: number
+  mtime?: number
 }
 
 type RightTab = 'kb' | 'files' | 'diff' | 'side' | 'context'
@@ -101,6 +102,7 @@ interface AppState {
   sendMessage: (text: string) => Promise<void>
   steerMessage: (text: string) => Promise<void>
   stopStreaming: () => void
+  regenerate: () => Promise<void>
 
   refreshTree: () => Promise<void>
   openFileByPath: (path: string, force?: boolean) => Promise<void>
@@ -177,6 +179,23 @@ export const useAppStore = create<AppState>((set, get) => {
         ? { ...item, status: 'cancelled' as const }
         : item
     )
+
+  /** 重新生成前清掉最后一轮回答（含它前面的工具卡与结尾统计） */
+  const trimLastTurn = (items: TimelineItem[]): TimelineItem[] => {
+    let index = -1
+    for (let cursor = items.length - 1; cursor >= 0; cursor -= 1) {
+      if (items[cursor].type === 'assistant') {
+        index = cursor
+        break
+      }
+    }
+    if (index < 0) return items
+    let start = index
+    while (start > 0 && items[start - 1].type === 'tool') start -= 1
+    return items.filter(
+      (item, cursor) => cursor < start || (cursor > index && item.type !== 'turn_end')
+    )
+  }
 
   const makeHandlers = (): StreamHandlerSet => {
     let assistantId: string | null = null
@@ -643,6 +662,28 @@ export const useAppStore = create<AppState>((set, get) => {
     set({ streaming: false, streamStartedAt: null })
   },
 
+  regenerate: async () => {
+    const sessionId = get().activeSessionId
+    if (!sessionId || get().streaming) return
+    if (get().approval) {
+      get().showToast('先处理待审批的写入，再重新生成')
+      return
+    }
+    set((state) => ({
+      streaming: true,
+      streamStartedAt: Date.now(),
+      error: null,
+      timeline: trimLastTurn(state.timeline)
+    }))
+    const controller = new AbortController()
+    streamAbort = controller
+    try {
+      await regenerateChat(sessionId, makeHandlers(), controller.signal)
+    } finally {
+      if (streamAbort === controller) streamAbort = null
+    }
+  },
+
   refreshTree: async () => {
     const project = get().activeProject
     if (!project) return
@@ -670,7 +711,8 @@ export const useAppStore = create<AppState>((set, get) => {
           dirty: false,
           kind: file.kind,
           dataUrl: file.data_url,
-          size: file.size
+          size: file.size,
+          mtime: file.mtime
         },
         rightTab: 'files',
         rightCollapsed: false
@@ -689,14 +731,45 @@ export const useAppStore = create<AppState>((set, get) => {
   saveOpenFile: async () => {
     const project = get().activeProject
     const openFile = get().openFile
-    if (!project || !openFile) return
+    if (!project || !openFile || openFile.kind !== 'text') return
+
+    const write = async (expected?: number): Promise<number> => {
+      const result = await api.writeFile(
+        project.id,
+        openFile.path,
+        openFile.content,
+        expected
+      )
+      return result.mtime
+    }
+
     try {
-      await api.writeFile(project.id, openFile.path, openFile.content)
-      set({ openFile: { ...openFile, dirty: false } })
+      const mtime = await write(openFile.mtime)
+      set({ openFile: { ...openFile, dirty: false, mtime } })
       await get().refreshDiff()
       await get().refreshOverview()
     } catch (error) {
-      set({ error: (error as Error).message })
+      const message = (error as Error).message
+      if (!message.includes('已被其他操作修改')) {
+        set({ error: message })
+        return
+      }
+      // 文件在打开后被 Agent 或其他窗口改过：让用户决定覆盖还是重载
+      const overwrite = window.confirm(
+        '这个文件刚被 Agent 或其他操作改过。\n\n确定：用编辑器当前内容覆盖\n取消：放弃本次保存并重新加载磁盘内容'
+      )
+      try {
+        if (overwrite) {
+          const mtime = await write()
+          set({ openFile: { ...openFile, dirty: false, mtime } })
+          await get().refreshDiff()
+          await get().refreshOverview()
+        } else {
+          await get().openFileByPath(openFile.path, true)
+        }
+      } catch (inner) {
+        set({ error: (inner as Error).message })
+      }
     }
   },
 

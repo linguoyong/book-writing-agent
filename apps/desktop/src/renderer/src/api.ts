@@ -227,11 +227,17 @@ export const api = {
       content?: string
       data_url?: string
       size?: number
+      mtime?: number
     }>(`/projects/${projectId}/file?path=${encodeURIComponent(path)}`),
-  writeFile: (projectId: string, path: string, content: string) =>
-    http<{ ok: boolean }>(`/projects/${projectId}/file`, {
+  writeFile: (
+    projectId: string,
+    path: string,
+    content: string,
+    expectedMtime?: number
+  ) =>
+    http<{ ok: boolean; mtime: number }>(`/projects/${projectId}/file`, {
       method: 'PUT',
-      body: JSON.stringify({ path, content })
+      body: JSON.stringify({ path, content, expected_mtime: expectedMtime ?? null })
     }),
   fsCreate: (projectId: string, path: string, kind: 'file' | 'dir' = 'file') =>
     http<{ ok: boolean }>(`/projects/${projectId}/fs/create`, {
@@ -352,8 +358,36 @@ export async function approveChat(
   await consumeStream(response, handlers)
 }
 
-async function consumeStream(response: Response, handlers: StreamHandlers): Promise<void> {
-  if (!response.body) {
+export async function regenerateChat(
+  sessionId: string,
+  handlers: StreamHandlers,
+  signal?: AbortSignal
+): Promise<void> {
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE}/sessions/${sessionId}/regenerate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      signal
+    })
+  } catch (error) {
+    if (isAbort(error)) {
+      handlers.onAborted?.()
+      return
+    }
+    handlers.onError(`无法连接后端：${(error as Error).message}`)
+    handlers.onDone()
+    return
+  }
+  if (!response.ok || !response.body) {
+    handlers.onError(`重新生成失败：${response.status}`)
+    handlers.onDone()
+    return
+  }
+  await consumeStream(response, handlers)
+}
+
+async function consumeStream(response: Response, handlers: StreamHandlers): Promise<void> {  if (!response.body) {
     handlers.onError('响应没有内容')
     handlers.onDone()
     return

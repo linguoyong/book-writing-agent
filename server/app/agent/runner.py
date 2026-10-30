@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.types import Command
 
 from .. import db
@@ -18,6 +18,20 @@ from .mcp_manager import manager as mcp_manager
 MODE_BUILDER = {"expert_builder": "expert", "skill_builder": "skill"}
 
 WRITE_TOOLS = {"kb_write", "manuscript_write", "write_file", "edit_file", "delete"}
+
+
+def _history_messages(records: list[dict[str, Any]]) -> list[Any]:
+    """把已落库的消息还原成 LangChain 消息（重新生成时重放历史）。"""
+    messages: list[Any] = []
+    for item in records:
+        content = str(item.get("content") or "")
+        if not content.strip():
+            continue
+        if item.get("role") == "user":
+            messages.append(HumanMessage(content=content))
+        else:
+            messages.append(AIMessage(content=content))
+    return messages
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -46,6 +60,8 @@ async def chat_stream(
     expert_id: str | None = None,
     references: list[dict[str, Any]] | None = None,
     parent_session_id: str | None = None,
+    history: list[dict[str, Any]] | None = None,
+    persist_user: bool = True,
 ) -> AsyncIterator[str]:
     session = db.get_session(session_id)
     if not session:
@@ -83,7 +99,8 @@ async def chat_stream(
     buffer: list[str] = []
     tool_calls: list[dict[str, Any]] = []
     write_paths: set[str] = set()
-    config = {"configurable": {"thread_id": session_id}}
+    thread_id = session.get("thread_id") or session_id
+    config = {"configurable": {"thread_id": thread_id}}
     started = time.monotonic()
     # 已落库的字符数：正常路径每段落库后更新；finally 据此判断是否还有未落库内容
     committed = 0
@@ -119,19 +136,25 @@ async def chat_stream(
             },
         )
 
-        db.add_message(
-            session_id,
-            "user",
-            user_message,
-            meta={"references": references} if references else None,
-        )
-        if session["title"] == "新会话":
-            db.update_session_title(session_id, user_message.strip()[:24] or "新会话")
+        if persist_user:
+            db.add_message(
+                session_id,
+                "user",
+                user_message,
+                meta={"references": references} if references else None,
+            )
+            if session["title"] == "新会话":
+                db.update_session_title(session_id, user_message.strip()[:24] or "新会话")
 
+        graph_input = (
+            {"messages": _history_messages(history)}
+            if history is not None
+            else {"messages": [HumanMessage(content=user_message)]}
+        )
         try:
             async for chunk in _run_events(
                 agent,
-                {"messages": [HumanMessage(content=user_message)]},
+                graph_input,
                 config,
                 buffer,
                 tool_calls,
@@ -281,7 +304,8 @@ async def approve_stream(
         buffer: list[str] = []
         tool_calls: list[dict[str, Any]] = []
         write_paths: set[str] = set()
-        config = {"configurable": {"thread_id": session_id}}
+        thread_id = session.get("thread_id") or session_id
+        config = {"configurable": {"thread_id": thread_id}}
         started = time.monotonic()
         try:
             async for chunk in _run_events(

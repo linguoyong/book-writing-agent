@@ -2980,6 +2980,42 @@ textarea:focus {
   white-space: normal;
 }
 
+.msg-actions {
+  display: flex;
+  gap: 2px;
+  margin-top: 4px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.msg:hover .msg-actions {
+  opacity: 1;
+}
+
+.msg.user .msg-actions {
+  justify-content: flex-end;
+}
+
+.msg-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 20px;
+  border-radius: 5px;
+  color: var(--faint);
+}
+
+.msg-actions button:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.msg-actions button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .turn-interrupted {
   margin-top: 6px;
   font-size: 11px;
@@ -2999,6 +3035,32 @@ textarea:focus {
 
 .md > *:last-child {
   margin-bottom: 0;
+}
+
+.md-code {
+  position: relative;
+}
+
+.md-code .md-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-input);
+  color: var(--faint);
+  font-size: 10px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.md-code:hover .md-copy {
+  opacity: 1;
+}
+
+.md-code .md-copy:hover {
+  color: var(--text);
 }
 
 .md p {
