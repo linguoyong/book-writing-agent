@@ -149,6 +149,8 @@ def git_diff(path: Path, relative: str | None = None) -> str:
 
     - `relative` 为空：返回全部改动（工作区 + 暂存区）与未跟踪文件；
     - `relative` 指定文件：只返回该文件的 diff（未跟踪按新文件生成）。
+      单文件使用超大上下文（整文件进 diff），前端按「N unmodified lines」
+      折叠未修改区域，与 IDE 的变更视图一致。
     """
     if not (path / ".git").exists():
         return ""
@@ -162,11 +164,24 @@ def git_diff(path: Path, relative: str | None = None) -> str:
         tracked = _git(path, "ls-files", "--", normalized).stdout.strip()
         if tracked:
             diff = _git(
-                path, "-c", "core.quotepath=false", "diff", "HEAD", "--", normalized
+                path,
+                "-c",
+                "core.quotepath=false",
+                "diff",
+                "-U1000000",
+                "HEAD",
+                "--",
+                normalized,
             ).stdout
             if not diff.strip():
                 diff = _git(
-                    path, "-c", "core.quotepath=false", "diff", "--", normalized
+                    path,
+                    "-c",
+                    "core.quotepath=false",
+                    "diff",
+                    "-U1000000",
+                    "--",
+                    normalized,
                 ).stdout
             return diff
         if target.is_file():

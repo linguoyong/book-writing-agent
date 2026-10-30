@@ -166,7 +166,13 @@ def delete_project(project_id: str, purge: bool = False) -> dict[str, bool]:
         db.delete_session(session["id"])
     db.delete_project(project_id)
     if purge:
-        shutil.rmtree(Path(project["path"]), ignore_errors=True)
+        target = Path(project["path"])
+        shutil.rmtree(target, ignore_errors=True)
+        if target.exists():
+            raise HTTPException(
+                status_code=500,
+                detail="目录删除失败（可能有文件被占用），空间与会话记录已删除",
+            )
     return {"ok": True}
 
 

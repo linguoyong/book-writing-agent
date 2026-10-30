@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { FileText, RefreshCw } from 'lucide-react'
+import { Copy, FileText, RefreshCw } from 'lucide-react'
 import { api } from '../api'
 import { useAppStore } from '../store'
 import type { GitChange } from '../types'
+import DiffView from './DiffView'
 
 const STATUS_LABEL: Record<string, string> = {
   untracked: 'U',
@@ -131,6 +132,28 @@ export default function DiffPanel(): React.JSX.Element {
           {selected && (
             <div className="changes-single-bar">
               <span className="changes-single-path">{selected}</span>
+              {(() => {
+                const change = files.find((item) => item.path === selected)
+                if (!change || (change.additions === 0 && change.deletions === 0)) return null
+                return (
+                  <span className="ct-stat changes-single-stat">
+                    <b>+{change.additions}</b>
+                    <i>-{change.deletions}</i>
+                  </span>
+                )
+              })()}
+              <button
+                className="ft-icon"
+                onClick={() => {
+                  void navigator.clipboard
+                    .writeText(text)
+                    .then(() => showToast('已复制 diff'))
+                    .catch(() => showToast('复制失败'))
+                }}
+                title="复制 diff"
+              >
+                <Copy size={12} />
+              </button>
               <button
                 className="ft-icon"
                 onClick={() => {
@@ -146,7 +169,7 @@ export default function DiffPanel(): React.JSX.Element {
           {loading ? (
             <div className="panel-empty">加载中…</div>
           ) : text.trim() ? (
-            <pre className="diff-view">{text}</pre>
+            <DiffView text={text} showFileHeader={!selected} />
           ) : (
             <div className="panel-empty">
               {selected ? '该文件没有可显示的 diff' : '当前没有未提交的改动'}
