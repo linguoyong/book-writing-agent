@@ -17,7 +17,7 @@ from ..kb.repository import (
     safe_entity_id,
     save_entity,
 )
-from ..kb.search import KbIndex
+from ..kb.search import KbIndex, load_kb_config
 from ..sandbox import check_path
 from ..text import read_text
 from ..workspace import git_diff, read_book_meta, safe_join
@@ -62,13 +62,26 @@ def build_tools(ctx: ToolContext) -> list[Any]:
         query: str,
         kinds: list[str] | None = None,
         chapter_limit: int | None = None,
-        top_k: int = 8,
+        top_k: int | None = None,
     ) -> str:
         """检索知识库与原文。kinds 可选值：characters/factions/items/locations/world/outline/materials/styles/chapters。
         chapter_limit 用于限制只检索不超过该章节号的内容，避免剧透。返回带出处的片段列表。"""
         _ensure_index()
+        # 知识库详情页「检索设置」写的是 kb/config.json：这里必须跟着走，
+        # 否则页面上调的模式、权重、相关度阈值对 Agent 完全没有作用。
+        config = load_kb_config(project)
+        mode = str(config["mode"])
+        if mode == "vector" and index.embedding.provider == "none":
+            # 向量服务没开时选「仅向量」会一条都搜不到，静默失效比降级更糟
+            mode = "keyword"
         results = index.search(
-            query, kinds=kinds, chapter_limit=chapter_limit, top_k=top_k
+            query,
+            kinds=kinds,
+            chapter_limit=chapter_limit if chapter_limit is not None else config["chapter_limit"],
+            top_k=top_k or int(config["top_k"]),
+            threshold=float(config["threshold"]),
+            mode=mode,
+            alpha=float(config["alpha"]),
         )
         if not results:
             return "未检索到相关内容。"

@@ -238,14 +238,16 @@ export default function ChatPane(): React.JSX.Element {
 
       {lastChange && (
         <div className="composer-turn-changes">
-          <button
-            onClick={() => showTurnDiff(lastChange.meta!.changes)}
-            title="在右侧「变更」页查看本轮改动的文件"
-          >
-            <FileDiff size={12} />
-            <span>本轮变更 · {lastChange.meta!.changes.files.length} 个文件</span>
-            <ChevronRight size={12} className="turn-chev" />
-          </button>
+          <div className="composer-inner">
+            <button
+              onClick={() => showTurnDiff(lastChange.meta!.changes)}
+              title="在右侧「变更」页查看本轮改动的文件"
+            >
+              <FileDiff size={12} />
+              <span>本轮变更 · {lastChange.meta!.changes.files.length} 个文件</span>
+              <ChevronRight size={12} className="turn-chev" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -539,14 +541,43 @@ function StepRow({ item }: { item: TimelineItem }): React.JSX.Element | null {
   return null
 }
 
+/** 点击面板外部或按 Esc 关闭弹层。
+ *
+ * 原来用一层 `position: fixed` 的遮罩，但 `.composer-box` 设了 `container-type`，
+ * 会建立包含块，遮罩只能盖住输入框本身，点别处关不掉。
+ */
+function useDismiss(
+  open: boolean,
+  setOpen: (open: boolean) => void
+): React.RefObject<HTMLDivElement | null> {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (event: MouseEvent): void => {
+      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false)
+    }
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open, setOpen])
+  return ref
+}
+
 function PermissionPicker(): React.JSX.Element {
   const mode = useAppStore((state) => state.permissionMode)
   const setPermissionMode = useAppStore((state) => state.setPermissionMode)
   const [open, setOpen] = useState(false)
+  const wrapRef = useDismiss(open, setOpen)
   const auto = mode === 'auto'
 
   return (
-    <div className="perm-wrap">
+    <div className="perm-wrap" ref={wrapRef}>
       {open && (
         <div className="perm-pop" role="menu">
           <div className="perm-pop-title">应如何批准操作？</div>
@@ -586,8 +617,8 @@ function PermissionPicker(): React.JSX.Element {
         title="选择权限模式"
       >
         {auto ? <AlertTriangle size={12} /> : <ShieldCheck size={12} />}
-        {auto ? '完全访问' : '请求批准'}
-        <ChevronDown size={10} />
+        <span className="perm-label">{auto ? '完全访问' : '请求批准'}</span>
+        <ChevronDown size={10} className="chev" />
       </button>
     </div>
   )
@@ -604,14 +635,14 @@ function ExpertPicker(): React.JSX.Element {
   const setExpert = useAppStore((state) => state.setExpert)
   const setView = useAppStore((state) => state.setView)
   const [open, setOpen] = useState(false)
+  const wrapRef = useDismiss(open, setOpen)
 
   const current = experts.find((item) => item.id === currentExpertId)
 
   return (
-    <div className="expert-wrap">
+    <div className="expert-wrap" ref={wrapRef}>
       {open && (
         <>
-          <div className="expert-mask" onClick={() => setOpen(false)} />
           <div className="expert-pop">
             <div className="expert-pop-title">选择专家</div>
             <div className="expert-pop-list">
@@ -651,7 +682,7 @@ function ExpertPicker(): React.JSX.Element {
         <span className="expert-selector-label">
           专家 · {current?.name ?? '通用'}
         </span>
-        <ChevronDown size={11} />
+        <ChevronDown size={11} className="chev" />
       </button>
     </div>
   )
@@ -673,6 +704,7 @@ function ModelPicker(): React.JSX.Element {
   )
   const setModel = useAppStore((state) => state.setModel)
   const [open, setOpen] = useState(false)
+  const wrapRef = useDismiss(open, setOpen)
 
   const models = config?.models ?? []
   if (!models.length) return <></>
@@ -680,7 +712,7 @@ function ModelPicker(): React.JSX.Element {
   const current = models.find((item) => item.id === activeId) ?? models[0]
 
   return (
-    <div className="model-wrap">
+    <div className="model-wrap" ref={wrapRef}>
       {open && (
         <div className="model-pop" role="menu">
           <div className="model-pop-title">选择模型</div>
@@ -712,8 +744,8 @@ function ModelPicker(): React.JSX.Element {
         )}`}
       >
         <Cpu size={12} />
-        {middleEllipsis(current.name || current.model, 13, 5)}
-        <ChevronDown size={10} />
+        <span className="model-label">{middleEllipsis(current.name || current.model, 13, 5)}</span>
+        <ChevronDown size={10} className="chev" />
       </button>
     </div>
   )
