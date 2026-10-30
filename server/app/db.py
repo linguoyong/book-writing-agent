@@ -240,6 +240,15 @@ def list_sessions(project_id: str) -> list[dict[str, Any]]:
     return [_row_to_dict(r) for r in rows]
 
 
+def list_all_sessions() -> list[dict[str, Any]]:
+    """所有空间的主会话（不含侧问），用于左栏按空间分组展示。"""
+    with get_conn() as conn:
+        rows = conn.execute(
+            "SELECT * FROM sessions WHERE kind != 'side' ORDER BY updated_at DESC"
+        ).fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
 def get_session(session_id: str) -> dict[str, Any] | None:
     with get_conn() as conn:
         row = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,)).fetchone()

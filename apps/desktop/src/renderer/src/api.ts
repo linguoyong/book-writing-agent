@@ -94,6 +94,7 @@ export const api = {
   overview: (projectId: string) => http<Overview>(`/projects/${projectId}/overview`),
 
   listSessions: (projectId: string) => http<Session[]>(`/projects/${projectId}/sessions`),
+  allSessions: () => http<Session[]>('/sessions'),
   createSession: (
     projectId: string,
     options: {

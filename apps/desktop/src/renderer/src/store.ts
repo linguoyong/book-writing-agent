@@ -46,6 +46,7 @@ interface AppState {
   spaceSummaries: Record<string, { count: number; last: string }>
 
   sessions: Session[]
+  allSessions: Session[]
   activeSessionId: string | null
   sideSessionId: string | null
   timeline: TimelineItem[]
@@ -89,7 +90,9 @@ interface AppState {
   createProject: (name: string, title: string, author?: string, path?: string) => Promise<void>
   openProject: (path: string) => Promise<void>
   refreshSpaceSummaries: () => Promise<void>
-  selectProject: (projectId: string) => Promise<void>
+  selectProject: (projectId: string, options?: { sessionId?: string }) => Promise<void>
+  openSession: (projectId: string, sessionId: string) => Promise<void>
+  refreshAllSessions: () => Promise<void>
   refreshOverview: () => Promise<void>
 
   refreshSessions: () => Promise<void>
@@ -285,6 +288,7 @@ export const useAppStore = create<AppState>((set, get) => {
   overview: null,
   spaceSummaries: {},
   sessions: [],
+  allSessions: [],
   activeSessionId: null,
   sideSessionId: null,
   timeline: [],
@@ -392,7 +396,7 @@ export const useAppStore = create<AppState>((set, get) => {
     set({ spaceSummaries: Object.fromEntries(entries) })
   },
 
-  selectProject: async (projectId) => {
+  selectProject: async (projectId, options) => {
     const project = get().projects.find((item) => item.id === projectId)
     if (!project) return
     set({
@@ -422,15 +426,39 @@ export const useAppStore = create<AppState>((set, get) => {
         tree,
         activeProject: { ...project, meta: overview.book }
       })
-      const file = firstManuscript(tree)
-      if (file) await get().openFileByPath(file)
+      if (!options?.sessionId) {
+        const file = firstManuscript(tree)
+        if (file) await get().openFileByPath(file)
+      }
       await get().loadKb(get().kbKind)
       await get().loadExperts()
       void get().refreshMemory()
-      const mainSessions = sessions.filter((session) => session.kind === 'main')
-      if (mainSessions.length > 0) await get().selectSession(mainSessions[0].id)
+      if (options?.sessionId) {
+        await get().selectSession(options.sessionId)
+      } else {
+        const mainSessions = sessions.filter((session) => session.kind === 'main')
+        if (mainSessions.length > 0) await get().selectSession(mainSessions[0].id)
+      }
+      void get().refreshAllSessions()
     } catch (error) {
       set({ error: (error as Error).message })
+    }
+  },
+
+  openSession: async (projectId, sessionId) => {
+    set({ view: 'chat' })
+    if (get().activeProject?.id !== projectId) {
+      await get().selectProject(projectId, { sessionId })
+      return
+    }
+    await get().selectSession(sessionId)
+  },
+
+  refreshAllSessions: async () => {
+    try {
+      set({ allSessions: await api.allSessions() })
+    } catch {
+      /* 左栏摘要刷新失败不阻塞主流程 */
     }
   },
 
@@ -458,6 +486,7 @@ export const useAppStore = create<AppState>((set, get) => {
           [project.id]: { count: visible.length, last: visible[0]?.title ?? '' }
         }
       })
+      void get().refreshAllSessions()
     } catch (error) {
       set({ error: (error as Error).message })
     }
@@ -497,6 +526,7 @@ export const useAppStore = create<AppState>((set, get) => {
         builder: null
       })
       void get().refreshContext()
+      void get().refreshAllSessions()
       return session
     } catch (error) {
       set({ error: (error as Error).message })
@@ -575,6 +605,7 @@ export const useAppStore = create<AppState>((set, get) => {
       if (get().sideSessionId === sessionId) get().setSideSessionId(null)
       const sessions = get().sessions.filter((item) => item.id !== sessionId)
       set({ sessions })
+      void get().refreshAllSessions()
       if (get().activeSessionId === sessionId) {
         set({ activeSessionId: null, timeline: [] })
         if (sessions.length > 0) await get().selectSession(sessions[0].id)
@@ -592,6 +623,7 @@ export const useAppStore = create<AppState>((set, get) => {
       set({
         sessions: get().sessions.map((item) => (item.id === sessionId ? updated : item))
       })
+      void get().refreshAllSessions()
     } catch (error) {
       set({ error: (error as Error).message })
     }
@@ -603,6 +635,7 @@ export const useAppStore = create<AppState>((set, get) => {
       set({
         sessions: get().sessions.map((item) => (item.id === sessionId ? updated : item))
       })
+      void get().refreshAllSessions()
       if (archived && get().activeSessionId === sessionId) {
         const next = get().sessions.find(
           (item) => item.id !== sessionId && item.kind !== 'side' && !item.archived

@@ -256,6 +256,11 @@ def post_session(project_id: str, req: CreateSessionRequest) -> dict[str, Any]:
     )
 
 
+@router.get("/sessions")
+def list_all_sessions() -> list[dict[str, Any]]:
+    return db.list_all_sessions()
+
+
 @router.patch("/sessions/{session_id}")
 def patch_session(session_id: str, req: SessionPatch) -> dict[str, Any]:
     if not db.get_session(session_id):
