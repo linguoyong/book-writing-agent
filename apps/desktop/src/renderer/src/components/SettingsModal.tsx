@@ -25,6 +25,7 @@ export default function SettingsModal(): React.JSX.Element | null {
   const [mcpServers, setMcpServers] = useState<McpServerStatus[]>([])
   const [mcpBusy, setMcpBusy] = useState(false)
   const [embedOptions, setEmbedOptions] = useState<EmbeddingOption[]>([])
+  const [embedError, setEmbedError] = useState('')
   const [embedProbe, setEmbedProbe] = useState<EmbeddingProbe | null>(null)
   const [probing, setProbing] = useState(false)
 
@@ -46,8 +47,14 @@ export default function SettingsModal(): React.JSX.Element | null {
   useEffect(() => {
     void api
       .embeddingOptions()
-      .then((result) => setEmbedOptions(result.local))
-      .catch(() => setEmbedOptions([]))
+      .then((result) => {
+        setEmbedOptions(result.local)
+        setEmbedError('')
+      })
+      .catch((error) => {
+        setEmbedOptions([])
+        setEmbedError((error as Error).message || '读取模型列表失败')
+      })
   }, [])
 
   if (!draft) return null
@@ -294,20 +301,24 @@ export default function SettingsModal(): React.JSX.Element | null {
                 <label>本地模型</label>
                 <select
                   value={draft.embedding.local_model}
+                  disabled={embedOptions.length === 0}
                   onChange={(event) => {
                     setEmbedProbe(null)
                     setEmbedding({ local_model: event.target.value })
                   }}
                 >
+                  {embedOptions.length === 0 && <option value="">模型列表读取失败</option>}
                   {embedOptions.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.label} · {item.dim} 维 · {item.size_mb}MB
                     </option>
                   ))}
                 </select>
-                <div className="field-hint">
-                  {embedOptions.find((item) => item.id === draft.embedding.local_model)?.note ??
-                    '首次启用会自动下载模型，之后离线可用；CPU 编码，不需要显卡。'}
+                <div className="field-hint" style={embedError ? { color: 'var(--red)' } : undefined}>
+                  {embedError
+                    ? embedError
+                    : (embedOptions.find((item) => item.id === draft.embedding.local_model)?.note ??
+                      '首次启用会自动下载模型，之后离线可用；CPU 编码，不需要显卡。')}
                 </div>
               </div>
             )}

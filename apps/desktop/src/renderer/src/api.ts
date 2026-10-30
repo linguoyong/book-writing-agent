@@ -63,6 +63,9 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
     }
     if (response.status === 401) {
       message = '本地后端拒绝了请求：缺少访问令牌，请从桌面应用启动'
+    } else if (response.status === 404) {
+      // 开发时最容易踩：界面热更新了，Python 后端还是旧进程
+      message = `接口不存在（${path}）：本地后端可能是更新前的旧进程，重启一次应用后重试`
     }
     throw new Error(message || `请求失败：${response.status}`)
   }
