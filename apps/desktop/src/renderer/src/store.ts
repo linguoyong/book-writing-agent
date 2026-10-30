@@ -466,6 +466,22 @@ export const useAppStore = create<AppState>((set, get) => {
   newSession: async () => {
     const project = get().activeProject
     if (!project) return null
+
+    // 当前就是一个没发过消息的空会话：复用它，别在列表里堆一串「新会话」
+    const state = get()
+    const current = state.sessions.find((item) => item.id === state.activeSessionId)
+    if (
+      current &&
+      current.kind !== 'side' &&
+      !current.archived &&
+      state.timeline.length === 0 &&
+      !state.streaming
+    ) {
+      set({ view: 'chat' })
+      state.showToast('当前已经是新会话，直接开始输入即可')
+      return current
+    }
+
     try {
       const session = await api.createSession(project.id, {
         expertId: get().currentExpertId,

@@ -321,12 +321,17 @@ textarea:focus {
   padding: 10px 10px 4px;
 }
 
+/* 空间 / 会话分组之间留出呼吸感，和上方菜单拉开层级 */
+.left-scroll > .left-section {
+  padding-top: 22px;
+}
+
 .left-section-title {
   font-size: 11px;
   color: var(--faint);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  padding: 0 6px 6px;
+  padding: 0 6px 8px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3351,9 +3356,10 @@ textarea:focus {
 .toast {
   position: fixed;
   top: 52px;
-  right: 24px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 95;
-  max-width: 420px;
+  max-width: 520px;
   padding: 10px 16px;
   border-radius: 10px;
   background: #12261a;
