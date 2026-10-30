@@ -10,6 +10,7 @@ import type {
   Entity,
   Expert,
   GitChange,
+  IndexJob,
   KbConfig,
   KbKind,
   KnowledgeBaseSummary,
@@ -184,8 +185,13 @@ export const api = {
       body: JSON.stringify({ query, top_k: 8, ...options })
     }),
   reindex: (projectId: string) =>
-    http<{ chunks: number; embedded: number }>(`/projects/${projectId}/reindex`, {
-      method: 'POST'
+    http<IndexJob>(`/projects/${projectId}/reindex`, { method: 'POST' }),
+  indexStatus: (projectId: string) =>
+    http<IndexJob>(`/projects/${projectId}/index/status`),
+  gitCommit: (projectId: string, message: string) =>
+    http<{ ok: boolean; message: string }>(`/projects/${projectId}/git/commit`, {
+      method: 'POST',
+      body: JSON.stringify({ message })
     }),
 
   knowledgeBases: (projectId: string) =>
@@ -220,15 +226,20 @@ export const api = {
 
   tree: (projectId: string) => http<TreeNode[]>(`/projects/${projectId}/tree`),
   skills: (projectId: string) => http<Skill[]>(`/projects/${projectId}/skills`),
-  readFile: (projectId: string, path: string) =>
+  readFile: (projectId: string, path: string, head?: number) =>
     http<{
       path: string
-      kind: 'text' | 'image' | 'binary'
+      kind: 'text' | 'image' | 'binary' | 'large'
       content?: string
       data_url?: string
       size?: number
       mtime?: number
-    }>(`/projects/${projectId}/file?path=${encodeURIComponent(path)}`),
+      truncated?: boolean
+    }>(
+      `/projects/${projectId}/file?path=${encodeURIComponent(path)}${
+        head ? `&head=${head}` : ''
+      }`
+    ),
   writeFile: (
     projectId: string,
     path: string,

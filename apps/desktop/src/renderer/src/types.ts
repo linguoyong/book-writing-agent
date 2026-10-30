@@ -92,6 +92,13 @@ export interface GitChange {
   deletions: number
 }
 
+export interface IndexJob {
+  running: boolean
+  chunks: number | null
+  embedded: number | null
+  error?: string | null
+}
+
 export interface SearchHit {
   id: string
   kind: string

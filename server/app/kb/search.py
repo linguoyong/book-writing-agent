@@ -14,6 +14,11 @@ from typing import Any, Iterable, Iterator
 import httpx
 import jieba
 
+try:
+    import numpy as np
+except ImportError:  # pragma: no cover - numpy 是可选加速
+    np = None
+
 from ..config import EmbeddingSettings
 from ..text import read_text
 from .repository import KINDS, parse_note
@@ -494,9 +499,31 @@ class KbIndex:
             rows = conn.execute(" ".join(sql), params).fetchall()
 
         scored: list[tuple[float, sqlite3.Row]] = []
-        for row in rows:
-            vector = struct.unpack(f"<{row['dim']}f", row["data"])
-            scored.append((_cosine(query_vector, vector), row))
+        if np is not None and rows:
+            # 批量矩阵乘：10 万切片也只是几十次 BLAS 调用，避免逐条 struct.unpack
+            query_array = np.asarray(query_vector, dtype=np.float32)
+            query_norm = float(np.linalg.norm(query_array)) or 1.0
+            batch_size = 2048
+            for start in range(0, len(rows), batch_size):
+                batch = [
+                    item
+                    for item in rows[start : start + batch_size]
+                    if int(item["dim"]) == query_array.shape[0]
+                ]
+                if not batch:
+                    continue
+                matrix = np.vstack(
+                    [np.frombuffer(item["data"], dtype=np.float32) for item in batch]
+                )
+                norms = np.linalg.norm(matrix, axis=1)
+                norms[norms == 0] = 1.0
+                scores = (matrix @ query_array) / (norms * query_norm)
+                for item, score in zip(batch, scores):
+                    scored.append((float(score), item))
+        else:
+            for row in rows:
+                vector = struct.unpack(f"<{row['dim']}f", row["data"])
+                scored.append((_cosine(query_vector, vector), row))
         scored.sort(key=lambda pair: pair[0], reverse=True)
 
         results = []

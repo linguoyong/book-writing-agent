@@ -20,6 +20,7 @@ dependencies = [
     "langgraph-checkpoint-sqlite>=2.0",
     "mcp>=1.30.0",
     "langchain-mcp-adapters>=0.3.2",
+    "numpy>=2.5.4",
 ]
 
 [tool.uv]

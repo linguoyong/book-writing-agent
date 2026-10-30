@@ -111,6 +111,7 @@ export default function FileViewer({
             <PanelRight size={12} />
           </button>
           {openFile?.dirty && <span className="fv-dirty">未保存</span>}
+          {openFile?.truncated && <span className="fv-dirty">只读预览</span>}
           {isMarkdown && (
             <button
               className={`fv-btn ${mode === 'preview' ? 'on' : ''}`}
@@ -140,7 +141,7 @@ export default function FileViewer({
           <button
             className="fv-icon"
             onClick={() => void saveOpenFile()}
-            disabled={!openFile?.dirty}
+            disabled={!openFile?.dirty || openFile?.truncated}
             title="保存（Ctrl+S）"
           >
             {openFile?.dirty ? <Save size={12} /> : <Check size={12} />}
@@ -153,6 +154,21 @@ export default function FileViewer({
           openFile.kind === 'image' && openFile.dataUrl ? (
             <div className="fv-image">
               <img src={openFile.dataUrl} alt={openFile.path} />
+            </div>
+          ) : openFile.kind === 'large' ? (
+            <div className="editor-empty">
+              <div>文件较大（{formatSize(openFile.size)}），未直接加载</div>
+              <div className="fv-size">整份打开可能让编辑器卡顿，可只读预览前 200 KB</div>
+              <button
+                className="small-btn primary"
+                onClick={() => void openFileByPath(openFile.path, true, 200_000)}
+              >
+                只读预览
+              </button>
+              <button className="small-btn" onClick={reveal}>
+                <FolderOpen size={13} />
+                在文件夹中打开
+              </button>
             </div>
           ) : openFile.kind === 'binary' ? (
             <div className="editor-empty">
@@ -172,6 +188,7 @@ export default function FileViewer({
               value={openFile.content}
               height="100%"
               extensions={[markdown()]}
+              editable={!openFile.truncated}
               basicSetup={{
                 lineNumbers: true,
                 foldGutter: false,

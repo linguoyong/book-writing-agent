@@ -170,6 +170,31 @@ def git_diff(path: Path, relative: str | None = None) -> str:
     return "\n".join(parts)
 
 
+def git_commit(path: Path, message: str) -> tuple[bool, str]:
+    """把工作区全部改动提交到本地仓库，返回 (是否成功, 输出)。"""
+    if not (path / ".git").exists():
+        return False, "当前工作区不是 git 仓库"
+    staged = _git(path, "add", "-A")
+    if staged.returncode != 0:
+        return False, (staged.stderr or staged.stdout).strip()[:500] or "git add 失败"
+    commit = _git(
+        path,
+        "-c",
+        "user.name=墨阑",
+        "-c",
+        "user.email=book@local",
+        "commit",
+        "-m",
+        message,
+    )
+    output = (commit.stdout + commit.stderr).strip()
+    if commit.returncode != 0:
+        if "nothing to commit" in output or "无文件要提交" in output:
+            return False, "没有需要提交的改动"
+        return False, output[:500] or "提交失败"
+    return True, output[:500]
+
+
 def git_status_map(path: Path) -> dict[str, str]:
     """porcelain 状态 → {相对路径: untracked|added|modified|deleted}。"""
     text = _git(

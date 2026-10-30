@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import shutil
+import threading
 import time
 from pathlib import Path
 from typing import Any, Literal
@@ -38,6 +39,7 @@ from ..workspace import (
     create_book,
     default_project_path,
     git_changes,
+    git_commit,
     git_diff,
     git_status,
     git_status_map,
@@ -699,11 +701,62 @@ def search_kb(project_id: str, req: SearchRequest) -> dict[str, Any]:
     return {"query": req.query, "results": results}
 
 
+_index_jobs: dict[str, dict[str, Any]] = {}
+_index_lock = threading.Lock()
+
+
+def _run_index_job(project_id: str, root: Path) -> None:
+    try:
+        index = KbIndex(root, load_settings().embedding)
+        result = index.rebuild()
+        payload: dict[str, Any] = {
+            "running": False,
+            "chunks": result["chunks"],
+            "embedded": result["embedded"],
+            "error": None,
+        }
+    except Exception as exc:  # noqa: BLE001
+        payload = {
+            "running": False,
+            "chunks": 0,
+            "embedded": 0,
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+    with _index_lock:
+        _index_jobs[project_id] = payload
+
+
 @router.post("/projects/{project_id}/reindex")
-def reindex_kb(project_id: str) -> dict[str, int]:
+def reindex_kb(project_id: str) -> dict[str, Any]:
+    """索引重建放到后台线程：百万字项目不会把请求挂住。"""
     project = _require_project(project_id)
-    index = KbIndex(Path(project["path"]), load_settings().embedding)
-    return index.rebuild()
+    with _index_lock:
+        current = _index_jobs.get(project_id)
+        if current and current.get("running"):
+            return current
+        _index_jobs[project_id] = {
+            "running": True,
+            "chunks": 0,
+            "embedded": 0,
+            "error": None,
+        }
+    threading.Thread(
+        target=_run_index_job,
+        args=(project_id, Path(project["path"])),
+        daemon=True,
+    ).start()
+    return {"running": True, "chunks": 0, "embedded": 0, "error": None}
+
+
+@router.get("/projects/{project_id}/index/status")
+def index_status(project_id: str) -> dict[str, Any]:
+    with _index_lock:
+        return _index_jobs.get(project_id) or {
+            "running": False,
+            "chunks": None,
+            "embedded": None,
+            "error": None,
+        }
 
 
 # ---------------------------------------------------------------- 知识库扩展
@@ -865,10 +918,11 @@ BINARY_EXT = {
     ".woff", ".woff2", ".ttf", ".otf", ".ico", ".mp3", ".mp4", ".wav", ".webm",
 }
 MAX_INLINE_IMAGE = 12 * 1024 * 1024
+MAX_TEXT_INLINE = 2 * 1024 * 1024
 
 
 @router.get("/projects/{project_id}/file")
-def read_file(project_id: str, path: str) -> dict[str, Any]:
+def read_file(project_id: str, path: str, head: int | None = None) -> dict[str, Any]:
     project = _require_project(project_id)
     root = Path(project["path"])
     target = _resolve_workspace_file(root, path, "read")
@@ -891,12 +945,21 @@ def read_file(project_id: str, path: str) -> dict[str, Any]:
         }
     if suffix in BINARY_EXT or suffix in IMAGE_MIME:
         return {"path": path, "kind": "binary", "size": size, "mtime": mtime}
+    if head is None and size > MAX_TEXT_INLINE:
+        # 百万字级别的稿件整份塞进编辑器会卡死，先让用户选择只读分段预览
+        return {"path": path, "kind": "large", "size": size, "mtime": mtime}
+    content = read_text(target)
+    truncated = False
+    if head is not None and len(content) > head:
+        content = content[:head]
+        truncated = True
     return {
         "path": path,
         "kind": "text",
-        "content": read_text(target),
+        "content": content,
         "size": size,
         "mtime": mtime,
+        "truncated": truncated,
     }
 
 
@@ -1009,6 +1072,20 @@ def get_git_diff(project_id: str, path: str | None = None) -> dict[str, str]:
 def get_git_changes(project_id: str) -> dict[str, Any]:
     project = _require_project(project_id)
     return {"items": git_changes(Path(project["path"]))}
+
+
+class CommitRequest(BaseModel):
+    message: str = ""
+
+
+@router.post("/projects/{project_id}/git/commit")
+def post_git_commit(project_id: str, req: CommitRequest) -> dict[str, Any]:
+    project = _require_project(project_id)
+    message = req.message.strip() or "保存当前修改"
+    ok, output = git_commit(Path(project["path"]), message)
+    if not ok:
+        raise HTTPException(status_code=400, detail=output)
+    return {"ok": True, "message": output}
 
 
 # ---------------------------------------------------------------- 工具

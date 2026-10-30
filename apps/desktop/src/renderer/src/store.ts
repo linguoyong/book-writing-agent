@@ -26,10 +26,11 @@ export interface OpenFile {
   path: string
   content: string
   dirty: boolean
-  kind: 'text' | 'image' | 'binary'
+  kind: 'text' | 'image' | 'binary' | 'large'
   dataUrl?: string
   size?: number
   mtime?: number
+  truncated?: boolean
 }
 
 type RightTab = 'kb' | 'files' | 'diff' | 'side' | 'context'
@@ -105,7 +106,7 @@ interface AppState {
   regenerate: () => Promise<void>
 
   refreshTree: () => Promise<void>
-  openFileByPath: (path: string, force?: boolean) => Promise<void>
+  openFileByPath: (path: string, force?: boolean, head?: number) => Promise<void>
   updateOpenFile: (content: string) => void
   saveOpenFile: () => Promise<void>
 
@@ -694,7 +695,7 @@ export const useAppStore = create<AppState>((set, get) => {
     }
   },
 
-  openFileByPath: async (path, force = false) => {
+  openFileByPath: async (path, force = false, head) => {
     const project = get().activeProject
     if (!project) return
     const current = get().openFile
@@ -703,7 +704,7 @@ export const useAppStore = create<AppState>((set, get) => {
       if (!ok) return
     }
     try {
-      const file = await api.readFile(project.id, path)
+      const file = await api.readFile(project.id, path, head)
       set({
         openFile: {
           path: file.path,
@@ -712,7 +713,8 @@ export const useAppStore = create<AppState>((set, get) => {
           kind: file.kind,
           dataUrl: file.data_url,
           size: file.size,
-          mtime: file.mtime
+          mtime: file.mtime,
+          truncated: file.truncated
         },
         rightTab: 'files',
         rightCollapsed: false
@@ -862,6 +864,15 @@ export const useAppStore = create<AppState>((set, get) => {
     if (!project) return
     try {
       await api.reindex(project.id)
+      // 后台任务：轮询状态，直到结束或超时（约 8 分钟）
+      for (let attempt = 0; attempt < 600; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 800))
+        const status = await api.indexStatus(project.id)
+        if (!status.running) {
+          if (status.error) set({ error: status.error })
+          break
+        }
+      }
       await get().refreshOverview()
     } catch (error) {
       set({ error: (error as Error).message })

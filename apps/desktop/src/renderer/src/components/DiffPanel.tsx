@@ -18,6 +18,7 @@ export default function DiffPanel(): React.JSX.Element {
   const diffMode = useAppStore((state) => state.diffMode)
   const setDiffMode = useAppStore((state) => state.setDiffMode)
   const refreshDiff = useAppStore((state) => state.refreshDiff)
+  const showToast = useAppStore((state) => state.showToast)
 
   const [changes, setChanges] = useState<GitChange[]>([])
   const [selected, setSelected] = useState<string | null>(null)
@@ -70,6 +71,22 @@ export default function DiffPanel(): React.JSX.Element {
     setSingle('')
   }
 
+  const submit = async (): Promise<void> => {
+    if (!project) return
+    const message = window.prompt('提交信息（会提交全部未保存的改动）', '保存当前修改')
+    if (!message?.trim()) return
+    try {
+      const result = await api.gitCommit(project.id, message.trim())
+      await refreshDiff()
+      await loadChanges()
+      setSelected(null)
+      setSingle('')
+      showToast(result.message || '已提交')
+    } catch (error) {
+      showToast((error as Error).message)
+    }
+  }
+
   const files = showingTurn
     ? (turnDiff?.files ?? []).map((path) => ({ path, additions: 0, deletions: 0, status: '' }))
     : changes
@@ -99,6 +116,14 @@ export default function DiffPanel(): React.JSX.Element {
           <button className="small-btn" onClick={refresh}>
             <RefreshCw size={12} />
             刷新
+          </button>
+          <button
+            className="small-btn primary"
+            onClick={() => void submit()}
+            disabled={changes.length === 0}
+            title="提交全部未保存的改动（git commit）"
+          >
+            提交
           </button>
         </div>
 
