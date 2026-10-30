@@ -1,0 +1,172 @@
+# 墨阑 · 本地长篇小说写作 Agent
+
+> 一个跑在自己电脑上的长篇小说写作工作台：对话写作、结构化设定库、语义检索、可审阅的改动。
+> Markdown 是唯一事实来源，索引只是派生物；模型、密钥、书稿都不出本机。
+
+![对话写作](docs/screenshots/chat.png)
+
+## 这是什么
+
+通用写作工具的通病是「只会聊天」：它读得懂你的问题，但记不住你的角色、分不清第 80 章和第 100 章的状态、改完稿你还得自己比对差异。
+
+墨阑把写作拆成三件事，并且都落到磁盘上的文件里：
+
+1. **对话式写作**——Agent 能读稿、改稿、续写、查设定，每一步工具调用都可见，写操作先出 diff 再决定是否落盘。
+2. **作品知识库**——角色、势力、物品、地点、世界观、大纲、素材、风格八类卡片，加上章节原文，统一进检索索引。
+3. **本地检索**——SQLite FTS5 关键词 + sqlite-vec 向量做混合召回，中文分词走 jieba，换模型只影响索引，不动正文。
+
+## 界面
+
+| 知识库 | 召回测试 |
+|---|---|
+| ![知识库](docs/screenshots/knowledge.png) | ![召回测试](docs/screenshots/recall.png) |
+
+召回测试会同时给出**关键词名次**、**向量相似度**与融合分，能直接看出某条结果是被哪一路召回的：
+
+| 专家 | 文件工作台 |
+|---|---|
+| ![专家](docs/screenshots/experts.png) | ![文件](docs/screenshots/workspace.png) |
+
+| 向量检索设置 |
+|---|
+| ![设置](docs/screenshots/settings-vector.png) |
+
+## 核心能力
+
+| 能力 | 说明 |
+|---|---|
+| 对话写作 | SSE 流式输出；执行过程折叠为「已完成 · 用时 · N 步」，可展开看每步工具输入输出 |
+| 执行中引导 | 生成过程中继续输入不会打断当前任务，引导消息在下次模型调用前注入 |
+| 变更审批 | `kb_write` / `manuscript_write` / `write_file` / `edit_file` / `delete` 先中断、出 diff，逐条通过/拒绝/改参数后执行 |
+| 专家与技能 | 专家＝人设（整份注入 system prompt），技能＝方法（`SKILL.md` 渐进披露）；都支持对话创建与「从作品提炼风格」 |
+| 知识库 | 八类卡片 + 章节切片，按实体增量重建索引，删除条目同步清索引 |
+| 混合检索 | FTS5(jieba) 与 sqlite-vec 两路召回，RRF 融合；支持按类型、按章节上限过滤（防剧透） |
+| 上下文装配 | 身份/人设/域规则/用户记忆/长期记忆/项目记忆/引用/技能/运行态 共 8 层，每层有字符预算并可查看注入清单 |
+| 自动压缩 | 按所选模型的上下文窗口折算触发点，淘汰的消息先落盘再摘要，可用 `read_file` 回读 |
+| 记忆 | 用户 / 项目 / 长期三层 Markdown + 每日日志，显式写入、按来源标注、支持去重 |
+| 侧问 | 独立 thread 的只读会话，继承主会话最近 8 条消息作为背景，结论可带回主对话 |
+| 版本 | 每本书独立 git；变更页可查看本轮 diff、全部 diff，一键提交 |
+| 连接器 | MCP（stdio / streamable http），按配置指纹缓存，单服务器失败不阻塞对话 |
+
+### 为什么不是「切块 + 向量」那么简单
+
+普通 RAG 把小说切成等长块，角色设定会被切碎，第 100 章的状态也可能在第 80 章被检索出来。这里的做法是：
+
+- **实体卡单独成片**：正文短于 700 字整张入库；更长时按 `##` 小节拆开（外貌 / 性格 / 成长线各成一片），避免被嵌入模型截断。
+- **章节按语义边界切**：480 字一片、60 字重叠，贴近中文嵌入模型的输入上限。
+- **两路融合 + 去重**：同一实体的多个切片只保留得分最高的一段，不让一张长卡刷屏。
+- **章节上限下推到检索**：`chapter <= N` 同时作用于关键词与向量两路。
+
+## 技术栈
+
+| 层 | 选型 |
+|---|---|
+| 桌面壳 | Electron 45 + electron-vite 6 |
+| 前端 | React 19 + TypeScript 7 + Vite 8 + Zustand 5 + CodeMirror 6 |
+| 后端 | Python 3.13 + FastAPI + SSE（uvicorn，仅监听 `127.0.0.1`） |
+| Agent | deepagents（LangGraph 底座）+ LangGraph SQLite checkpointer |
+| 模型 | 任意 OpenAI 兼容接口，多模型来源可切换，写作/抽取模型分开配置 |
+| 业务存储 | SQLite（会话、消息、审批、checkpoint） |
+| 全文检索 | SQLite FTS5 + jieba |
+| 向量检索 | sqlite-vec（进程内扩展）+ fastembed 本地 ONNX / OpenAI 兼容 embedding |
+| 版本管理 | 每本书一个独立 git 仓库 |
+
+## 快速开始
+
+前置：Node.js ≥ 20、pnpm 10、[uv](https://docs.astral.sh/uv/)、Python 3.13。
+
+```bash
+pnpm install          # 安装前端依赖（workspace）
+pnpm dev              # 启动桌面端，Electron 会自动拉起 Python 后端
+```
+
+只跑后端或跑测试：
+
+```bash
+pnpm server           # uvicorn app.main:app --port 8787 --reload
+pnpm test             # 后端单测（unittest，38 个用例）
+pnpm build            # 构建 renderer / main / preload
+```
+
+首次启动会让你创建「空间」（一本书一个目录），并写入 `book.json`、`kb/`、`manuscript/` 等骨架。
+
+## 目录结构
+
+```
+.
+├─ apps/desktop/                 # Electron 应用
+│  ├─ src/main/                  # 主进程：拉起后端、窗口、IPC
+│  ├─ src/preload/               # 预加载脚本（目录选择、打开文件）
+│  └─ src/renderer/src/
+│     ├─ components/             # 对话、知识库、文件树、diff、审批卡…
+│     ├─ views/                  # 专家 / 技能 / 知识库 / 记忆 / 审批 / 诊断
+│     └─ store.ts                # Zustand 状态机（会话、流式、审批、UI）
+├─ server/
+│  ├─ app/
+│  │  ├─ agent/                  # 图装配、流式运行、审批、压缩、引导、MCP
+│  │  ├─ api/routes.py           # REST + SSE
+│  │  ├─ domains/                # 域包（写作域的工具与规则）
+│  │  ├─ kb/                     # 知识库仓储、检索、一致性 lint、嵌入
+│  │  ├─ context.py              # 8 层上下文装配
+│  │  ├─ sandbox.py              # 路径 / 命令 / 网络规则
+│  │  └─ memory.py               # 三层记忆
+│  └─ tests/                     # 单测
+└─ doc/需求与架构方案.md          # 设计与变更记录（每一轮交付都记在这里）
+```
+
+## 数据放在哪
+
+应用仓库只放代码，书稿数据独立存放：
+
+```
+~/.book-agent/
+├─ config.json          # 模型、向量服务、沙箱规则（密钥以 *** 回显）
+├─ app.db               # 会话 / 消息 / 审批 / checkpoint
+├─ memory/              # USER.md、MEMORY.md、YYYY-MM-DD.md
+├─ skills/              # 全局技能（挂到 /global-skills）
+└─ books/<空间名>/
+   ├─ book.json         # 书名、进度指针、每章目标字数
+   ├─ manuscript/       # 正在写的卷/章
+   ├─ chapters/         # 导入的原文
+   ├─ kb/               # 八类知识库 Markdown
+   ├─ experts/          # 项目内专家卡
+   ├─ skills/           # 项目内技能
+   ├─ .index/search.db  # 检索索引（派生，可重建，不进 git）
+   └─ .git/
+```
+
+**原则：Markdown 文件是唯一事实来源，索引是派生物，可随时重建。**
+
+## 检索配置
+
+设置 → 向量检索，三选一：
+
+| 模式 | 说明 |
+|---|---|
+| 关闭 | 只做 FTS5 关键词检索，开箱可用，无需下载 |
+| **本地模型（推荐）** | `bge-small-zh-v1.5`（512 维 / 91MB / 纯 CPU），首次启用自动下载，之后完全离线；追求质量可切 `jina-v2-base-zh`（768 维 / 640MB） |
+| OpenAI 兼容接口 | 自备 `/embeddings` 端点（如 bge-m3），按量计费 |
+
+换模型或改维度后必须重建索引（知识库页右上角），页面会检测维度不一致并提示。
+
+## 安全边界
+
+- 后端只监听 `127.0.0.1`，所有 `/api/*` 需要 Electron 启动时生成的令牌，令牌不落盘。
+- 工作区边界由 `FilesystemBackend(virtual_mode=True)` 拦截 `..`、`~`、越界绝对路径。
+- 路径规则引擎对 `.env`、`secrets/**`、`*.pem`、`id_rsa*` 默认全拒绝，`.git/config` 写拒绝；规则按顺序先命中先生效。
+- 写操作默认走人工审批；「完全访问」模式只跳过审批，不跳过 `deny`。
+- 没有 shell 工具，也就没有命令面；网络访问仅限模型与 embedding 出站。
+
+## 现状
+
+已交付：三栏界面与窗口控制、会话与空间、专家/技能、知识库八类、@ 引用、变更审批与 diff、
+一致性 lint、混合检索（FTS5 + sqlite-vec）、上下文装配与压缩、三层记忆、侧问、MCP、沙箱规则。
+
+进行中：整本书导入（TXT 编码探测 / 章节切分 / 逐章抽取 / 实体归并）、成稿导出（TXT/Markdown/DOCX）、
+字数与进度、角色状态按章节求值、正文搜索替换、选中文本改写。
+
+详细设计与每一轮的取舍记录在 [`doc/需求与架构方案.md`](doc/需求与架构方案.md)。
+
+## 许可
+
+仓库暂未指定开源协议，如需开源请补充 `LICENSE`。

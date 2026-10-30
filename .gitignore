@@ -12,3 +12,6 @@ Thumbs.db
 .vite/
 .workbuddy/
 .screenshots/
+
+# 书稿样本不入库（十六 MB 级 txt）
+/doc/*.txt
