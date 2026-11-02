@@ -15,6 +15,7 @@ import MemoryPage from './views/MemoryPage'
 import ApprovalsPage from './views/ApprovalsPage'
 import DiagnosticsPage from './views/DiagnosticsPage'
 import HistoryPage from './views/HistoryPage'
+import UsagePage from './views/UsagePage'
 
 export default function App(): React.JSX.Element {
   const ready = useAppStore((state) => state.ready)
@@ -80,6 +81,7 @@ export default function App(): React.JSX.Element {
           {view === 'approvals' && <ApprovalsPage />}
           {view === 'diagnostics' && <DiagnosticsPage />}
           {view === 'history' && <HistoryPage />}
+          {view === 'usage' && <UsagePage />}
         </div>
         {view === 'chat' && !rightCollapsed && <RightSidebar />}
 

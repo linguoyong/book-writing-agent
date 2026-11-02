@@ -34,7 +34,10 @@ import type {
   SessionPermission,
   Skill,
   TreeNode,
-  TurnChanges
+  TurnChanges,
+  TokenUsage,
+  UsageSummary,
+  ModelPrice
 } from './types'
 
 let API_BASE = 'http://127.0.0.1:8787/api'
@@ -387,6 +390,17 @@ export const api = {
       `/projects/${projectId}/chapter`,
       { method: 'POST', body: JSON.stringify({ title }) }
     ),
+  projectUsage: (projectId: string, days = 14) =>
+    http<UsageSummary>(`/projects/${projectId}/usage?days=${days}`),
+  usagePricing: () =>
+    http<{ pricing: Record<string, ModelPrice>; currency: string; unit: string }>(
+      '/usage/pricing'
+    ),
+  saveUsagePricing: (pricing: Record<string, ModelPrice>) =>
+    http<{ pricing: Record<string, ModelPrice>; currency: string }>('/usage/pricing', {
+      method: 'PUT',
+      body: JSON.stringify({ pricing })
+    }),
   exportTxt: (projectId: string, path: string, includeToc = false) =>
     http<{
       path: string
@@ -466,7 +480,7 @@ interface StreamHandlers {
   onToken: (text: string) => void
   onToolStart: (name: string, input: string) => void
   onToolEnd: (name: string, output: string) => void
-  onDone: (payload?: { elapsed_ms?: number; changes?: TurnChanges }) => void
+  onDone: (payload?: { elapsed_ms?: number; changes?: TurnChanges; usage?: TokenUsage }) => void
   onError: (message: string) => void
   /** 用户主动中止：不再当作错误提示 */
   onAborted?: () => void
@@ -647,7 +661,9 @@ function dispatchEvent(raw: string, handlers: StreamHandlers): boolean {
       handlers.onToolEnd(String(payload.name ?? 'tool'), String(payload.output ?? ''))
       break
     case 'done':
-      handlers.onDone(payload as { elapsed_ms?: number; changes?: TurnChanges })
+      handlers.onDone(
+        payload as { elapsed_ms?: number; changes?: TurnChanges; usage?: TokenUsage }
+      )
       return true
     case 'error':
       handlers.onError(String(payload.message ?? '未知错误'))

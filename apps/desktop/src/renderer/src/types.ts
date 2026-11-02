@@ -35,9 +35,20 @@ export interface TurnChanges {
   truncated?: boolean
 }
 
+export interface TokenUsage {
+  input: number
+  output: number
+  total: number
+  cache_read: number
+  calls: number
+  reported?: number
+  model?: string
+}
+
 export interface TurnMeta {
   elapsed_ms: number
   changes: TurnChanges
+  usage?: TokenUsage
 }
 
 export interface Message {
@@ -297,6 +308,7 @@ export type AppView =
   | 'approvals'
   | 'diagnostics'
   | 'history'
+  | 'usage'
 
 export interface ModelSettings {
   base_url: string
@@ -520,4 +532,58 @@ export interface GitCommit {
 export interface GitFileChange {
   status: string
   path: string
+}
+
+export interface UsageBucket {
+  input: number
+  output: number
+  total: number
+  cache_read: number
+  calls: number
+  turns: number
+}
+
+export interface UsageDay {
+  date: string
+  input: number
+  output: number
+  total: number
+  cost: number
+}
+
+export interface UsageModelRow extends UsageBucket {
+  model: string
+  cost: number
+}
+
+export interface UsageSessionRow extends UsageBucket {
+  session_id: string
+  title: string
+  cost: number
+  last_at: string
+}
+
+export interface UsageKindRow extends UsageBucket {
+  kind: string
+}
+
+export interface ModelPrice {
+  input: number
+  output: number
+  cache_read: number
+}
+
+export interface UsageSummary {
+  days: number
+  since: string
+  totals: UsageBucket
+  today: UsageBucket
+  series: UsageDay[]
+  by_model: UsageModelRow[]
+  by_session: UsageSessionRow[]
+  by_kind: UsageKindRow[]
+  pricing: Record<string, ModelPrice>
+  priced_models: string[]
+  cost: { total: number; today: number; currency: string; has_pricing: boolean }
+  recorded: number
 }

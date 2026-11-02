@@ -266,7 +266,8 @@ export const useAppStore = create<AppState>((set, get) => {
           payload && (payload.elapsed_ms !== undefined || payload.changes)
             ? {
                 elapsed_ms: payload.elapsed_ms ?? 0,
-                changes: payload.changes ?? { files: [], diff: '' }
+                changes: payload.changes ?? { files: [], diff: '' },
+                usage: payload.usage
               }
             : null
         set((state) => {

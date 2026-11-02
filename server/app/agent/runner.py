@@ -8,7 +8,7 @@ from typing import Any, AsyncIterator
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.types import Command
 
-from .. import db
+from .. import db, usage
 from ..workspace import turn_changes
 from . import steering
 from .approvals import build_requests
@@ -99,9 +99,11 @@ async def chat_stream(
     buffer: list[str] = []
     tool_calls: list[dict[str, Any]] = []
     write_paths: set[str] = set()
+    meter = usage.UsageMeter()
     thread_id = session.get("thread_id") or session_id
     config = {"configurable": {"thread_id": thread_id}}
     started = time.monotonic()
+    request_started = started
     # 已落库的字符数：正常路径每段落库后更新；finally 据此判断是否还有未落库内容
     committed = 0
 
@@ -159,6 +161,7 @@ async def chat_stream(
                 buffer,
                 tool_calls,
                 write_paths,
+                meter,
             ):
                 yield chunk
         except Exception as exc:  # noqa: BLE001
@@ -176,6 +179,7 @@ async def chat_stream(
             awaiting=bool(approval),
             elapsed_ms=elapsed_ms,
             changes=changes,
+            usage_snapshot=meter.as_dict(),
         )
         committed = len("".join(buffer))
         if approval:
@@ -201,6 +205,7 @@ async def chat_stream(
                         buffer,
                         tool_calls,
                         write_paths,
+                        meter,
                     ):
                         yield chunk
                 except Exception as exc:  # noqa: BLE001
@@ -215,6 +220,7 @@ async def chat_stream(
                     awaiting=bool(approval),
                     elapsed_ms=elapsed_ms,
                     changes=changes,
+                    usage_snapshot=meter.as_dict(),
                 )
                 committed = len("".join(buffer))
                 if approval:
@@ -227,6 +233,7 @@ async def chat_stream(
                 "awaiting_approval": bool(approval),
                 "elapsed_ms": elapsed_ms,
                 "changes": changes,
+                "usage": meter.as_dict(),
                 "steering_pending": steering.pending_count(session_id),
             },
         )
@@ -244,8 +251,14 @@ async def chat_stream(
                     elapsed_ms=int((time.monotonic() - started) * 1000),
                     changes=turn_changes(project, sorted(write_paths)),
                     interrupted=True,
+                    usage_snapshot=meter.as_dict(),
                 )
         finally:
+            meter.flush(
+                project_id=session["project_id"],
+                session_id=session_id,
+                elapsed_ms=int((time.monotonic() - request_started) * 1000),
+            )
             steering.end(session_id)
 
 
@@ -304,6 +317,7 @@ async def approve_stream(
         buffer: list[str] = []
         tool_calls: list[dict[str, Any]] = []
         write_paths: set[str] = set()
+        meter = usage.UsageMeter()
         thread_id = session.get("thread_id") or session_id
         config = {"configurable": {"thread_id": thread_id}}
         started = time.monotonic()
@@ -315,6 +329,7 @@ async def approve_stream(
                 buffer,
                 tool_calls,
                 write_paths,
+                meter,
             ):
                 yield chunk
         except Exception as exc:  # noqa: BLE001
@@ -331,6 +346,7 @@ async def approve_stream(
             awaiting=bool(approval),
             elapsed_ms=elapsed_ms,
             changes=changes,
+            usage_snapshot=meter.as_dict(),
         )
         if approval:
             yield approval
@@ -341,10 +357,16 @@ async def approve_stream(
                 "awaiting_approval": bool(approval),
                 "elapsed_ms": elapsed_ms,
                 "changes": changes,
+                "usage": meter.as_dict(),
                 "steering_pending": steering.pending_count(session_id),
             },
         )
     finally:
+        meter.flush(
+            project_id=session["project_id"],
+            session_id=session_id,
+            elapsed_ms=int((time.monotonic() - started) * 1000),
+        )
         steering.end(session_id)
 
 
@@ -355,6 +377,7 @@ async def _run_events(
     buffer: list[str],
     tool_calls: list[dict[str, Any]],
     write_paths: set[str],
+    meter: usage.UsageMeter,
 ) -> AsyncIterator[str]:
     # deepagents 默认挂一个 general-purpose 子代理，模型调 `task` 时
     # 子代理的模型流也会出现在 astream_events 里。不过滤的话，
@@ -376,6 +399,9 @@ async def _run_events(
             if text:
                 buffer.append(text)
                 yield _sse("token", {"text": text})
+        elif kind == "on_chat_model_end":
+            # 子代理的调用同样计费，这里不做 in_subagent 过滤
+            meter.add(event.get("data", {}).get("output"))
         elif kind == "on_tool_start":
             if name == "task" and run_id and not in_subagent:
                 task_runs.add(run_id)
@@ -460,6 +486,7 @@ def _persist_assistant(
     elapsed_ms: int = 0,
     changes: dict[str, Any] | None = None,
     interrupted: bool = False,
+    usage_snapshot: dict[str, Any] | None = None,
 ) -> None:
     text = "".join(buffer)
     if not text.strip():
@@ -476,6 +503,9 @@ def _persist_assistant(
         "elapsed_ms": elapsed_ms,
         "changes": changes or {"files": [], "diff": "", "truncated": False},
     }
+    # 用量写进消息里，刷新页面后轮次摘要仍能显示 token
+    if usage_snapshot and (usage_snapshot.get("total") or usage_snapshot.get("calls")):
+        meta["turn"]["usage"] = usage_snapshot
     db.add_message(session_id, "assistant", text, meta=meta)
 
 

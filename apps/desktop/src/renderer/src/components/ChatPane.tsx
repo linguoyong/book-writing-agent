@@ -18,6 +18,7 @@ import {
   Wrench
 } from 'lucide-react'
 import { api } from '../api'
+import { formatTokens } from '../format'
 import { useAppStore } from '../store'
 import type { ReferenceItem, TimelineItem, TurnMeta } from '../types'
 import ApprovalCard from './ApprovalCard'
@@ -440,6 +441,16 @@ function TurnBlock({
                       <>
                         <span className="turn-dot">·</span>
                         <span>{steps.length} 步</span>
+                      </>
+                    )}
+                    {turn.meta?.usage && turn.meta.usage.total > 0 && (
+                      <>
+                        <span className="turn-dot">·</span>
+                        <span
+                          title={`输入 ${turn.meta.usage.input.toLocaleString()} · 输出 ${turn.meta.usage.output.toLocaleString()}`}
+                        >
+                          {formatTokens(turn.meta.usage.total)} tokens
+                        </span>
                       </>
                     )}
                     <ChevronRight size={12} className="turn-chev" />

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import {
   Archive,
+  BarChart3,
   Brain,
   ChevronDown,
   ChevronRight,
@@ -166,6 +167,13 @@ export default function LeftSidebar(): React.JSX.Element {
         >
           <History size={14} />
           <span className="label">版本</span>
+        </button>
+        <button
+          className={`nav-item ${view === 'usage' ? 'active' : ''}`}
+          onClick={() => setView('usage')}
+        >
+          <BarChart3 size={14} />
+          <span className="label">用量</span>
         </button>
         <button
           className={`nav-item ${view === 'memory' ? 'active' : ''}`}

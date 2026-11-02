@@ -59,9 +59,25 @@ CREATE TABLE IF NOT EXISTS approvals (
     decision TEXT
 );
 
+CREATE TABLE IF NOT EXISTS usage_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT NOT NULL,
+    session_id TEXT,
+    kind TEXT NOT NULL DEFAULT 'chat',
+    model TEXT,
+    input_tokens INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0,
+    cache_read INTEGER NOT NULL DEFAULT 0,
+    calls INTEGER NOT NULL DEFAULT 0,
+    elapsed_ms INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
 CREATE INDEX IF NOT EXISTS idx_messages_session ON messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_approvals_session ON approvals(session_id, status);
+CREATE INDEX IF NOT EXISTS idx_usage_project ON usage_log(project_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_usage_session ON usage_log(session_id);
 """
 
 # 旧库升级：sessions 增加 expert_id / domain

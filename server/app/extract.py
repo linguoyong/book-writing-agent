@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from . import usage
 from .kb.repository import dump_note, list_entities, parse_note, safe_entity_id, save_entity
 from .kb.search import invalidate_entities
 from .llm import build_chat_model
@@ -240,7 +241,12 @@ def parse_response(text: str) -> dict[str, list[dict[str, Any]]]:
     return normalize(data)
 
 
-def extract_chapter(chapter_no: int, body: str, model: Any) -> dict[str, list[dict[str, Any]]]:
+def extract_chapter(
+    chapter_no: int,
+    body: str,
+    model: Any,
+    on_usage: Callable[[Any], None] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
     text = body.strip()[:MAX_CHAPTER_CHARS]
     if not text:
         return {key: [] for key in _LIMITS}
@@ -249,6 +255,8 @@ def extract_chapter(chapter_no: int, body: str, model: Any) -> dict[str, list[di
         message = model.invoke(prompt)
     except Exception as exc:  # noqa: BLE001 - 模型侧异常统一转成可读错误
         raise ExtractError(f"{type(exc).__name__}: {exc}") from exc
+    if on_usage:
+        on_usage(message)
     content = getattr(message, "content", "")
     if isinstance(content, list):
         content = "".join(str(item) for item in content)
@@ -625,6 +633,7 @@ def run(
     dry_run: bool = False,
     progress: Callable[[dict[str, Any]], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
+    project_id: str = "",
 ) -> dict[str, Any]:
     """逐章抽取。limit=0 表示全部；失败不中断，记在 failed 里。
 
@@ -647,11 +656,30 @@ def run(
     stats = ExtractStats()
     finished = 0
 
+    def count_usage(message: Any) -> None:
+        # 抽取每章一次调用，逐次记账；没有 project_id（单测）时跳过
+        if not project_id:
+            return
+        parsed = usage.parse_message(message)
+        usage.record(
+            project_id=project_id,
+            kind="extract",
+            model=parsed["model"],
+            input_tokens=parsed["input"],
+            output_tokens=parsed["output"],
+            cache_read=parsed["cache_read"],
+            calls=1,
+        )
+
     def work(item: tuple[int, str, Path]) -> tuple[tuple[int, str, Path], Any, str]:
         number, title, file = item
         try:
             _, _, body = _chapter_meta(file)
-            return item, extract_chapter(number, body, model), ""
+            return (
+                item,
+                extract_chapter(number, body, model, on_usage=count_usage),
+                "",
+            )
         except (ExtractError, OSError) as exc:
             return item, None, str(exc)
 

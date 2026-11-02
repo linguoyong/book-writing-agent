@@ -60,6 +60,14 @@ class ModelProfile(BaseModel):
         return max(512, min(int(value or 64_000), 200_000))
 
 
+class ModelPrice(BaseModel):
+    """模型单价，单位：元 / 百万 token。用于把用量折算成成本，不影响调用。"""
+
+    input: float = 0.0
+    output: float = 0.0
+    cache_read: float = 0.0
+
+
 class EmbeddingSettings(BaseModel):
     # none：只用 FTS5 关键词检索；local：本地 ONNX 模型；openai：OpenAI 兼容 /embeddings
     provider: str = "none"
@@ -95,6 +103,8 @@ class Settings(BaseModel):
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     mcp: list[McpServerSettings] = Field(default_factory=list)
+    # 模型单价：{模型名: {input, output, cache_read}}，留空则只统计 token 不折算成本
+    pricing: dict[str, ModelPrice] = Field(default_factory=dict)
 
 
 def ensure_models(settings: Settings) -> Settings:

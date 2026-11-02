@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+from . import usage
 from .llm import build_chat_model
 
 MAX_INPUT = 4000
@@ -42,6 +43,7 @@ def rewrite(
     tone: str = "",
     before: str = "",
     after: str = "",
+    project_id: str = "",
 ) -> dict[str, str]:
     text = (text or "").strip()
     if not text:
@@ -68,6 +70,17 @@ def rewrite(
         message = model.invoke("\n\n".join(parts))
     except Exception as exc:  # noqa: BLE001 - 模型侧异常统一转成可读错误
         raise RewriteError(f"模型调用失败：{type(exc).__name__}: {exc}") from exc
+    if project_id:
+        parsed = usage.parse_message(message)
+        usage.record(
+            project_id=project_id,
+            kind="rewrite",
+            model=parsed["model"],
+            input_tokens=parsed["input"],
+            output_tokens=parsed["output"],
+            cache_read=parsed["cache_read"],
+            calls=1,
+        )
 
     content = getattr(message, "content", "")
     if isinstance(content, list):

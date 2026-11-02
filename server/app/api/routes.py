@@ -11,7 +11,9 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from .. import db, memory
+from .. import db, memory, usage
+from ..usage import set_pricing as save_pricing
+from ..usage import summary as usage_summary
 from ..agent.checkpointer import drop_thread
 from ..agent.compaction import compaction_plan
 from ..agent.factory import resolve_expert
@@ -308,6 +310,34 @@ def project_overview(project_id: str) -> dict[str, Any]:
 def project_stats(project_id: str) -> dict[str, Any]:
     project = _require_project(project_id)
     return sync_progress(Path(project["path"]))
+
+
+@router.get("/projects/{project_id}/usage")
+def project_usage(project_id: str, days: int = 14) -> dict[str, Any]:
+    """按天/模型/会话聚合 token 用量，并按设置的单价折算成本。"""
+    _require_project(project_id)
+    return usage_summary(project_id, days)
+
+
+class PricingRequest(BaseModel):
+    pricing: dict[str, dict[str, float]] = Field(default_factory=dict)
+
+
+@router.get("/usage/pricing")
+def get_usage_pricing() -> dict[str, Any]:
+    settings = load_settings()
+    return {
+        "pricing": {
+            name: price.model_dump() for name, price in (settings.pricing or {}).items()
+        },
+        "currency": "CNY",
+        "unit": "元 / 百万 token",
+    }
+
+
+@router.put("/usage/pricing")
+def put_usage_pricing(req: PricingRequest) -> dict[str, Any]:
+    return {"pricing": save_pricing(req.pricing), "currency": "CNY"}
 
 
 # ---------------------------------------------------------------- 会话
@@ -1031,6 +1061,7 @@ def rewrite_selection(project_id: str, req: RewriteRequest) -> dict[str, Any]:
             tone=req.tone,
             before=req.before,
             after=req.after,
+            project_id=project_id,
         )
     except RewriteError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1106,7 +1137,7 @@ def extract_preview(project_id: str, req: ExtractRequest) -> dict[str, Any]:
     project = _require_project(project_id)
     limit = max(1, min(req.limit or 5, 10))
     result = run_extract(
-        Path(project["path"]), limit=limit, dry_run=True
+        Path(project["path"]), limit=limit, dry_run=True, project_id=project_id
     )
     summary = extract_progress(Path(project["path"]))
     return {"preview": result, "state": summary}
@@ -1134,6 +1165,7 @@ def start_extract(project_id: str, req: ExtractRequest) -> dict[str, Any]:
                     stats=payload["stats"],
                 ),
                 should_stop=lambda: extract_jobs.stopped(project_id),
+                project_id=project_id,
             )
             extract_jobs.finish(project_id, error=None, stats=result)
             if result.get("chapters"):
