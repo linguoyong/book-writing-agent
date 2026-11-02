@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Folder,
   FolderPlus,
+  History,
   Library,
   Maximize2,
   Minimize2,
@@ -158,6 +159,13 @@ export default function LeftSidebar(): React.JSX.Element {
         >
           <Library size={14} />
           <span className="label">知识库</span>
+        </button>
+        <button
+          className={`nav-item ${view === 'history' ? 'active' : ''}`}
+          onClick={() => setView('history')}
+        >
+          <History size={14} />
+          <span className="label">版本</span>
         </button>
         <button
           className={`nav-item ${view === 'memory' ? 'active' : ''}`}

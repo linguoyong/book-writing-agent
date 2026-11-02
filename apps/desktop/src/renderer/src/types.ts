@@ -296,6 +296,7 @@ export type AppView =
   | 'memory'
   | 'approvals'
   | 'diagnostics'
+  | 'history'
 
 export interface ModelSettings {
   base_url: string
@@ -506,4 +507,17 @@ export interface ExtractCandidate {
   chapter: number
   reason: string
   created_at: string
+}
+
+export interface GitCommit {
+  hash: string
+  short: string
+  author: string
+  date: string
+  message: string
+}
+
+export interface GitFileChange {
+  status: string
+  path: string
 }

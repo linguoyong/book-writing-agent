@@ -9,6 +9,8 @@ import type {
   ContextBundle,
   Entity,
   ExtractCandidate,
+  GitCommit,
+  GitFileChange,
   ExtractStatus,
   ImportPreview,
   ImportResult,
@@ -365,6 +367,21 @@ export const api = {
     method: 'POST',
     body: JSON.stringify(body)
   }),
+  gitLog: (projectId: string, limit = 40) =>
+    http<{ items: GitCommit[] }>(`/projects/${projectId}/git/log?limit=${limit}`),
+  gitCommitFiles: (projectId: string, commit: string) =>
+    http<{ items: GitFileChange[] }>(
+      `/projects/${projectId}/git/files?commit=${encodeURIComponent(commit)}`
+    ),
+  gitFileDiff: (projectId: string, commit: string, path: string) =>
+    http<{ path: string; diff: string }>(
+      `/projects/${projectId}/git/file-diff?commit=${encodeURIComponent(commit)}&path=${encodeURIComponent(path)}`
+    ),
+  gitRestore: (projectId: string, commit: string, path: string) =>
+    http<{ path: string; commit: string; restored_from: string; unchanged?: boolean }>(
+      `/projects/${projectId}/git/restore`,
+      { method: 'POST', body: JSON.stringify({ commit, path }) }
+    ),
   newChapter: (projectId: string, title = '') =>
     http<{ path: string; chapter: number; volume: number; title: string }>(
       `/projects/${projectId}/chapter`,

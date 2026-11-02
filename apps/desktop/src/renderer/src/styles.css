@@ -5218,7 +5218,7 @@ textarea:focus {
   display: flex;
   align-items: center;
   width: 100%;
-  padding: 3px 12px 3px 86px;
+  padding: 3px 12px 3px 98px;
   background: var(--bg-sidebar);
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
@@ -5268,6 +5268,23 @@ textarea:focus {
   min-width: 0;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.diffv-sign {
+  flex-shrink: 0;
+  width: 12px;
+  text-align: center;
+  user-select: none;
+  color: #a4aca6;
+  font-size: 11px;
+}
+
+.diffv-sign.add {
+  color: #3f8752;
+}
+
+.diffv-sign.del {
+  color: #b3524a;
 }
 
 .diffv-line.add .diffv-no:last-of-type {
@@ -5661,4 +5678,189 @@ mark.diffv-word.del {
   justify-content: flex-end;
   gap: 8px;
   padding: 0 12px 8px;
+}
+
+/* 版本历史页 */
+
+.history-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 264px minmax(0, 1fr);
+}
+
+.history-commits {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+  border-right: 1px solid var(--border);
+  background: var(--bg-sidebar);
+}
+
+.history-commit {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 9px 10px;
+  margin-bottom: 2px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.history-commit:hover {
+  background: var(--bg-hover);
+}
+
+.history-commit.active {
+  background: var(--bg-content);
+  border-color: var(--border-strong);
+}
+
+.history-commit-title {
+  font-size: 12.5px;
+  color: var(--text);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.history-commit-meta {
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 10.5px;
+  color: var(--faint);
+}
+
+.history-hash {
+  font-family: 'SF Mono', Consolas, monospace;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(18, 38, 26, 0.06);
+  color: var(--muted);
+}
+
+.history-detail {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-content);
+}
+
+.history-head {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.history-head-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.5;
+}
+
+.history-head-meta {
+  margin-top: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.history-files {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 20px;
+  max-height: 148px;
+  overflow-y: auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.history-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 320px;
+  padding: 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-content);
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.history-file:hover {
+  border-color: var(--border-strong);
+}
+
+.history-file.active {
+  border-color: rgba(60, 140, 78, 0.45);
+  background: var(--accent-soft);
+}
+
+.history-status {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 16px;
+  color: var(--muted);
+  background: rgba(18, 38, 26, 0.06);
+}
+
+.history-status.s-A {
+  color: var(--green);
+  background: rgba(60, 140, 78, 0.12);
+}
+
+.history-status.s-M {
+  color: #b45309;
+  background: rgba(214, 138, 42, 0.14);
+}
+
+.history-status.s-D {
+  color: var(--red);
+  background: rgba(220, 38, 38, 0.1);
+}
+
+.history-path {
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-file.active .history-path {
+  color: var(--text);
+}
+
+.history-diff {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 16px 24px;
+}
+
+.history-diff .diffv-file + .diffv-file {
+  margin-top: 12px;
+}
+
+.ghost-btn.danger {
+  border-color: rgba(220, 38, 38, 0.4);
+  color: var(--red);
 }

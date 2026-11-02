@@ -15,6 +15,9 @@ const EMPTY: ExtractStats = {
   foreshadowing: 0,
   failed: 0,
   candidates: 0,
+  queued: 0,
+  notes: 0,
+  duplicates: 0,
   details: [],
   samples: []
 }

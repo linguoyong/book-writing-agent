@@ -47,6 +47,9 @@ function HunkView({ hunk, prefix }: { hunk: DiffHunk; prefix: string }): React.J
               <div key={`${segment.key}-${idx}`} className={`diffv-line ${line.type}`}>
                 <span className="diffv-no">{line.oldNo ?? ''}</span>
                 <span className="diffv-no">{line.newNo ?? ''}</span>
+                <span className={`diffv-sign ${line.type}`}>
+                  {line.type === 'add' ? '+' : line.type === 'del' ? '−' : ''}
+                </span>
                 <span className="diffv-code">
                   <LineContent line={line} />
                 </span>
