@@ -4,6 +4,7 @@ import json
 import re
 import sqlite3
 import struct
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -55,6 +56,18 @@ DROP TABLE IF EXISTS vectors;
 
 _TOKEN_RE = re.compile(r"[\w\u4e00-\u9fff]+")
 _SENTENCE_SPLIT = re.compile(r"(?<=[。！？!?…])\s*")
+_ALIAS_SPLIT = re.compile(r"[,，、;；/|]")
+
+# 实体名 → (kind, id) 的缓存。检索每次都要用，但目录扫描不该每次都做。
+_ENTITY_CACHE: dict[str, tuple[float, dict[str, tuple[str, str]]]] = {}
+_ENTITY_TTL = 15.0
+
+# 单字实体名（晦、影、灯）按字符匹配；这些虚词永远不当实体名命中
+_NAME_STOPWORDS = {
+    "的", "了", "是", "在", "我", "你", "他", "她", "它", "不", "有", "和", "与",
+    "就", "都", "也", "很", "又", "把", "被", "给", "让", "从", "向", "对", "为",
+    "以", "及", "或", "而", "则", "若", "且", "这", "那", "哪", "谁", "什",
+}
 
 ProgressHook = Callable[[str, int, int], None]
 
@@ -231,6 +244,7 @@ class KbIndex:
 
         if kind not in KINDS:
             return 0
+        invalidate_entities(self.project)
         try:
             file = entity_file(self.project, kind, entity_id)
         except ValueError:
@@ -334,6 +348,70 @@ class KbIndex:
 
     # ------------------------------------------------------------ 检索
 
+    def _route_entities(
+        self,
+        items: list[dict[str, Any]],
+        matched: set[tuple[str, str]],
+        key: str,
+        kinds: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """把查询里点名的实体顶到前面，并保证它至少有一条切片在结果里。
+
+        只靠 BM25/向量时，一张密集的总纲能压过角色卡本身；
+        既然用户已经点名了，就不该让它排第三。
+        """
+        if kinds:
+            # 只在被请求的类型里路由，别把角色卡塞进「只搜大纲」的结果里
+            matched = {tag for tag in matched if tag[0] in kinds}
+        if not matched:
+            return items
+        max_value = max((float(item.get(key) or 0.0) for item in items), default=0.0)
+        if max_value <= 0:
+            max_value = 1.0
+        # 略高于当前最高分：命名的实体排到最前，多条命中之间靠稳定排序保持原顺序
+        floor = max_value * 1.05
+        if key == "vector_score":
+            floor = min(1.0, floor)
+
+        seen: set[tuple[str, str]] = set()
+        for item in items:
+            tag = (str(item.get("kind")), str(item.get("ref")))
+            if tag not in matched:
+                continue
+            seen.add(tag)
+            if float(item.get(key) or 0.0) < floor:
+                item[key] = floor
+            item["routed"] = True
+
+        missing = matched - seen
+        if not missing:
+            return items
+
+        with self.connect() as conn:
+            for kind, ref in missing:
+                row = conn.execute(
+                    "SELECT * FROM chunks WHERE kind = ? AND (id = ? OR id LIKE ?) "
+                    "ORDER BY id LIMIT 1",
+                    (kind, f"{kind}:{ref}", f"{kind}:{ref}:%"),
+                ).fetchone()
+                if row is None:
+                    continue
+                items.append(
+                    {
+                        "id": row["id"],
+                        "kind": row["kind"],
+                        "ref": row["ref"],
+                        "title": row["title"],
+                        "text": row["text"],
+                        "chapter": row["chapter"],
+                        "entities": json.loads(row["entities"] or "[]"),
+                        "source": row["source"],
+                        key: floor,
+                        "routed": True,
+                    }
+                )
+        return items
+
     def search(
         self,
         query: str,
@@ -342,20 +420,26 @@ class KbIndex:
         top_k: int = 8,
         threshold: float = 0.0,
         mode: str = "hybrid",
-        alpha: float = 0.5,
+        alpha: float = 0.4,
     ) -> list[dict[str, Any]]:
         query = query.strip()
         if not query:
             return []
 
+        matched = _matched_entities(self.project, query)
+
         if mode == "keyword":
             items = self._search_lexical(query, kinds, chapter_limit, top_k * 2)
+            items = self._route_entities(items, matched, "lexical_score", kinds)
+            items.sort(key=lambda item: float(item.get("lexical_score") or 0.0), reverse=True)
             return _normalize(_dedupe_hits(items), "lexical_score", top_k, threshold)
 
         if mode == "vector":
-            items = _dedupe_hits(self._search_vector(query, kinds, chapter_limit, top_k * 2))
+            items = self._search_vector(query, kinds, chapter_limit, top_k * 2)
+            items = self._route_entities(items, matched, "vector_score", kinds)
+            items.sort(key=lambda item: float(item.get("vector_score") or 0.0), reverse=True)
             results = []
-            for item in items:
+            for item in _dedupe_hits(items):
                 score = max(0.0, float(item["vector_score"]))
                 if score >= threshold:
                     results.append(
@@ -377,6 +461,8 @@ class KbIndex:
             entry.setdefault("vector_score", item["vector_score"])
 
         ranked = sorted(fused.values(), key=lambda item: item["score"], reverse=True)
+        ranked = self._route_entities(ranked, matched, "score", kinds)
+        ranked.sort(key=lambda item: item["score"], reverse=True)
         return _normalize(_dedupe_hits(ranked), "score", top_k, threshold)
 
     def list_chunks(
@@ -675,6 +761,68 @@ def _normalize(
     return results[:top_k]
 
 
+def _entity_alias_map(project: Path) -> dict[str, tuple[str, str]]:
+    """收集「名字/别名 → 实体」的映射，供查询里的实体路由使用。
+
+    带 TTL 缓存：检索是高频动作，但实体卡不是每分钟都在变；
+    写入路径会调 `invalidate_entities()` 立刻清掉缓存。
+    """
+    key = str(project.resolve())
+    now = time.monotonic()
+    cached = _ENTITY_CACHE.get(key)
+    if cached and now - cached[0] < _ENTITY_TTL:
+        return cached[1]
+
+    mapping: dict[str, tuple[str, str]] = {}
+    for kind in KINDS:
+        directory = project / "kb" / kind
+        if not directory.exists():
+            continue
+        for file in directory.glob("*.md"):
+            try:
+                meta, _ = parse_note(read_text(file))
+            except OSError:
+                continue
+            entity_id = str(meta.get("id") or file.stem)
+            names: list[str] = [str(meta.get("name") or file.stem)]
+            aliases = meta.get("aliases") or meta.get("alias") or []
+            if isinstance(aliases, str):
+                aliases = [item.strip() for item in _ALIAS_SPLIT.split(aliases) if item.strip()]
+            names.extend(str(item) for item in aliases)
+            for name in names:
+                name = name.strip()
+                if name:
+                    mapping.setdefault(name, (kind, entity_id))
+    _ENTITY_CACHE[key] = (now, mapping)
+    return mapping
+
+
+def invalidate_entities(project: Path | None = None) -> None:
+    """知识库写入后调用：下一次检索重新扫描实体名。"""
+    if project is None:
+        _ENTITY_CACHE.clear()
+        return
+    _ENTITY_CACHE.pop(str(project.resolve()), None)
+
+
+def _matched_entities(project: Path, query: str) -> set[tuple[str, str]]:
+    """查询里点名了哪些实体。
+
+    名字按子串匹配：「林昭的剑」命中「林昭」，「晦是什么东西」命中单字别名「晦」。
+    单字名会命中更多噪声，所以虚词一律不参与（见 `_NAME_STOPWORDS`）。
+    """
+    mapping = _entity_alias_map(project)
+    if not mapping:
+        return set()
+    matched: set[tuple[str, str]] = set()
+    for name, target in mapping.items():
+        if not name or name in _NAME_STOPWORDS:
+            continue
+        if name in query:
+            matched.add(target)
+    return matched
+
+
 def _dedupe_hits(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """同一张实体卡拆成多个切片时只留最高分那一段；章节切片不去重。
 
@@ -781,7 +929,7 @@ DEFAULT_KB_CONFIG: dict[str, Any] = {
     "top_k": 8,
     "threshold": 0.0,
     "mode": "hybrid",
-    "alpha": 0.5,
+    "alpha": 0.4,
     "chapter_limit": None,
 }
 

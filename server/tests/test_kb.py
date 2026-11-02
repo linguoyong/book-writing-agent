@@ -123,5 +123,63 @@ class EntityChunkSplitTest(unittest.TestCase):
         self.assertEqual(len([hit for hit in hits if hit["ref"] == "lin"]), 1)
 
 
+class EntityRoutingTest(unittest.TestCase):
+    """查询里点名了实体时，该实体应排到最前，并能按别名命中。"""
+
+    def setUp(self) -> None:
+        self.project = Path(tempfile.mkdtemp(prefix="kb-route-"))
+        save_entity(
+            self.project,
+            "characters",
+            "lin",
+            {"name": "林昭", "aliases": ["小林", "老沈"]},
+            "## 性格\n沉默寡言，认死理。",
+        )
+        # 总纲里反复出现「林昭」，BM25 会把它顶到第一
+        save_entity(
+            self.project,
+            "outline",
+            "vol1",
+            {"name": "第一卷总纲"},
+            "## 主线\n" + "林昭与师门决裂，林昭下山，林昭入城。" * 20,
+        )
+        save_entity(self.project, "characters", "deng", {"name": "灯"}, "## 说明\n会亮的灯。")
+        self.index = KbIndex(self.project, EmbeddingSettings())
+        self.index.rebuild()
+
+    def tearDown(self) -> None:
+        shutil.rmtree(self.project, ignore_errors=True)
+
+    def test_named_entity_ranks_first(self) -> None:
+        hits = self.index.search("林昭的性格是什么样", top_k=5)
+
+        self.assertTrue(hits)
+        self.assertEqual(hits[0]["ref"], "lin")
+        self.assertTrue(hits[0].get("routed"))
+
+    def test_alias_matches_entity(self) -> None:
+        hits = self.index.search("老沈最近在做什么", top_k=5)
+
+        self.assertEqual(hits[0]["ref"], "lin")
+
+    def test_single_char_name_matches_by_char(self) -> None:
+        hits = self.index.search("灯光很暗", top_k=5)
+
+        self.assertTrue([hit for hit in hits if hit["ref"] == "deng" and hit.get("routed")])
+
+    def test_stopword_never_routes(self) -> None:
+        save_entity(self.project, "characters", "shi", {"name": "是"}, "## 说明\n只是个测试。")
+        self.index.rebuild()
+
+        hits = self.index.search("这是什么", top_k=5)
+
+        self.assertFalse([hit for hit in hits if hit["ref"] == "shi" and hit.get("routed")])
+
+    def test_routing_respects_kind_filter(self) -> None:
+        hits = self.index.search("林昭", kinds=["outline"], top_k=5)
+
+        self.assertTrue(all(hit["kind"] == "outline" for hit in hits))
+
+
 if __name__ == "__main__":
     unittest.main()

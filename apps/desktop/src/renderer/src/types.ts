@@ -119,6 +119,8 @@ export interface SearchHit {
   lexical_score?: number
   lexical_rank?: number
   vector_score?: number
+  /** 查询点名了该实体，已按实体路由置顶 */
+  routed?: boolean
 }
 
 export interface Overview {

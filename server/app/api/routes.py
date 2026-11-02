@@ -757,7 +757,7 @@ class SearchRequest(BaseModel):
     top_k: int = 8
     threshold: float = 0.0
     mode: str = "hybrid"
-    alpha: float = 0.5
+    alpha: float = 0.4
 
 
 @router.post("/projects/{project_id}/search")
@@ -921,7 +921,7 @@ class KbConfigRequest(BaseModel):
     top_k: int = 8
     threshold: float = 0.0
     mode: str = "hybrid"
-    alpha: float = 0.5
+    alpha: float = 0.4
     chapter_limit: int | None = None
 
 

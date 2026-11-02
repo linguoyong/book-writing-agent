@@ -17,7 +17,7 @@ const DEFAULT_CONFIG: KbConfig = {
   top_k: 8,
   threshold: 0,
   mode: 'hybrid',
-  alpha: 0.5,
+  alpha: 0.4,
   chapter_limit: null
 }
 
@@ -225,6 +225,11 @@ export default function KnowledgeDetail({
                   <div className="hit-head">
                     <span className="hit-title">{hit.title}</span>
                     <span className="hit-tags">
+                      {hit.routed && (
+                        <span className="hit-tag routed" title="查询里点名了该实体，已按实体路由置顶">
+                          命中实体
+                        </span>
+                      )}
                       {hit.lexical_rank !== undefined && (
                         <span className="hit-tag kw" title="BM25 关键词检索中的名次">
                           关键词 #{hit.lexical_rank}
