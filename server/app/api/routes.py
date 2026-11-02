@@ -25,6 +25,9 @@ from ..experts import delete_expert, get_expert, list_experts, save_expert
 from ..style_import import StyleImportError, import_style
 from ..import_book import ImportError as BookImportError
 from ..import_book import commit as import_commit
+from ..extract import jobs as extract_jobs
+from ..extract import progress_summary as extract_progress
+from ..extract import run as run_extract
 from ..import_book import preview as import_preview
 from ..llm import normalize_window
 from ..sandbox import check_command, check_path, check_url
@@ -934,6 +937,78 @@ def commit_import(project_id: str, req: ImportCommitRequest) -> dict[str, Any]:
     # 导入完立刻在后台建索引，几百万字也不用等
     _start_index_job(project_id, root)
     return result
+
+
+# ---------------------------------------------------------------- 逐章抽取
+
+
+class ExtractRequest(BaseModel):
+    limit: int = 0
+    dry_run: bool = False
+
+
+@router.get("/projects/{project_id}/extract/status")
+def extract_status(project_id: str) -> dict[str, Any]:
+    project = _require_project(project_id)
+    summary = extract_progress(Path(project["path"]))
+    return {
+        "running": extract_jobs.status(project_id).get("running", False),
+        "run": extract_jobs.status(project_id),
+        "state": summary,
+    }
+
+
+@router.post("/projects/{project_id}/extract/preview")
+def extract_preview(project_id: str, req: ExtractRequest) -> dict[str, Any]:
+    """试抽取：同步跑几章，只统计不落盘，用来验收字段质量。"""
+    project = _require_project(project_id)
+    limit = max(1, min(req.limit or 5, 10))
+    result = run_extract(
+        Path(project["path"]), limit=limit, dry_run=True
+    )
+    summary = extract_progress(Path(project["path"]))
+    return {"preview": result, "state": summary}
+
+
+@router.post("/projects/{project_id}/extract")
+def start_extract(project_id: str, req: ExtractRequest) -> dict[str, Any]:
+    project = _require_project(project_id)
+    root = Path(project["path"])
+    if not extract_jobs.start(project_id):
+        return {"started": False, **extract_status(project_id)}
+
+    def worker() -> None:
+        try:
+            result = run_extract(
+                root,
+                limit=max(0, req.limit),
+                dry_run=False,
+                progress=lambda payload: extract_jobs.update(
+                    project_id,
+                    done=payload["done"],
+                    total=payload["total"],
+                    chapter=payload["chapter"],
+                    title=payload["title"],
+                    stats=payload["stats"],
+                ),
+                should_stop=lambda: extract_jobs.stopped(project_id),
+            )
+            extract_jobs.finish(project_id, error=None, stats=result)
+            if result.get("chapters"):
+                # 新建的卡与别名要进检索索引
+                _start_index_job(project_id, root)
+        except Exception as exc:  # noqa: BLE001
+            extract_jobs.finish(project_id, error=f"{type(exc).__name__}: {exc}")
+
+    threading.Thread(target=worker, daemon=True).start()
+    return {"started": True, **extract_status(project_id)}
+
+
+@router.post("/projects/{project_id}/extract/stop")
+def stop_extract(project_id: str) -> dict[str, Any]:
+    _require_project(project_id)
+    stopped = extract_jobs.stop(project_id)
+    return {"stopped": stopped, **extract_status(project_id)}
 
 
 # ---------------------------------------------------------------- 知识库扩展

@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, ChevronRight, Database, RefreshCw, Upload } from 'lucide-react'
+import { AlertTriangle, ChevronRight, Database, RefreshCw, Sparkles, Upload } from 'lucide-react'
 import { api } from '../api'
 import { useAppStore } from '../store'
 import type { IndexJob, KbKind, KnowledgeBaseSummary } from '../types'
 import KnowledgeDetail from './KnowledgeDetail'
 import ImportModal from '../components/ImportModal'
+import ExtractModal from '../components/ExtractModal'
 
 interface IndexInfo {
   chunks: number
@@ -26,6 +27,7 @@ export default function KnowledgePage(): React.JSX.Element {
   const [reindexing, setReindexing] = useState(false)
   const [job, setJob] = useState<IndexJob | null>(null)
   const [importOpen, setImportOpen] = useState(false)
+  const [extractOpen, setExtractOpen] = useState(false)
 
   const load = async (): Promise<void> => {
     if (!project) {
@@ -126,6 +128,10 @@ export default function KnowledgePage(): React.JSX.Element {
             <Upload size={13} />
             导入整本书
           </button>
+          <button className="ghost-btn" onClick={() => setExtractOpen(true)} disabled={reindexing}>
+            <Sparkles size={13} />
+            抽取设定
+          </button>
           <button className="ghost-btn" onClick={() => void reindexAll()} disabled={reindexing}>
             <RefreshCw size={13} className={reindexing ? 'spin' : ''} />
             {reindexing
@@ -195,6 +201,9 @@ export default function KnowledgePage(): React.JSX.Element {
 
       {importOpen && (
         <ImportModal onClose={() => setImportOpen(false)} onDone={() => void afterImport()} />
+      )}
+      {extractOpen && (
+        <ExtractModal onClose={() => setExtractOpen(false)} onDone={() => void load()} />
       )}
     </div>
   )

@@ -439,3 +439,39 @@ export interface ImportResult {
   last: string
   files: { number: number; title: string; file: string }[]
 }
+
+export interface ExtractStats {
+  chapters: number
+  characters: number
+  locations: number
+  factions: number
+  items: number
+  aliases: number
+  events: number
+  foreshadowing: number
+  failed: number
+  candidates: number
+  details: { chapter: number; title: string; error: string }[]
+  samples: string[]
+}
+
+export interface ExtractRun {
+  running: boolean
+  done: number
+  total: number
+  chapter: number
+  title: string
+  error: string | null
+  stats: ExtractStats
+}
+
+export interface ExtractStatus {
+  running: boolean
+  run: ExtractRun
+  state: {
+    done: number
+    total: number
+    stats: Partial<ExtractStats>
+    updated_at: string
+  }
+}

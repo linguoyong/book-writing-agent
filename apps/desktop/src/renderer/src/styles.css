@@ -5291,3 +5291,81 @@ mark.diffv-word.add {
 mark.diffv-word.del {
   background: #f2b6ad;
 }
+
+/* ---------- 逐章抽取 ---------- */
+
+.extract-modal {
+  width: 560px;
+}
+
+.extract-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.extract-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--bg-elev);
+  overflow: hidden;
+}
+
+.extract-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}
+
+.extract-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+.extract-live {
+  color: var(--accent);
+}
+
+.extract-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.extract-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.extract-stat span {
+  font-size: 10.5px;
+  color: var(--faint);
+}
+
+.extract-stat strong {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.extract-samples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.extract-samples span {
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--bg-elev);
+  color: var(--muted);
+  font-size: 11px;
+}

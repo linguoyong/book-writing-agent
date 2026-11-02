@@ -8,8 +8,10 @@ import type {
   ChunkItem,
   ContextBundle,
   Entity,
+  ExtractStatus,
   ImportPreview,
   ImportResult,
+  ExtractStats,
   EmbeddingOption,
   EmbeddingProbe,
   EmbeddingSettings,
@@ -314,6 +316,20 @@ export const api = {
   getConfig: () => http<AppConfig>('/config'),
   saveConfig: (config: AppConfig) =>
     http<AppConfig>('/config', { method: 'PUT', body: JSON.stringify(config) }),
+  extractStatus: (projectId: string) =>
+    http<ExtractStatus>(`/projects/${projectId}/extract/status`),
+  extractPreview: (projectId: string, limit = 3) =>
+    http<{ preview: ExtractStats; state: ExtractStatus['state'] }>(
+      `/projects/${projectId}/extract/preview`,
+      { method: 'POST', body: JSON.stringify({ limit, dry_run: true }) }
+    ),
+  extractStart: (projectId: string, limit = 0) =>
+    http<{ started: boolean } & ExtractStatus>(`/projects/${projectId}/extract`, {
+      method: 'POST',
+      body: JSON.stringify({ limit, dry_run: false })
+    }),
+  extractStop: (projectId: string) =>
+    http<{ stopped: boolean }>(`/projects/${projectId}/extract/stop`, { method: 'POST' }),
   importPreview: (projectId: string, path: string, pattern = '') =>
     http<ImportPreview>(`/projects/${projectId}/import/preview`, {
       method: 'POST',
