@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { AlertTriangle, ChevronRight, Database, RefreshCw } from 'lucide-react'
+import { AlertTriangle, ChevronRight, Database, RefreshCw, Upload } from 'lucide-react'
 import { api } from '../api'
 import { useAppStore } from '../store'
 import type { IndexJob, KbKind, KnowledgeBaseSummary } from '../types'
 import KnowledgeDetail from './KnowledgeDetail'
+import ImportModal from '../components/ImportModal'
 
 interface IndexInfo {
   chunks: number
@@ -24,6 +25,7 @@ export default function KnowledgePage(): React.JSX.Element {
   const [loading, setLoading] = useState(true)
   const [reindexing, setReindexing] = useState(false)
   const [job, setJob] = useState<IndexJob | null>(null)
+  const [importOpen, setImportOpen] = useState(false)
 
   const load = async (): Promise<void> => {
     if (!project) {
@@ -46,20 +48,34 @@ export default function KnowledgePage(): React.JSX.Element {
     void load()
   }, [project?.id])
 
+  const waitIndexJob = async (): Promise<void> => {
+    if (!project) return
+    // 后台建索引：本地向量要逐批编码，可能跑几分钟，轮询到结束为止
+    for (let tick = 0; tick < 1800; tick += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      const status = await api.indexStatus(project.id)
+      setJob(status)
+      if (!status.running) break
+    }
+    await load()
+  }
+
   const reindexAll = async (): Promise<void> => {
     if (!project) return
     setReindexing(true)
     setJob(null)
     try {
       await api.reindex(project.id)
-      // 后台重建：本地向量要逐批编码，可能跑几分钟，轮询到结束为止
-      for (let tick = 0; tick < 900; tick += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 1000))
-        const status = await api.indexStatus(project.id)
-        setJob(status)
-        if (!status.running) break
-      }
-      await load()
+      await waitIndexJob()
+    } finally {
+      setReindexing(false)
+    }
+  }
+
+  const afterImport = async (): Promise<void> => {
+    setReindexing(true)
+    try {
+      await waitIndexJob()
     } finally {
       setReindexing(false)
     }
@@ -106,11 +122,15 @@ export default function KnowledgePage(): React.JSX.Element {
           <p>{subtitle}</p>
         </div>
         <div className="page-actions">
+          <button className="ghost-btn" onClick={() => setImportOpen(true)} disabled={reindexing}>
+            <Upload size={13} />
+            导入整本书
+          </button>
           <button className="ghost-btn" onClick={() => void reindexAll()} disabled={reindexing}>
             <RefreshCw size={13} className={reindexing ? 'spin' : ''} />
             {reindexing
               ? job?.total
-                ? `重建中 ${job.done ?? 0}/${job.total}`
+                ? `重建中 ${job.done ?? 0}/${job.total}${formatEta(job.eta_seconds)}`
                 : '重建中…'
               : '重建索引'}
           </button>
@@ -172,6 +192,16 @@ export default function KnowledgePage(): React.JSX.Element {
           </div>
         )}
       </div>
+
+      {importOpen && (
+        <ImportModal onClose={() => setImportOpen(false)} onDone={() => void afterImport()} />
+      )}
     </div>
   )
+}
+
+function formatEta(seconds?: number): string {
+  if (!seconds || seconds <= 0) return ''
+  if (seconds < 90) return ' · 约 1 分钟'
+  return ` · 约 ${Math.round(seconds / 60)} 分钟`
 }

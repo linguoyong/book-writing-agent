@@ -27,9 +27,9 @@
 |---|---|
 | ![专家](docs/screenshots/experts.png) | ![文件](docs/screenshots/workspace.png) |
 
-| 向量检索设置 |
-|---|
-| ![设置](docs/screenshots/settings-vector.png) |
+| 向量检索设置 | 整本书导入 |
+|---|---|
+| ![设置](docs/screenshots/settings-vector.png) | ![导入](docs/screenshots/import.png) |
 
 ## 核心能力
 
@@ -40,6 +40,7 @@
 | 变更审批 | `kb_write` / `manuscript_write` / `write_file` / `edit_file` / `delete` 先中断、出 diff，逐条通过/拒绝/改参数后执行 |
 | 专家与技能 | 专家＝人设（整份注入 system prompt），技能＝方法（`SKILL.md` 渐进披露）；都支持对话创建与「从作品提炼风格」 |
 | 知识库 | 八类卡片 + 章节切片，按实体增量重建索引，删除条目同步清索引 |
+| 整本书导入 | TXT/MD 编码探测（UTF-8/GBK/UTF-16）→ 章节识别 → 边界预览（可排除、可改名）→ 落盘并后台建索引 |
 | 混合检索 | FTS5(jieba) 与 sqlite-vec 两路召回，RRF 融合；支持按类型、按章节上限过滤（防剧透） |
 | 上下文装配 | 身份/人设/域规则/用户记忆/长期记忆/项目记忆/引用/技能/运行态 共 8 层，每层有字符预算并可查看注入清单 |
 | 自动压缩 | 按所选模型的上下文窗口折算触发点，淘汰的消息先落盘再摘要，可用 `read_file` 回读 |
@@ -162,8 +163,8 @@ pnpm build            # 构建 renderer / main / preload
 已交付：三栏界面与窗口控制、会话与空间、专家/技能、知识库八类、@ 引用、变更审批与 diff、
 一致性 lint、混合检索（FTS5 + sqlite-vec）、上下文装配与压缩、三层记忆、侧问、MCP、沙箱规则。
 
-进行中：整本书导入（TXT 编码探测 / 章节切分 / 逐章抽取 / 实体归并）、成稿导出（TXT/Markdown/DOCX）、
-字数与进度、角色状态按章节求值、正文搜索替换、选中文本改写。
+进行中：导入后的逐章抽取与实体归并（试抽取 → 全量，后台队列 + 断点续传）、
+成稿导出（TXT/Markdown/DOCX）、字数与进度、角色状态按章节求值、正文搜索替换、选中文本改写。
 
 详细设计与每一轮的取舍记录在 [`doc/需求与架构方案.md`](doc/需求与架构方案.md)。
 

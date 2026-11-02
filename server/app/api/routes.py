@@ -23,6 +23,9 @@ from ..context import assemble
 from ..domains import list_domains
 from ..experts import delete_expert, get_expert, list_experts, save_expert
 from ..style_import import StyleImportError, import_style
+from ..import_book import ImportError as BookImportError
+from ..import_book import commit as import_commit
+from ..import_book import preview as import_preview
 from ..llm import normalize_window
 from ..sandbox import check_command, check_path, check_url
 from ..text import read_text
@@ -788,45 +791,66 @@ def _patch_job(project_id: str, **fields: Any) -> None:
 
 
 def _run_index_job(project_id: str, root: Path) -> None:
-    def progress(stage: str, done: int, total: int) -> None:
-        # 重建可能跑几分钟（本地嵌入逐批编码），进度要能被前端轮询到
-        _patch_job(project_id, stage=stage, done=done, total=total)
+    while True:
+        started_at = time.monotonic()
 
-    try:
-        index = KbIndex(root, load_settings().embedding)
-        result = index.rebuild(progress)
-        payload: dict[str, Any] = {
-            "running": False,
-            "chunks": result["chunks"],
-            "embedded": result["embedded"],
-            "error": index.last_vector_error or None,
-            "stage": "done",
-            "done": result["embedded"],
-            "total": result["chunks"],
-        }
-    except Exception as exc:  # noqa: BLE001
-        payload = {
-            "running": False,
-            "chunks": 0,
-            "embedded": 0,
-            "error": f"{type(exc).__name__}: {exc}",
-            "stage": "error",
-            "done": 0,
-            "total": 0,
-        }
-    _patch_job(project_id, **payload)
+        def progress(stage: str, done: int, total: int) -> None:
+            # 重建可能跑几分钟（本地嵌入逐批编码），进度要能被前端轮询到
+            eta = 0
+            if stage == "embed" and done > 0 and total > done:
+                eta = int((time.monotonic() - started_at) / done * (total - done))
+            _patch_job(project_id, stage=stage, done=done, total=total, eta_seconds=eta)
+
+        try:
+            index = KbIndex(root, load_settings().embedding)
+            result = index.rebuild(progress)
+            payload: dict[str, Any] = {
+                "running": False,
+                "chunks": result["chunks"],
+                "embedded": result["embedded"],
+                "error": index.last_vector_error or None,
+                "stage": "done",
+                "done": result["embedded"],
+                "total": result["chunks"],
+            }
+        except Exception as exc:  # noqa: BLE001
+            payload = {
+                "running": False,
+                "chunks": 0,
+                "embedded": 0,
+                "error": f"{type(exc).__name__}: {exc}",
+                "stage": "error",
+                "done": 0,
+                "total": 0,
+            }
+        _patch_job(project_id, **payload)
+
+        # 跑的过程中又被要求重建（比如导入刚建完就点了「重建索引」）：
+        # 不能吞掉这次请求，接着再跑一轮
+        with _index_lock:
+            job = dict(_index_jobs.get(project_id) or {})
+            if not job.get("queued"):
+                break
+            job.update(
+                running=True, queued=False, stage="collect", done=0, total=0, error=None
+            )
+            _index_jobs[project_id] = job
 
 
-@router.post("/projects/{project_id}/reindex")
-def reindex_kb(project_id: str) -> dict[str, Any]:
-    """索引重建放到后台线程：百万字项目不会把请求挂住。"""
-    project = _require_project(project_id)
+def _start_index_job(project_id: str, root: Path) -> dict[str, Any]:
+    """登记任务并起线程：重建索引与导入后建库共用。
+
+    已有任务在跑时不重复起线程，只打一个 queued 标记，让当前任务跑完再来一轮——
+    否则「导入 → 立刻点重建」会因为 running 被忽略。
+    """
     with _index_lock:
         current = _index_jobs.get(project_id)
         if current and current.get("running"):
-            return current
+            current["queued"] = True
+            return dict(current)
         _index_jobs[project_id] = {
             "running": True,
+            "queued": False,
             "chunks": 0,
             "embedded": 0,
             "error": None,
@@ -834,20 +858,18 @@ def reindex_kb(project_id: str) -> dict[str, Any]:
             "done": 0,
             "total": 0,
         }
+        job = dict(_index_jobs[project_id])
     threading.Thread(
-        target=_run_index_job,
-        args=(project_id, Path(project["path"])),
-        daemon=True,
+        target=_run_index_job, args=(project_id, root), daemon=True
     ).start()
-    return {
-        "running": True,
-        "chunks": 0,
-        "embedded": 0,
-        "error": None,
-        "stage": "collect",
-        "done": 0,
-        "total": 0,
-    }
+    return job
+
+
+@router.post("/projects/{project_id}/reindex")
+def reindex_kb(project_id: str) -> dict[str, Any]:
+    """索引重建放到后台线程：百万字项目不会把请求挂住。"""
+    project = _require_project(project_id)
+    return _start_index_job(project_id, Path(project["path"]))
 
 
 @router.get("/projects/{project_id}/index/status")
@@ -862,6 +884,56 @@ def index_status(project_id: str) -> dict[str, Any]:
             "done": 0,
             "total": 0,
         }
+
+
+# ---------------------------------------------------------------- 整本书导入
+
+
+class ImportPreviewRequest(BaseModel):
+    path: str
+    pattern: str = ""
+
+
+class ImportCommitRequest(BaseModel):
+    path: str
+    pattern: str = ""
+    excluded: list[int] = Field(default_factory=list)
+    titles: dict[str, str] = Field(default_factory=dict)
+
+
+def _import_source(path: str) -> Path:
+    source = Path(path).expanduser()
+    if not source.is_absolute():
+        raise HTTPException(status_code=400, detail="请传绝对路径")
+    return source
+
+
+@router.post("/projects/{project_id}/import/preview")
+def preview_import(project_id: str, req: ImportPreviewRequest) -> dict[str, Any]:
+    _require_project(project_id)
+    try:
+        return import_preview(_import_source(req.path), req.pattern)
+    except BookImportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/projects/{project_id}/import")
+def commit_import(project_id: str, req: ImportCommitRequest) -> dict[str, Any]:
+    project = _require_project(project_id)
+    root = Path(project["path"])
+    try:
+        result = import_commit(
+            root,
+            _import_source(req.path),
+            pattern=req.pattern,
+            excluded=req.excluded,
+            titles=req.titles,
+        )
+    except BookImportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # 导入完立刻在后台建索引，几百万字也不用等
+    _start_index_job(project_id, root)
+    return result
 
 
 # ---------------------------------------------------------------- 知识库扩展

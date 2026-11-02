@@ -8,6 +8,8 @@ import type {
   ChunkItem,
   ContextBundle,
   Entity,
+  ImportPreview,
+  ImportResult,
   EmbeddingOption,
   EmbeddingProbe,
   EmbeddingSettings,
@@ -312,6 +314,22 @@ export const api = {
   getConfig: () => http<AppConfig>('/config'),
   saveConfig: (config: AppConfig) =>
     http<AppConfig>('/config', { method: 'PUT', body: JSON.stringify(config) }),
+  importPreview: (projectId: string, path: string, pattern = '') =>
+    http<ImportPreview>(`/projects/${projectId}/import/preview`, {
+      method: 'POST',
+      body: JSON.stringify({ path, pattern })
+    }),
+  importBook: (
+    projectId: string,
+    path: string,
+    excluded: number[],
+    titles: Record<string, string>,
+    pattern = ''
+  ) =>
+    http<ImportResult>(`/projects/${projectId}/import`, {
+      method: 'POST',
+      body: JSON.stringify({ path, pattern, excluded, titles })
+    }),
   embeddingOptions: () =>
     http<{ default: string; local: EmbeddingOption[] }>('/embeddings/options'),
   testEmbedding: (settings: EmbeddingSettings) =>

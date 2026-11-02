@@ -100,6 +100,7 @@ export interface IndexJob {
   stage?: string
   done?: number
   total?: number
+  eta_seconds?: number
 }
 
 export interface SearchHit {
@@ -413,3 +414,28 @@ export type TimelineItem =
     }
   | { id: string; type: 'error'; content: string }
   | { id: string; type: 'turn_end'; meta: TurnMeta }
+
+export interface ImportChapter {
+  index: number
+  title: string
+  chars: number
+  head: string
+  tail: string
+}
+
+export interface ImportPreview {
+  file: string
+  encoding: string
+  total_chars: number
+  preamble_chars: number
+  chapters: ImportChapter[]
+}
+
+export interface ImportResult {
+  imported: number
+  skipped: number
+  encoding: string
+  first: string
+  last: string
+  files: { number: number; title: string; file: string }[]
+}
