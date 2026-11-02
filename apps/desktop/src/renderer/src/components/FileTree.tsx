@@ -8,12 +8,14 @@ import {
   FileText,
   Folder,
   FolderOpen,
-  Search
+  Search,
+  ScanSearch
 } from 'lucide-react'
 import { api } from '../api'
 import { useAppStore } from '../store'
 import type { TreeNode } from '../types'
 import ConfirmDialog, { type ConfirmRequest } from './ConfirmDialog'
+import TextSearchModal from './TextSearchModal'
 
 interface MenuState {
   x: number
@@ -53,6 +55,7 @@ export default function FileTree(): React.JSX.Element {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [menu, setMenu] = useState<MenuState | null>(null)
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null)
+  const [searchOpen, setSearchOpen] = useState(false)
   const initialized = useRef(false)
 
   useEffect(() => {
@@ -229,6 +232,9 @@ export default function FileTree(): React.JSX.Element {
         >
           <FilePlus2 size={12} />
         </button>
+        <button className="ft-icon" onClick={() => setSearchOpen(true)} title="查找替换（Ctrl+F）">
+          <ScanSearch size={12} />
+        </button>
         <button className="ft-icon" onClick={() => void newChapter()} title="新建章节">
           <BookPlus size={12} />
         </button>
@@ -262,6 +268,8 @@ export default function FileTree(): React.JSX.Element {
           ))
         )}
       </div>
+
+      {searchOpen && <TextSearchModal onClose={() => setSearchOpen(false)} />}
 
       {menu && (
         <>

@@ -33,6 +33,8 @@ from ..export_book import ExportError
 from ..export_book import export_txt as export_book_txt
 from ..stats import sync_progress
 from ..chapters import ChapterError, create as create_chapter
+from ..search_text import SearchError, replace as text_replace, search as text_search
+from ..rewrite import RewriteError, rewrite as rewrite_text
 from ..llm import normalize_window
 from ..sandbox import check_command, check_path, check_url
 from ..text import read_text
@@ -948,6 +950,84 @@ def commit_import(project_id: str, req: ImportCommitRequest) -> dict[str, Any]:
     # 导入完立刻在后台建索引，几百万字也不用等
     _start_index_job(project_id, root)
     return result
+
+
+# ---------------------------------------------------------------- 正文搜索 / 替换 / 改写
+
+
+class TextSearchRequest(BaseModel):
+    query: str
+    scope: str = "manuscript"
+    path: str | None = None
+    regex: bool = False
+    ignore_case: bool = False
+
+
+class TextReplaceRequest(TextSearchRequest):
+    replacement: str = ""
+    dry_run: bool = True
+
+
+class RewriteRequest(BaseModel):
+    text: str
+    action: str = "polish"
+    tone: str = ""
+    before: str = ""
+    after: str = ""
+
+
+@router.post("/projects/{project_id}/text-search")
+def search_text(project_id: str, req: TextSearchRequest) -> dict[str, Any]:
+    project = _require_project(project_id)
+    try:
+        return text_search(
+            Path(project["path"]),
+            req.query,
+            scope=req.scope,
+            path=req.path,
+            regex=req.regex,
+            ignore_case=req.ignore_case,
+        )
+    except SearchError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/projects/{project_id}/text-replace")
+def replace_text(project_id: str, req: TextReplaceRequest) -> dict[str, Any]:
+    project = _require_project(project_id)
+    root = Path(project["path"])
+    try:
+        result = text_replace(
+            root,
+            req.query,
+            req.replacement,
+            scope=req.scope,
+            path=req.path,
+            regex=req.regex,
+            ignore_case=req.ignore_case,
+            dry_run=req.dry_run,
+        )
+    except SearchError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not req.dry_run and result["total"]:
+        # 导入章节被改动后索引会旧，交给后台重建
+        _start_index_job(project_id, root)
+    return result
+
+
+@router.post("/projects/{project_id}/rewrite")
+def rewrite_selection(project_id: str, req: RewriteRequest) -> dict[str, Any]:
+    _require_project(project_id)
+    try:
+        return rewrite_text(
+            req.text,
+            action=req.action,
+            tone=req.tone,
+            before=req.before,
+            after=req.after,
+        )
+    except RewriteError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # ---------------------------------------------------------------- 章节

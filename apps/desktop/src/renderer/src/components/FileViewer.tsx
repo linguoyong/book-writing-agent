@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import CodeMirror from '@uiw/react-codemirror'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import CodeMirror, { type ReactCodeMirrorRef } from '@uiw/react-codemirror'
 import { markdown } from '@codemirror/lang-markdown'
 import {
   Check,
@@ -7,9 +7,13 @@ import {
   Eye,
   FileCode2,
   FolderOpen,
+  Loader2,
   PanelRight,
-  Save
+  Save,
+  Sparkles,
+  X
 } from 'lucide-react'
+import { api } from '../api'
 import { useAppStore } from '../store'
 import Markdown from './Markdown'
 
@@ -34,6 +38,12 @@ export default function FileViewer({
   const showToast = useAppStore((state) => state.showToast)
 
   const [mode, setMode] = useState<'preview' | 'source'>('preview')
+  const [selection, setSelection] = useState<{ from: number; to: number } | null>(null)
+  const [rewriting, setRewriting] = useState(false)
+  const [rewriteBusy, setRewriteBusy] = useState('')
+  const [rewriteResult, setRewriteResult] = useState('')
+  const [rewriteAction, setRewriteAction] = useState('')
+  const cmRef = useRef<ReactCodeMirrorRef>(null)
   const isText = !openFile || openFile.kind === 'text'
   const isMarkdown =
     isText && Boolean(openFile?.path.toLowerCase().endsWith('.md'))
@@ -43,6 +53,57 @@ export default function FileViewer({
       openFile?.kind === 'text' && openFile.path.toLowerCase().endsWith('.md')
     setMode(markdownFile ? 'preview' : 'source')
   }, [openFile?.path, openFile?.kind])
+
+  const frontMatterEnd = (text: string): number => {
+    const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/.exec(text)
+    return match ? match[0].length : 0
+  }
+
+  const runRewrite = async (action: string): Promise<void> => {
+    const view = cmRef.current?.view
+    if (!project || !view || !selection) return
+    // 选中范围压到文件头上时直接拦住：改写会把 title/chapter 一起换掉
+    const head = frontMatterEnd(view.state.doc.toString())
+    if (head && selection.from < head) {
+      showToast('选中范围包含了文件头（front-matter），请从正文开始选择')
+      return
+    }
+    const doc = view.state.doc
+    const text = doc.sliceString(selection.from, selection.to)
+    setRewriteBusy(action)
+    setRewriteResult('')
+    setRewriting(true)
+    try {
+      const result = await api.rewriteText(project.id, {
+        text,
+        action,
+        before: doc.sliceString(Math.max(0, selection.from - 600), selection.from),
+        after: doc.sliceString(selection.to, Math.min(doc.length, selection.to + 600))
+      })
+      setRewriteResult(result.text)
+      setRewriteAction(action)
+    } catch (error) {
+      showToast((error as Error).message)
+      setRewriting(false)
+    } finally {
+      setRewriteBusy('')
+    }
+  }
+
+  const adoptRewrite = async (): Promise<void> => {
+    const view = cmRef.current?.view
+    if (!view || !selection || !rewriteResult) return
+    view.dispatch({
+      changes: { from: selection.from, to: selection.to, insert: rewriteResult }
+    })
+    setRewriting(false)
+    setRewriteResult('')
+    // dispatch 之后 onChange 会同步内容，稍等一拍再落盘
+    window.setTimeout(() => {
+      void useAppStore.getState().saveOpenFile()
+    }, 60)
+    showToast('已替换选中内容并保存')
+  }
 
   useEffect(() => {
     const handler = (event: KeyboardEvent): void => {
@@ -137,6 +198,81 @@ export default function FileViewer({
         </div>
       </div>
 
+      {!rewriting && selection && mode === 'source' && openFile && !openFile.truncated && (
+        <div className="fv-rewrite-bar">
+          <span className="fv-rewrite-label">
+            <Sparkles size={12} />
+            选中 {selection.to - selection.from} 字
+          </span>
+          {[
+            ['polish', '润色'],
+            ['expand', '扩写'],
+            ['shorten', '压缩']
+          ].map(([action, label]) => (
+            <button
+              key={action}
+              className="fv-rewrite-btn"
+              disabled={Boolean(rewriteBusy)}
+              onClick={() => void runRewrite(action)}
+            >
+              {rewriteBusy === action ? <Loader2 size={11} className="spin" /> : label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {rewriting && (
+        <div className="fv-rewrite-panel">
+          <div className="fv-rewrite-head">
+            <span>
+              改写预览 ·
+              {rewriteAction === 'polish' ? ' 润色' : rewriteAction === 'expand' ? ' 扩写' : ' 压缩'}
+            </span>
+            <button
+              className="icon-btn"
+              onClick={() => {
+                setRewriting(false)
+                setRewriteResult('')
+              }}
+              title="关闭"
+            >
+              <X size={13} />
+            </button>
+          </div>
+          <div className="fv-rewrite-body">
+            {rewriteBusy ? (
+              <div className="panel-empty">
+                <Loader2 size={14} className="spin" /> 模型改写中…
+              </div>
+            ) : (
+              <>
+                <div className="fv-rewrite-original">
+                  {cmRef.current?.view && selection
+                    ? cmRef.current.view.state.doc.sliceString(selection.from, selection.to)
+                    : ''}
+                </div>
+                <div className="fv-rewrite-result">{rewriteResult}</div>
+              </>
+            )}
+          </div>
+          <div className="fv-rewrite-actions">
+            <button
+              className="ghost-btn"
+              onClick={() => {
+                setRewriting(false)
+                setRewriteResult('')
+              }}
+            >
+              放弃
+            </button>
+            <button className="primary-btn" disabled={!rewriteResult} onClick={() => void adoptRewrite()}>
+              <Check size={12} />
+              采用并保存
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="fv-body">
         {openFile ? (
           openFile.kind === 'image' && openFile.dataUrl ? (
@@ -173,6 +309,7 @@ export default function FileViewer({
             </div>
           ) : (
             <CodeMirror
+              ref={cmRef}
               value={openFile.content}
               height="100%"
               extensions={[markdown()]}
@@ -183,6 +320,11 @@ export default function FileViewer({
                 highlightActiveLine: true,
                 autocompletion: false,
                 indentOnInput: false
+              }}
+              onUpdate={(update) => {
+                if (!update.selectionSet && !update.docChanged) return
+                const range = update.state.selection.main
+                setSelection(range.empty ? null : { from: range.from, to: range.to })
               }}
               onChange={(value) => updateOpenFile(value)}
             />

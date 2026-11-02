@@ -317,6 +317,54 @@ export const api = {
   getConfig: () => http<AppConfig>('/config'),
   saveConfig: (config: AppConfig) =>
     http<AppConfig>('/config', { method: 'PUT', body: JSON.stringify(config) }),
+  searchText: (
+    projectId: string,
+    body: {
+      query: string
+      scope?: string
+      path?: string | null
+      regex?: boolean
+      ignore_case?: boolean
+    }
+  ) =>
+    http<{
+      total: number
+      files: number
+      truncated: boolean
+      items: { path: string; line: number; snippet: string }[]
+    }>(`/projects/${projectId}/text-search`, {
+      method: 'POST',
+      body: JSON.stringify(body)
+    }),
+  replaceText: (
+    projectId: string,
+    body: {
+      query: string
+      replacement: string
+      scope?: string
+      path?: string | null
+      regex?: boolean
+      ignore_case?: boolean
+      dry_run?: boolean
+    }
+  ) =>
+    http<{
+      dry_run: boolean
+      total: number
+      files: number
+      changed: { path: string; count: number }[]
+      samples: { path: string; line: number; snippet: string }[]
+    }>(`/projects/${projectId}/text-replace`, {
+      method: 'POST',
+      body: JSON.stringify(body)
+    }),
+  rewriteText: (
+    projectId: string,
+    body: { text: string; action: string; tone?: string; before?: string; after?: string }
+  ) => http<{ text: string; action: string }>(`/projects/${projectId}/rewrite`, {
+    method: 'POST',
+    body: JSON.stringify(body)
+  }),
   newChapter: (projectId: string, title = '') =>
     http<{ path: string; chapter: number; volume: number; title: string }>(
       `/projects/${projectId}/chapter`,

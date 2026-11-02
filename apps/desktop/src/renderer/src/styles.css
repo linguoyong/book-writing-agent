@@ -5481,3 +5481,184 @@ mark.diffv-word.del {
   height: 100%;
   background: var(--accent);
 }
+
+/* ---------- 查找替换 ---------- */
+
+.search-modal {
+  width: 680px;
+}
+
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.search-row select {
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 6px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-family: inherit;
+}
+
+.search-flags {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.search-flags label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+}
+
+.search-count {
+  margin-left: auto;
+  color: var(--faint);
+}
+
+.search-list {
+  max-height: 300px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.search-hit {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-hit:hover {
+  background: var(--bg-hover);
+}
+
+.search-hit-path {
+  font-family: 'Cascadia Code', Consolas, monospace;
+  font-size: 10.5px;
+  color: var(--accent);
+}
+
+.search-hit-text {
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-replace {
+  flex: 1;
+  height: 32px;
+  padding: 0 10px;
+}
+
+.primary-btn.danger {
+  background: var(--red);
+  border-color: var(--red);
+}
+
+/* ---------- 选中改写 ---------- */
+
+.fv-rewrite-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--accent-soft);
+}
+
+.fv-rewrite-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--accent);
+}
+
+.fv-rewrite-btn {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 5px;
+  border: 1px solid rgba(60, 140, 78, 0.3);
+  background: #ffffff;
+  color: var(--accent);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.fv-rewrite-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.fv-rewrite-panel {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elev);
+  max-height: 46%;
+}
+
+.fv-rewrite-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 12px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.fv-rewrite-body {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 0 12px 8px;
+  overflow-y: auto;
+}
+
+.fv-rewrite-original,
+.fv-rewrite-result {
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  overflow-y: auto;
+  max-height: 180px;
+}
+
+.fv-rewrite-original {
+  background: #ffffff;
+  border: 1px solid var(--border);
+  color: var(--faint);
+}
+
+.fv-rewrite-result {
+  background: var(--accent-soft);
+  border: 1px solid rgba(60, 140, 78, 0.25);
+  color: var(--text);
+}
+
+.fv-rewrite-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 12px 8px;
+}
