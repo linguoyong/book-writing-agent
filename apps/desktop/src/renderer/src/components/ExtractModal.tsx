@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Loader2, Sparkles, Square, X } from 'lucide-react'
 import { api } from '../api'
 import { useAppStore } from '../store'
-import type { ExtractStats, ExtractStatus } from '../types'
+import type { ExtractCandidate, ExtractStats, ExtractStatus } from '../types'
 
 const EMPTY: ExtractStats = {
   chapters: 0,
@@ -31,6 +31,8 @@ export default function ExtractModal({
 
   const [status, setStatus] = useState<ExtractStatus | null>(null)
   const [preview, setPreview] = useState<ExtractStats | null>(null)
+  const [candidates, setCandidates] = useState<ExtractCandidate[]>([])
+  const [deciding, setDeciding] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const timer = useRef<number | null>(null)
@@ -47,8 +49,19 @@ export default function ExtractModal({
     }
   }
 
+  const loadCandidates = async (): Promise<void> => {
+    if (!project) return
+    try {
+      const result = await api.extractCandidates(project.id)
+      setCandidates(result.items)
+    } catch {
+      /* 队列读不到不影响抽取本身 */
+    }
+  }
+
   useEffect(() => {
     void refresh()
+    void loadCandidates()
     return () => {
       if (timer.current) window.clearInterval(timer.current)
     }
@@ -61,6 +74,7 @@ export default function ExtractModal({
       if (next && !next.running) {
         if (timer.current) window.clearInterval(timer.current)
         timer.current = null
+        void loadCandidates()
         onDone()
       }
     }, 2000)
@@ -73,6 +87,7 @@ export default function ExtractModal({
     try {
       const result = await api.extractPreview(project.id, 3)
       setPreview(result.preview)
+      void loadCandidates()
       setStatus((prev) => (prev ? { ...prev, state: result.state } : prev))
     } catch (err) {
       setError((err as Error).message)
@@ -105,6 +120,22 @@ export default function ExtractModal({
     timer.current = null
   }
 
+  const decide = async (candidateId: string, accept: boolean): Promise<void> => {
+    if (!project) return
+    setDeciding(candidateId)
+    try {
+      if (accept) await api.acceptCandidate(project.id, candidateId)
+      else await api.rejectCandidate(project.id, candidateId)
+      await loadCandidates()
+      await refresh()
+      onDone()
+    } catch (err) {
+      setError((err as Error).message)
+    } finally {
+      setDeciding('')
+    }
+  }
+
   const done = status?.state.done ?? 0
   const total = status?.state.total ?? 0
   const remaining = Math.max(0, total - done)
@@ -127,8 +158,9 @@ export default function ExtractModal({
         <div className="modal-body">
           <div className="field-hint" style={{ lineHeight: 1.8 }}>
             用抽取模型逐章读出角色、地点、势力、物品、事件与伏笔，自动并入知识库：
-            已有实体只补别名，新实体建成「待确认」卡，事件与伏笔追加到
-            《自动抽取时间线》。可随时停止，已抽过的章节不会重复消耗。
+            已有实体只补别名与「自动摘要」小节，新实体直接建卡；置信度偏低或别名冲突的
+            进下面的待确认队列。事件与伏笔追加到《自动抽取时间线》。可随时停止，
+            已抽过的章节不会重复消耗。
           </div>
 
           <div className="extract-progress">
@@ -176,6 +208,48 @@ export default function ExtractModal({
               {shown.samples.slice(0, 10).map((sample) => (
                 <span key={sample}>{sample}</span>
               ))}
+            </div>
+          )}
+
+          <div className="extract-extra">
+            自动摘要 {shown.notes || 0} 条 · 事件去重 {shown.duplicates || 0} 条 · 待确认{' '}
+            {shown.queued || 0} 条
+          </div>
+
+          {candidates.length > 0 && (
+            <div className="extract-candidates">
+              <div className="extract-cand-head">待确认 {candidates.length} 条</div>
+              <div className="extract-cand-list">
+                {candidates.map((item) => (
+                  <div className="extract-cand" key={item.id}>
+                    <div className="extract-cand-main">
+                      <div className="extract-cand-title">
+                        <span className="extract-cand-name">{item.name}</span>
+                        <span className="extract-cand-meta">
+                          第{item.chapter}章 · {item.reason}
+                        </span>
+                      </div>
+                      {item.note && <div className="extract-cand-note">{item.note}</div>}
+                    </div>
+                    <div className="extract-cand-actions">
+                      <button
+                        className="link-btn"
+                        disabled={deciding === item.id}
+                        onClick={() => void decide(item.id, true)}
+                      >
+                        {deciding === item.id ? '处理中…' : '采纳'}
+                      </button>
+                      <button
+                        className="link-btn"
+                        disabled={deciding === item.id}
+                        onClick={() => void decide(item.id, false)}
+                      >
+                        忽略
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

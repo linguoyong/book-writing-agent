@@ -76,6 +76,9 @@ class ExtractStats:
     foreshadowing: int = 0
     failed: int = 0
     candidates: int = 0
+    queued: int = 0
+    notes: int = 0
+    duplicates: int = 0
     details: list[dict[str, Any]] = field(default_factory=list)
     samples: list[str] = field(default_factory=list)
 
@@ -83,6 +86,7 @@ class ExtractStats:
         for key in (
             "chapters", "characters", "locations", "factions", "items",
             "aliases", "events", "foreshadowing", "failed", "candidates",
+            "queued", "notes", "duplicates",
         ):
             setattr(self, key, getattr(self, key) + getattr(other, key))
         self.details.extend(other.details)
@@ -102,6 +106,9 @@ class ExtractStats:
             "foreshadowing": self.foreshadowing,
             "failed": self.failed,
             "candidates": self.candidates,
+            "queued": self.queued,
+            "notes": self.notes,
+            "duplicates": self.duplicates,
             "details": self.details[:50],
             "samples": self.samples[:20],
         }
@@ -313,6 +320,157 @@ def _merge_aliases(project: Path, snapshot: dict[str, Any], aliases: list[str]) 
     return len(new_aliases)
 
 
+AUTO_SECTION = "## 自动摘要"
+CANDIDATES_FILE = "extract-candidates.json"
+MAX_NOTES = 20
+
+
+def candidates_path(project: Path) -> Path:
+    return project / ".index" / CANDIDATES_FILE
+
+
+def load_candidates(project: Path) -> list[dict[str, Any]]:
+    path = candidates_path(project)
+    if not path.exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return []
+    return data if isinstance(data, list) else []
+
+
+def save_candidates(project: Path, items: list[dict[str, Any]]) -> None:
+    path = candidates_path(project)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def queue_candidate(
+    project: Path,
+    *,
+    chapter_no: int,
+    kind: str,
+    item: dict[str, Any],
+    reason: str,
+) -> bool:
+    """低置信或冲突的条目先搁在待确认队列里，不直接写库。"""
+    items = load_candidates(project)
+    candidate_id = f"{kind}:{safe_entity_id(item['name'])}"
+    if any(entry.get("id") == candidate_id for entry in items):
+        return False
+    items.append(
+        {
+            "id": candidate_id,
+            "kind": kind,
+            "name": item["name"],
+            "aliases": item["aliases"],
+            "role": item.get("role", ""),
+            "note": item.get("note", ""),
+            "confidence": item.get("confidence", 0.0),
+            "chapter": chapter_no,
+            "reason": reason,
+            "created_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+    )
+    save_candidates(project, items)
+    return True
+
+
+def _create_stub(
+    project: Path, kind: str, item: dict[str, Any], chapter_no: int
+) -> dict[str, Any]:
+    entity_id = safe_entity_id(item["name"])
+    meta = {
+        "id": entity_id,
+        "name": item["name"],
+        "type": "character" if kind == "characters" else kind[:-1],
+        "status": "自动",
+        "source": "auto",
+        "first_chapter": chapter_no,
+        "aliases": item["aliases"],
+    }
+    lines = ["## 自动抽取", f"- 首次出现：第{chapter_no}章"]
+    if item.get("role"):
+        lines.append(f"- 定位：{item['role']}")
+    if item.get("note"):
+        lines.append(f"- 描述：{item['note']}")
+    body = "\n".join(lines)
+    save_entity(project, kind, entity_id, meta, body)
+    return {"kind": kind, "id": entity_id, "meta": meta, "body": body}
+
+
+def _merge_note(project: Path, snapshot: dict[str, Any], chapter_no: int, note: str) -> bool:
+    """把这一章的一句话描述追加到卡片的「自动摘要」小节。
+
+    只动自动管理的小节，人工写的正文一个字都不碰；同一章只留一条，
+    最多保留最近 20 条，避免长书把卡片撑爆。
+    """
+    note = (note or "").strip()
+    if not note:
+        return False
+    body = str(snapshot.get("body") or "")
+    marker = f"- 第{chapter_no}章："
+    head = body
+    bullets: list[str] = []
+    index = body.find(AUTO_SECTION)
+    if index >= 0:
+        head = body[:index].rstrip()
+        for line in body[index + len(AUTO_SECTION):].splitlines():
+            if line.strip().startswith("- 第"):
+                bullets.append(line.strip())
+    if any(line.startswith(marker) for line in bullets):
+        return False
+
+    bullets.append(f"{marker}{note}")
+
+    def number(line: str) -> int:
+        match = re.match(r"- 第(\d+)章", line)
+        return int(match.group(1)) if match else 0
+
+    bullets.sort(key=number)
+    bullets = bullets[-MAX_NOTES:]
+    new_body = f"{head}\n\n{AUTO_SECTION}\n" + "\n".join(bullets) + "\n"
+    meta = dict(snapshot.get("meta") or {})
+    save_entity(project, snapshot["kind"], snapshot["id"], meta, new_body)
+    snapshot["body"] = new_body
+    return True
+
+
+def _event_key(summary: str) -> str:
+    return re.sub(r"[^\w\u4e00-\u9fff]", "", summary)[:24]
+
+
+def accept_candidate(project: Path, candidate_id: str) -> dict[str, Any] | None:
+    items = load_candidates(project)
+    target = next((entry for entry in items if entry.get("id") == candidate_id), None)
+    if target is None:
+        return None
+    _create_stub(
+        project,
+        target["kind"],
+        {
+            "name": target["name"],
+            "aliases": list(target.get("aliases") or []),
+            "role": target.get("role", ""),
+            "note": target.get("note", ""),
+        },
+        int(target.get("chapter") or 0),
+    )
+    save_candidates(project, [entry for entry in items if entry.get("id") != candidate_id])
+    invalidate_entities(project)
+    return target
+
+
+def reject_candidate(project: Path, candidate_id: str) -> bool:
+    items = load_candidates(project)
+    remaining = [entry for entry in items if entry.get("id") != candidate_id]
+    if len(remaining) == len(items):
+        return False
+    save_candidates(project, remaining)
+    return True
+
+
 def apply_result(
     project: Path,
     chapter_no: int,
@@ -321,10 +479,11 @@ def apply_result(
     *,
     dry_run: bool = False,
     entities: dict[str, dict[str, Any]] | None = None,
+    seen_events: set[str] | None = None,
 ) -> ExtractStats:
     """把一章的抽取结果并入知识库；dry_run 只统计不落盘。"""
     index = entities if entities is not None else build_entity_map(project)
-    touched: set[tuple[str, str]] = set()
+    seen = seen_events if seen_events is not None else set()
 
     for kind in ("characters", "locations", "factions", "items"):
         for item in data.get(kind, []):
@@ -337,29 +496,65 @@ def apply_result(
                         break
 
             if snapshot is not None:
-                if not dry_run:
-                    added = _merge_aliases(project, snapshot, item["aliases"])
-                    stats.aliases += added
-                    for alias in item["aliases"]:
-                        index.setdefault(alias, snapshot)
-                else:
+                # 别名已经属于别的实体：多半是重名，别硬并
+                conflict = next(
+                    (
+                        alias
+                        for alias in item["aliases"]
+                        if index.get(alias) is not None
+                        and index[alias]["id"] != snapshot["id"]
+                    ),
+                    None,
+                )
+                if conflict:
+                    if not dry_run:
+                        queue_candidate(
+                            project,
+                            chapter_no=chapter_no,
+                            kind=kind,
+                            item=item,
+                            reason=f"别名「{conflict}」已属于「{index[conflict]['meta'].get('name')}」",
+                        )
+                    stats.queued += 1
+                    continue
+
+                if dry_run:
                     meta = snapshot.get("meta") or {}
                     stats.aliases += len(
                         [a for a in item["aliases"] if a not in (meta.get("aliases") or [])]
                     )
+                    continue
+
+                added = _merge_aliases(project, snapshot, item["aliases"])
+                stats.aliases += added
+                for alias in item["aliases"]:
+                    index.setdefault(alias, snapshot)
+                if _merge_note(project, snapshot, chapter_no, item.get("note", "")):
+                    stats.notes += 1
                 continue
 
-            # 新实体：建 stub 卡，标成「待确认」方便人工筛
+            # 新实体：置信度太低先放队列，够可信才直接建卡
+            if item.get("confidence", 1.0) < CANDIDATE_THRESHOLD:
+                if not dry_run:
+                    queue_candidate(
+                        project,
+                        chapter_no=chapter_no,
+                        kind=kind,
+                        item=item,
+                        reason=f"置信度 {item.get('confidence', 0):.2f} 偏低",
+                    )
+                stats.queued += 1
+                continue
+
             stats.candidates += 1
             setattr(stats, kind, getattr(stats, kind) + 1)
             label = KIND_LABELS.get(kind, kind)
             sample = f"{label}：{name}"
             if sample not in stats.samples and len(stats.samples) < 20:
                 stats.samples.append(sample)
-            entity_id = safe_entity_id(name)
             snapshot = {
                 "kind": kind,
-                "id": entity_id,
+                "id": safe_entity_id(name),
                 "meta": {"name": name, "aliases": item["aliases"]},
                 "body": "",
             }
@@ -368,26 +563,15 @@ def apply_result(
                 index.setdefault(alias, snapshot)
             if dry_run:
                 continue
-
-            meta = {
-                "id": entity_id,
-                "name": name,
-                "type": "character" if kind == "characters" else kind[:-1],
-                "status": "待确认",
-                "source": "auto",
-                "first_chapter": chapter_no,
-                "aliases": item["aliases"],
-            }
-            lines = ["## 自动抽取", f"- 首次出现：第{chapter_no}章"]
-            if item["role"]:
-                lines.append(f"- 定位：{item['role']}")
-            if item["note"]:
-                lines.append(f"- 描述：{item['note']}")
-            save_entity(project, kind, entity_id, meta, "\n".join(lines))
-            snapshot["meta"] = meta
-            snapshot["body"] = "\n".join(lines)
+            snapshot.update(_create_stub(project, kind, item, chapter_no))
 
     for event in data.get("events", []):
+        key = _event_key(event["summary"])
+        if key and key in seen:
+            stats.duplicates += 1
+            continue
+        if key:
+            seen.add(key)
         stats.events += 1
         if dry_run:
             continue
@@ -458,6 +642,8 @@ def run(
     state = load_state(project)
     done = state.setdefault("done", {})
     entities = build_entity_map(project)
+    # 事件去重跨章节生效：同一件事在多章被抽出来只留第一条
+    seen_events: set[str] = set(state.get("event_keys") or [])
     stats = ExtractStats()
     finished = 0
 
@@ -482,7 +668,7 @@ def run(
                 else:
                     chapter_stats = apply_result(
                         project, number, data, ExtractStats(),
-                        dry_run=dry_run, entities=entities,
+                        dry_run=dry_run, entities=entities, seen_events=seen_events,
                     )
                     stats.add(chapter_stats)
                     stats.chapters += 1
@@ -514,6 +700,7 @@ def run(
     if not dry_run:
         if stats.chapters:
             sort_timeline(project)
+        state["event_keys"] = sorted(seen_events)
         state["stats"] = stats.as_dict()
         state["updated_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
         save_state(project, state)

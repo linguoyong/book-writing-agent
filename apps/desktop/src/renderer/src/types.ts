@@ -451,6 +451,9 @@ export interface ExtractStats {
   foreshadowing: number
   failed: number
   candidates: number
+  queued: number
+  notes: number
+  duplicates: number
   details: { chapter: number; title: string; error: string }[]
   samples: string[]
 }
@@ -474,4 +477,17 @@ export interface ExtractStatus {
     stats: Partial<ExtractStats>
     updated_at: string
   }
+}
+
+export interface ExtractCandidate {
+  id: string
+  kind: string
+  name: string
+  aliases: string[]
+  role: string
+  note: string
+  confidence: number
+  chapter: number
+  reason: string
+  created_at: string
 }

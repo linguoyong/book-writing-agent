@@ -26,7 +26,7 @@ from ..style_import import StyleImportError, import_style
 from ..import_book import ImportError as BookImportError
 from ..import_book import commit as import_commit
 from ..extract import jobs as extract_jobs
-from ..extract import progress_summary as extract_progress
+from ..extract import accept_candidate, load_candidates, progress_summary as extract_progress, reject_candidate
 from ..extract import run as run_extract
 from ..import_book import preview as import_preview
 from ..llm import normalize_window
@@ -1002,6 +1002,40 @@ def start_extract(project_id: str, req: ExtractRequest) -> dict[str, Any]:
 
     threading.Thread(target=worker, daemon=True).start()
     return {"started": True, **extract_status(project_id)}
+
+
+@router.get("/projects/{project_id}/extract/candidates")
+def extract_candidates(project_id: str) -> dict[str, Any]:
+    project = _require_project(project_id)
+    items = load_candidates(Path(project["path"]))
+    return {"total": len(items), "items": items}
+
+
+@router.post("/projects/{project_id}/extract/candidates/{candidate_id}/accept")
+def extract_accept(project_id: str, candidate_id: str) -> dict[str, Any]:
+    project = _require_project(project_id)
+    root = Path(project["path"])
+    target = accept_candidate(root, candidate_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="这条候选不存在")
+
+    def index_one() -> None:
+        # 单独给这张卡建索引；首次会加载嵌入模型，别让它挡住「采纳」的响应
+        try:
+            KbIndex(root, load_settings().embedding).reindex_entity(
+                target["kind"], str(target["name"])
+            )
+        except Exception:  # noqa: BLE001 - 索引失败不影响卡片已经写入
+            pass
+
+    threading.Thread(target=index_one, daemon=True).start()
+    return {"ok": True, "accepted": target}
+
+
+@router.post("/projects/{project_id}/extract/candidates/{candidate_id}/reject")
+def extract_reject(project_id: str, candidate_id: str) -> dict[str, Any]:
+    project = _require_project(project_id)
+    return {"ok": reject_candidate(Path(project["path"]), candidate_id)}
 
 
 @router.post("/projects/{project_id}/extract/stop")

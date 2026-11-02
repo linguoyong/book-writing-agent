@@ -8,6 +8,7 @@ import type {
   ChunkItem,
   ContextBundle,
   Entity,
+  ExtractCandidate,
   ExtractStatus,
   ImportPreview,
   ImportResult,
@@ -328,6 +329,20 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ limit, dry_run: false })
     }),
+  extractCandidates: (projectId: string) =>
+    http<{ total: number; items: ExtractCandidate[] }>(
+      `/projects/${projectId}/extract/candidates`
+    ),
+  acceptCandidate: (projectId: string, candidateId: string) =>
+    http<{ ok: boolean }>(
+      `/projects/${projectId}/extract/candidates/${encodeURIComponent(candidateId)}/accept`,
+      { method: 'POST' }
+    ),
+  rejectCandidate: (projectId: string, candidateId: string) =>
+    http<{ ok: boolean }>(
+      `/projects/${projectId}/extract/candidates/${encodeURIComponent(candidateId)}/reject`,
+      { method: 'POST' }
+    ),
   extractStop: (projectId: string) =>
     http<{ stopped: boolean }>(`/projects/${projectId}/extract/stop`, { method: 'POST' }),
   importPreview: (projectId: string, path: string, pattern = '') =>

@@ -5369,3 +5369,70 @@ mark.diffv-word.del {
   color: var(--muted);
   font-size: 11px;
 }
+
+.extract-extra {
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.extract-candidates {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.extract-cand-head {
+  padding: 6px 10px;
+  background: var(--bg-elev);
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.extract-cand-list {
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.extract-cand {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 7px 10px;
+  border-top: 1px solid var(--border);
+}
+
+.extract-cand-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.extract-cand-name {
+  font-size: 12px;
+  color: var(--text);
+}
+
+.extract-cand-meta {
+  font-size: 10.5px;
+  color: var(--faint);
+}
+
+.extract-cand-note {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.extract-cand-main {
+  min-width: 0;
+  flex: 1;
+}
+
+.extract-cand-actions {
+  display: flex;
+  gap: 10px;
+  flex: none;
+}
