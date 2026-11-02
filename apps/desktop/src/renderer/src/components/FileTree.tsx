@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   ChevronDown,
   ChevronRight,
+  Download,
   FilePlus2,
   FileText,
   Folder,
@@ -147,6 +148,20 @@ export default function FileTree(): React.JSX.Element {
     void window.desktop?.showItemInFolder?.(project.path, node.path)
   }
 
+  const exportBook = async (): Promise<void> => {
+    if (!project) return
+    const title = project.meta?.title || project.name || '成稿'
+    const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '')
+    const target = await window.desktop?.saveTextFile?.(`${title}-${stamp}.txt`)
+    if (!target) return
+    try {
+      const result = await api.exportTxt(project.id, target)
+      showToast(`已导出 ${result.chapters} 章 · ${result.chars.toLocaleString()} 字 → ${result.path}`)
+    } catch (error) {
+      showToast((error as Error).message)
+    }
+  }
+
   const visible = query.trim() ? filterTree(tree, query.trim()) : tree
   const forceOpen = Boolean(query.trim())
 
@@ -168,6 +183,9 @@ export default function FileTree(): React.JSX.Element {
           title="新建文件"
         >
           <FilePlus2 size={12} />
+        </button>
+        <button className="ft-icon" onClick={() => void exportBook()} title="导出成稿（TXT）">
+          <Download size={12} />
         </button>
         <button className="ft-icon" onClick={expandAll} title="全部展开">
           <ChevronDown size={12} />

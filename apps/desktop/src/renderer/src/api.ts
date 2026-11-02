@@ -317,6 +317,20 @@ export const api = {
   getConfig: () => http<AppConfig>('/config'),
   saveConfig: (config: AppConfig) =>
     http<AppConfig>('/config', { method: 'PUT', body: JSON.stringify(config) }),
+  exportTxt: (projectId: string, path: string, includeToc = false) =>
+    http<{
+      path: string
+      name: string
+      chapters: number
+      chars: number
+      bytes: number
+      encoding: string
+      first: string
+      last: string
+    }>(`/projects/${projectId}/export/txt`, {
+      method: 'POST',
+      body: JSON.stringify({ path, encoding: 'utf-8', include_toc: includeToc })
+    }),
   extractStatus: (projectId: string) =>
     http<ExtractStatus>(`/projects/${projectId}/extract/status`),
   extractPreview: (projectId: string, limit = 3) =>

@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('desktop', {
   close: (): void => ipcRenderer.send('window:close'),
   pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('dialog:pick-directory'),
   pickTextFile: (): Promise<string | null> => ipcRenderer.invoke('dialog:pick-text-file'),
+  saveTextFile: (defaultName: string): Promise<string | null> =>
+    ipcRenderer.invoke('dialog:save-text-file', defaultName),
   openExternal: (url: string): Promise<boolean> =>
     ipcRenderer.invoke('shell:open-external', url),
   showItemInFolder: (root: string, relative: string): Promise<boolean> =>

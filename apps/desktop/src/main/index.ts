@@ -50,6 +50,15 @@ ipcMain.handle('dialog:pick-directory', async () => {
   return result.canceled ? null : result.filePaths[0]
 })
 
+ipcMain.handle('dialog:save-text-file', async (_event, defaultName: unknown) => {
+  const result = await dialog.showSaveDialog({
+    title: '导出成稿',
+    defaultPath: typeof defaultName === 'string' ? defaultName : '成稿.txt',
+    filters: [{ name: '文本文件', extensions: ['txt'] }]
+  })
+  return result.canceled ? null : result.filePath
+})
+
 ipcMain.handle('dialog:pick-text-file', async () => {
   const result = await dialog.showOpenDialog({
     properties: ['openFile'],

@@ -29,6 +29,8 @@ from ..extract import jobs as extract_jobs
 from ..extract import accept_candidate, load_candidates, progress_summary as extract_progress, reject_candidate
 from ..extract import run as run_extract
 from ..import_book import preview as import_preview
+from ..export_book import ExportError
+from ..export_book import export_txt as export_book_txt
 from ..llm import normalize_window
 from ..sandbox import check_command, check_path, check_url
 from ..text import read_text
@@ -937,6 +939,29 @@ def commit_import(project_id: str, req: ImportCommitRequest) -> dict[str, Any]:
     # 导入完立刻在后台建索引，几百万字也不用等
     _start_index_job(project_id, root)
     return result
+
+
+# ---------------------------------------------------------------- 导出
+
+
+class ExportTxtRequest(BaseModel):
+    path: str = ""
+    encoding: str = "utf-8"
+    include_toc: bool = False
+
+
+@router.post("/projects/{project_id}/export/txt")
+def export_txt(project_id: str, req: ExportTxtRequest) -> dict[str, Any]:
+    project = _require_project(project_id)
+    try:
+        return export_book_txt(
+            Path(project["path"]),
+            target=req.path,
+            encoding=req.encoding,
+            include_toc=req.include_toc,
+        )
+    except ExportError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # ---------------------------------------------------------------- 逐章抽取
