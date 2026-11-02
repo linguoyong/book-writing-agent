@@ -23,7 +23,7 @@ def _natural_key(value: str) -> list[Any]:
     return [int(part) if part.isdigit() else part.lower() for part in re.split(r"(\d+)", value)]
 
 
-def _chapter_files(project: Path) -> list[tuple[str, Path]]:
+def chapter_files(project: Path) -> list[tuple[str, Path]]:
     manuscript = project / "manuscript"
     if not manuscript.exists():
         return []
@@ -65,7 +65,7 @@ def _clean_body(body: str, title: str) -> str:
 
 def collect(project: Path) -> list[dict[str, Any]]:
     chapters: list[dict[str, Any]] = []
-    for relative, file in _chapter_files(project):
+    for relative, file in chapter_files(project):
         try:
             meta, body = parse_note(read_text(file))
         except OSError:

@@ -12,6 +12,8 @@ from .config import GLOBAL_SKILLS_DIR
 from .domains import DomainPack, ToolContext, get_domain
 from .kb.repository import dump_note, get_entity, parse_note
 from .text import read_text
+from .kb.repository import trim_meta
+from .stats import compute as compute_stats
 from .workspace import read_book_meta, safe_join
 
 IDENTITY = """你是「墨」，一个本地桌面写作 Agent 的内核。
@@ -240,10 +242,14 @@ def _references_block(project: Path, references: list[dict[str, Any]]) -> str:
                 if not entity:
                     blocks.append(f"<ref type=\"entity\" name=\"{name}\">未找到该条目</ref>")
                     continue
+                progress = read_book_meta(project).get("progress") or {}
+                meta = trim_meta(
+                    entity["meta"], int(progress.get("chapter") or 0)
+                )
                 blocks.append(
                     f'<ref type="entity" name="{entity["title"]}" '
                     f'source="{entity["file"]}">\n'
-                    f"{dump_note(entity['meta'], entity['body'])}\n</ref>"
+                    f"{dump_note(meta, entity['body'])}\n</ref>"
                 )
             elif kind in {"file", "chapter", "skill"}:
                 path = str(ref.get("path") or "")
@@ -267,6 +273,16 @@ def _clip_ref(text: str, limit: int = 4000) -> str:
     return text[:limit].rstrip() + "\n…（引用内容过长，已截断）"
 
 
+def _stat_line(project: Path) -> str:
+    try:
+        stats = compute_stats(project)
+    except Exception:  # noqa: BLE001 - 统计失败不该影响对话
+        return "规模未知"
+    if not stats.get("chapters"):
+        return "还没有成稿"
+    return f"{stats['chapters']} 章，约 {stats['words']} 字"
+
+
 def _runtime_block(
     project: Path,
     session: dict[str, Any] | None,
@@ -279,7 +295,8 @@ def _runtime_block(
     lines = [
         f"当前日期：{datetime.now():%Y-%m-%d}",
         f"书稿：《{meta.get('title') or project.name}》，"
-        f"进度：第{progress.get('volume', 1)}卷第{progress.get('chapter', 1)}章",
+        f"进度：第{progress.get('volume', 1)}卷第{progress.get('chapter', 1)}章"
+        f"（全书 {_stat_line(project)}）",
         f"项目目录：{project}",
     ]
     if session:

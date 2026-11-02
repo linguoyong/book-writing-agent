@@ -13,6 +13,12 @@ import {
 import { useAppStore } from '../store'
 import Markdown from './Markdown'
 
+function stripFrontMatter(text: string): string {
+  // 章节文件带 front-matter，预览时别把它当正文显示出来
+  const match = /^---\r?\n[\s\S]*?\r?\n---\r?\n?/.exec(text)
+  return match ? text.slice(match[0].length) : text
+}
+
 export default function FileViewer({
   treeOpen = true,
   onToggleTree
@@ -163,7 +169,7 @@ export default function FileViewer({
             </div>
           ) : mode === 'preview' && isMarkdown ? (
             <div className="fv-preview">
-              <Markdown content={openFile.content} />
+              <Markdown content={stripFrontMatter(openFile.content)} />
             </div>
           ) : (
             <CodeMirror

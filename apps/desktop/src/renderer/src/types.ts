@@ -124,12 +124,28 @@ export interface SearchHit {
   routed?: boolean
 }
 
+export interface ProjectStats {
+  chapters: number
+  words: number
+  avg_words: number
+  today_words: number
+  volume: number
+  chapter: number
+  chapter_title: string
+  target_words: number
+  progress: number
+  words_per_chapter: number
+  recent: { title: string; words: number; updated_at: string }[]
+  updated_at: string
+}
+
 export interface Overview {
   book: BookMeta
   kb_counts: Record<string, number>
   chapter_count: number
   manuscript_count: number
   index: { chunks: number; embedded: number; provider: string }
+  stats?: ProjectStats
   git_dirty: boolean
 }
 

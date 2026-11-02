@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   ChevronDown,
   ChevronRight,
+  BookPlus,
   Download,
   FilePlus2,
   FileText,
@@ -27,8 +28,21 @@ const GIT_LABEL: Record<string, string> = {
   deleted: 'D'
 }
 
+function shortChapterTitle(title: string): string {
+  // 「第4章 雾中来客」已经带了章号，副标题里只留标题本身
+  const stripped = title.replace(/^第\s*[0-9零一二三四五六七八九十百千两]+\s*[章回节]\s*/, '').trim()
+  return stripped ? ` · ${stripped}` : ''
+}
+
+function formatWords(value: number): string {
+  if (!value) return '0 字'
+  if (value < 10000) return `${value.toLocaleString()} 字`
+  return `${(value / 10000).toFixed(1)} 万字`
+}
+
 export default function FileTree(): React.JSX.Element {
   const tree = useAppStore((state) => state.tree)
+  const stats = useAppStore((state) => state.overview?.stats)
   const project = useAppStore((state) => state.activeProject)
   const currentPath = useAppStore((state) => state.openFile?.path)
   const openFileByPath = useAppStore((state) => state.openFileByPath)
@@ -148,6 +162,21 @@ export default function FileTree(): React.JSX.Element {
     void window.desktop?.showItemInFolder?.(project.path, node.path)
   }
 
+  const newChapter = async (): Promise<void> => {
+    if (!project) return
+    const title = window.prompt('新章节标题（留空则自动用「第N章」）', '')
+    if (title === null) return
+    try {
+      const result = await api.newChapter(project.id, title.trim())
+      await refreshTree()
+      await openFileByPath(result.path, true)
+      void useAppStore.getState().refreshOverview?.()
+      showToast(`已新建 ${result.title}（${result.path}）`)
+    } catch (error) {
+      showToast((error as Error).message)
+    }
+  }
+
   const exportBook = async (): Promise<void> => {
     if (!project) return
     const title = project.meta?.title || project.name || '成稿'
@@ -167,6 +196,22 @@ export default function FileTree(): React.JSX.Element {
 
   return (
     <div className="file-tree-panel">
+      {stats && stats.chapters > 0 && (
+        <div className="ft-stats">
+          <div className="ft-stats-chapter">
+            第 {stats.chapter} 章{shortChapterTitle(stats.chapter_title)}
+          </div>
+          <div className="ft-stats-line">
+            <span>{formatWords(stats.words)}</span>
+            <span className="ft-stats-today">今日 {formatWords(stats.today_words)}</span>
+          </div>
+          {stats.target_words > 0 && (
+            <div className="ft-stats-bar" title={`目标 ${formatWords(stats.target_words)}`}>
+              <span style={{ width: `${Math.min(100, Math.round(stats.progress * 100))}%` }} />
+            </div>
+          )}
+        </div>
+      )}
       <div className="ft-toolbar">
         <div className="ft-search">
           <Search size={12} />
@@ -183,6 +228,9 @@ export default function FileTree(): React.JSX.Element {
           title="新建文件"
         >
           <FilePlus2 size={12} />
+        </button>
+        <button className="ft-icon" onClick={() => void newChapter()} title="新建章节">
+          <BookPlus size={12} />
         </button>
         <button className="ft-icon" onClick={() => void exportBook()} title="导出成稿（TXT）">
           <Download size={12} />

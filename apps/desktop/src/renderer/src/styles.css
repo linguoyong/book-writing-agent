@@ -5436,3 +5436,48 @@ mark.diffv-word.del {
   gap: 10px;
   flex: none;
 }
+
+/* ---------- 文件面板：写作进度 ---------- */
+
+.ft-stats {
+  padding: 8px 10px 6px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ft-stats-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 10.5px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+.ft-stats-chapter {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.ft-stats-today {
+  color: var(--accent);
+}
+
+.ft-stats-bar {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--bg-elev);
+  overflow: hidden;
+}
+
+.ft-stats-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from app.config import EmbeddingSettings
 from app.kb.repository import save_entity
+from app.kb.repository import state_at, trim_meta
 from app.kb.search import KbIndex, _chapter_number, _normalize
 
 
@@ -45,6 +46,33 @@ class IndexBaselineTest(unittest.TestCase):
 
         self.assertEqual(self.index.stats()["chunks"], before + 1)
         self.assertTrue(self.index.search("苏晴"))
+
+
+class TimelineTest(unittest.TestCase):
+    META = {
+        "name": "沈砚",
+        "timeline": [
+            {"chapter": 1, "state": {"location": "北堤", "mood": "疲惫"}},
+            {"chapter": 12, "state": {"location": "旧灯塔", "mood": "决绝"}},
+            {"chapter": 30, "state": {"location": "雾港", "mood": "平静"}},
+        ],
+    }
+
+    def test_state_at_uses_latest_not_after_chapter(self) -> None:
+        self.assertEqual(state_at(self.META, 5)["chapter"], 1)
+        self.assertEqual(state_at(self.META, 12)["state"]["location"], "旧灯塔")
+        self.assertEqual(state_at(self.META, 99)["chapter"], 30)
+
+    def test_state_at_returns_none_before_first(self) -> None:
+        self.assertIsNone(state_at({"timeline": [{"chapter": 5, "state": {}}]}, 1))
+
+    def test_trim_meta_hides_future(self) -> None:
+        trimmed = trim_meta(self.META, 12)
+        chapters = [entry["chapter"] for entry in trimmed["timeline"]]
+        self.assertEqual(chapters, [1, 12])
+
+    def test_trim_meta_without_chapter_is_noop(self) -> None:
+        self.assertEqual(trim_meta(self.META, 0), self.META)
 
 
 class NormalizeTest(unittest.TestCase):

@@ -133,3 +133,44 @@ def _now() -> str:
     from datetime import datetime, timezone
 
     return datetime.now(timezone.utc).isoformat()
+
+
+def state_at(meta: dict[str, Any], chapter: int) -> dict[str, Any] | None:
+    """取第 N 章时点上的角色状态（timeline 里 chapter <= N 的最后一条）。"""
+    timeline = meta.get("timeline") if isinstance(meta, dict) else None
+    if not isinstance(timeline, list) or not timeline:
+        return None
+    applicable = []
+    for entry in timeline:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            number = int(entry.get("chapter") or 0)
+        except (TypeError, ValueError):
+            number = 0
+        if number <= chapter:
+            applicable.append((number, entry))
+    if not applicable:
+        return None
+    number, entry = max(applicable, key=lambda item: item[0])
+    return {"chapter": number, "state": entry.get("state") or {}}
+
+
+def trim_meta(meta: dict[str, Any], chapter: int) -> dict[str, Any]:
+    """把 timeline 裁到当前进度，避免模型读到后面的状态（防剧透）。"""
+    timeline = meta.get("timeline")
+    if not chapter or not isinstance(timeline, list) or not timeline:
+        return meta
+    kept = []
+    for entry in timeline:
+        if not isinstance(entry, dict):
+            continue
+        try:
+            number = int(entry.get("chapter") or 0)
+        except (TypeError, ValueError):
+            number = 0
+        if number <= chapter:
+            kept.append(entry)
+    trimmed = dict(meta)
+    trimmed["timeline"] = kept[-3:]
+    return trimmed

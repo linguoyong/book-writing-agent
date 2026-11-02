@@ -16,10 +16,13 @@ from ..kb.repository import (
     list_entities,
     safe_entity_id,
     save_entity,
+    state_at,
+    trim_meta,
 )
 from ..kb.search import KbIndex, load_kb_config
 from ..sandbox import check_path
 from ..text import read_text
+from ..workspace import read_book_meta
 from ..workspace import git_diff, read_book_meta, safe_join
 from .base import ToolContext
 
@@ -113,6 +116,15 @@ def build_tools(ctx: ToolContext) -> list[Any]:
         entity = get_entity(project, kind, entity_id)
         if not entity:
             return f"未找到条目：{kind}/{entity_id}"
+        # 防剧透：timeline 只给到当前写作进度，并直接给出「当前状态」
+        progress = read_book_meta(project).get("progress") or {}
+        chapter = int(progress.get("chapter") or 0)
+        if chapter:
+            entity = dict(entity)
+            entity["meta"] = trim_meta(entity.get("meta") or {}, chapter)
+            current = state_at(entity["meta"], chapter)
+            if current:
+                entity["current_state"] = current
         return json.dumps(entity, ensure_ascii=False, indent=2)
 
     @tool

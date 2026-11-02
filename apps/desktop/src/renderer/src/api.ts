@@ -317,6 +317,11 @@ export const api = {
   getConfig: () => http<AppConfig>('/config'),
   saveConfig: (config: AppConfig) =>
     http<AppConfig>('/config', { method: 'PUT', body: JSON.stringify(config) }),
+  newChapter: (projectId: string, title = '') =>
+    http<{ path: string; chapter: number; volume: number; title: string }>(
+      `/projects/${projectId}/chapter`,
+      { method: 'POST', body: JSON.stringify({ title }) }
+    ),
   exportTxt: (projectId: string, path: string, includeToc = false) =>
     http<{
       path: string

@@ -31,6 +31,8 @@ from ..extract import run as run_extract
 from ..import_book import preview as import_preview
 from ..export_book import ExportError
 from ..export_book import export_txt as export_book_txt
+from ..stats import sync_progress
+from ..chapters import ChapterError, create as create_chapter
 from ..llm import normalize_window
 from ..sandbox import check_command, check_path, check_url
 from ..text import read_text
@@ -289,8 +291,15 @@ def project_overview(project_id: str) -> dict[str, Any]:
         "chapter_count": len(chapters),
         "manuscript_count": len(manuscript),
         "index": index.stats(),
+        "stats": sync_progress(path),
         "git_dirty": bool(git_status(path).strip()),
     }
+
+
+@router.get("/projects/{project_id}/stats")
+def project_stats(project_id: str) -> dict[str, Any]:
+    project = _require_project(project_id)
+    return sync_progress(Path(project["path"]))
 
 
 # ---------------------------------------------------------------- 会话
@@ -938,6 +947,28 @@ def commit_import(project_id: str, req: ImportCommitRequest) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     # 导入完立刻在后台建索引，几百万字也不用等
     _start_index_job(project_id, root)
+    return result
+
+
+# ---------------------------------------------------------------- 章节
+
+
+class CreateChapterRequest(BaseModel):
+    title: str = ""
+    volume: int | None = None
+
+
+@router.post("/projects/{project_id}/chapter")
+def new_chapter(project_id: str, req: CreateChapterRequest) -> dict[str, Any]:
+    project = _require_project(project_id)
+    try:
+        result = create_chapter(
+            Path(project["path"]), title=req.title, volume=req.volume
+        )
+    except ChapterError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    # 新建后立刻同步进度，运行态与防剧透能马上看到新章
+    sync_progress(Path(project["path"]))
     return result
 
 
