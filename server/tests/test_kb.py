@@ -124,13 +124,16 @@ class EntityChunkSplitTest(unittest.TestCase):
 
         ids = self._chunk_ids()
         self.assertGreaterEqual(len(ids), 2)
-        self.assertIn("characters:lin:0", ids)
+        # 切片 id = kind:entity:正文摘要；正文不变，id 就不会变
+        self.assertTrue(all(item.startswith("characters:lin:") for item in ids), ids)
 
     def test_short_card_stays_single_chunk(self) -> None:
         save_entity(self.project, "characters", "su", {"name": "苏晴"}, "落霞城医女。")
         self.index.rebuild()
 
-        self.assertEqual(self._chunk_ids(), ["characters:su"])
+        ids = self._chunk_ids()
+        self.assertEqual(len(ids), 1)
+        self.assertTrue(ids[0].startswith("characters:su:"), ids)
 
     def test_reindex_replaces_whole_group(self) -> None:
         save_entity(self.project, "characters", "lin", {"name": "林昭"}, self.body)

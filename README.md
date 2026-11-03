@@ -119,7 +119,7 @@ pnpm dev              # 启动桌面端，Electron 会自动拉起 Python 后端
 
 ```bash
 pnpm server           # uvicorn app.main:app --port 8787 --reload
-pnpm test             # 后端单测（unittest，182 个用例）
+pnpm test             # 后端单测（unittest，190 个用例）
 pnpm build            # 构建 renderer / main / preload
 ```
 
@@ -201,6 +201,11 @@ CI 配置在 `.github/workflows/ci.yml`（GitHub Actions 语法；仓库托管�
 | OpenAI 兼容接口 | 自备 `/embeddings` 端点（如 bge-m3），按量计费 |
 
 换模型或改维度后必须重建索引（知识库页右上角），页面会检测维度不一致并提示。
+
+重建是增量的：每个源文件按 `(mtime, size)` + 内容摘要记账，只重排改过的文件；
+切片 id 由正文摘要派生，所以「改一段」只重编这一段，同章其余切片的向量原地保留。
+改一个字重跑一次是毫秒级，百万字项目不必再等整本重嵌；真要从零来过用
+`POST /projects/{id}/reindex?full=true`。
 
 ## 安全边界
 

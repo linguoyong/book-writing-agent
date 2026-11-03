@@ -107,6 +107,10 @@ export interface IndexJob {
   running: boolean
   chunks: number | null
   embedded: number | null
+  /** 本次重排了几个文件（增量重建只动改过的） */
+  changed?: number | null
+  /** 本次跳过了几个没变的文件 */
+  skipped?: number | null
   error?: string | null
   stage?: string
   done?: number

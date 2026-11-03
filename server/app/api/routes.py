@@ -918,7 +918,7 @@ def _patch_job(project_id: str, **fields: Any) -> None:
         _index_jobs[project_id] = current
 
 
-def _run_index_job(project_id: str, root: Path) -> None:
+def _run_index_job(project_id: str, root: Path, full: bool = False) -> None:
     while True:
         started_at = time.monotonic()
 
@@ -932,11 +932,14 @@ def _run_index_job(project_id: str, root: Path) -> None:
 
         try:
             index = KbIndex(root, load_settings().embedding)
-            result = index.rebuild(progress)
+            result = index.rebuild(progress, full=full)
             payload: dict[str, Any] = {
                 "running": False,
                 "chunks": result["chunks"],
                 "embedded": result["embedded"],
+                # changed/skipped 让前端能说清「这次只重排了 3 个文件」
+                "changed": result["changed"],
+                "skipped": result["skipped"],
                 "error": index.last_vector_error or None,
                 "stage": "done",
                 "done": result["embedded"],
@@ -947,6 +950,8 @@ def _run_index_job(project_id: str, root: Path) -> None:
                 "running": False,
                 "chunks": 0,
                 "embedded": 0,
+                "changed": 0,
+                "skipped": 0,
                 "error": f"{type(exc).__name__}: {exc}",
                 "stage": "error",
                 "done": 0,
@@ -962,9 +967,10 @@ def _run_index_job(project_id: str, root: Path) -> None:
                 break
             job.update(running=True, queued=False, stage="collect", done=0, total=0, error=None)
             _index_jobs[project_id] = job
+            full = bool(job.get("full"))
 
 
-def _start_index_job(project_id: str, root: Path) -> dict[str, Any]:
+def _start_index_job(project_id: str, root: Path, full: bool = False) -> dict[str, Any]:
     """登记任务并起线程：重建索引与导入后建库共用。
 
     已有任务在跑时不重复起线程，只打一个 queued 标记，让当前任务跑完再来一轮——
@@ -974,10 +980,12 @@ def _start_index_job(project_id: str, root: Path) -> dict[str, Any]:
         current = _index_jobs.get(project_id)
         if current and current.get("running"):
             current["queued"] = True
+            current["full"] = bool(current.get("full") or full)
             return dict(current)
         _index_jobs[project_id] = {
             "running": True,
             "queued": False,
+            "full": full,
             "chunks": 0,
             "embedded": 0,
             "error": None,
@@ -986,15 +994,19 @@ def _start_index_job(project_id: str, root: Path) -> dict[str, Any]:
             "total": 0,
         }
         job = dict(_index_jobs[project_id])
-    threading.Thread(target=_run_index_job, args=(project_id, root), daemon=True).start()
+    threading.Thread(target=_run_index_job, args=(project_id, root, full), daemon=True).start()
     return job
 
 
 @router.post("/projects/{project_id}/reindex")
-def reindex_kb(project_id: str) -> dict[str, Any]:
-    """索引重建放到后台线程：百万字项目不会把请求挂住。"""
+def reindex_kb(project_id: str, full: bool = False) -> dict[str, Any]:
+    """索引重建放到后台线程：百万字项目不会把请求挂住。
+
+    默认增量（只重排改过的文件）；`?full=true` 才清空重来，
+    留给「索引看着不对」的兜底，代价是整本重嵌。
+    """
     project = _require_project(project_id)
-    return _start_index_job(project_id, Path(project["path"]))
+    return _start_index_job(project_id, Path(project["path"]), full=full)
 
 
 @router.get("/projects/{project_id}/index/status")
