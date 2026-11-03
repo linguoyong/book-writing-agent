@@ -93,6 +93,15 @@ def _mask_secrets(data: dict[str, Any]) -> dict[str, Any]:
     for item in data.get("models") or []:
         if isinstance(item, dict):
             item["api_key"] = MASKED_KEY if item.get("api_key") else ""
+    # MCP 服务器的 env 里常放 token / 密码，同样不能明文回显
+    for server in data.get("mcp") or []:
+        if not isinstance(server, dict):
+            continue
+        env = server.get("env")
+        if isinstance(env, dict):
+            server["env"] = {
+                str(key): (MASKED_KEY if value else "") for key, value in env.items()
+            }
     return data
 
 
@@ -121,7 +130,25 @@ def put_config(payload: dict[str, Any]) -> dict[str, Any]:
                 patch.pop("api_key", None)
             merged[key].update(patch)
     if isinstance(payload.get("mcp"), list):
-        merged["mcp"] = payload["mcp"]
+        # 回显过的 env 是 ***，按服务器名把原值换回来，避免把掩码写进配置
+        previous_mcp = {
+            str(item.get("name")): item
+            for item in (merged.get("mcp") or [])
+            if isinstance(item, dict)
+        }
+        servers: list[dict[str, Any]] = []
+        for item in payload["mcp"]:
+            if not isinstance(item, dict):
+                continue
+            env = item.get("env")
+            if isinstance(env, dict):
+                previous_env = (previous_mcp.get(str(item.get("name"))) or {}).get("env") or {}
+                item["env"] = {
+                    str(key): (previous_env.get(key, value) if value == MASKED_KEY else value)
+                    for key, value in env.items()
+                }
+            servers.append(item)
+        merged["mcp"] = servers
     if isinstance(payload.get("models"), list):
         previous = {
             str(item.get("id")): item

@@ -130,7 +130,14 @@ async def chat_stream(
         steering.begin(session_id)
         try:
             # MCP 工具在只读侧问里不注入：它们不经路径沙箱
-            mcp_tools = [] if readonly else await mcp_manager.get_tools()
+            if readonly:
+                mcp_tools = []
+            else:
+                try:
+                    mcp_tools = await asyncio.wait_for(mcp_manager.get_tools(), timeout=15)
+                except TimeoutError:
+                    # 某个 MCP 服务器不响应时降级为「少一批工具」，不要连对话都起不来
+                    mcp_tools = []
             agent, bundle = build_agent(
                 project,
                 session=session,
@@ -321,17 +328,31 @@ async def approve_stream(
             return
 
         normalized = _normalize_decisions(decisions)
-        expected = len(pending["payload"].get("requests") or [])
+        requested = pending["payload"].get("requests") or []
+        expected = len(requested)
         if not normalized:
             yield _sse("error", {"message": "审批决定为空"})
             return
         if expected and len(normalized) != expected:
             yield _sse("error", {"message": f"审批数量不匹配：需要 {expected} 条决定"})
             return
+        # 批量审批的 resume 没有 response_schema 兜底，工具名必须在这里钉死：
+        # 否则「改参数」可以把待审的 manuscript_write 换成任意工具（含 MCP）。
+        for index, decision in enumerate(normalized):
+            if decision["type"] != "edit":
+                continue
+            original = requested[index] if index < len(requested) else {}
+            expected_name = str(original.get("name") or "")
+            if expected_name and decision["edited_action"]["name"] != expected_name:
+                yield _sse("error", {"message": "审批只能修改参数，不能更换工具"})
+                return
 
         expert = resolve_expert(project, session.get("expert_id") or "general")
         try:
-            mcp_tools = await mcp_manager.get_tools()
+            try:
+                mcp_tools = await asyncio.wait_for(mcp_manager.get_tools(), timeout=15)
+            except TimeoutError:
+                mcp_tools = []
             agent, _ = build_agent(
                 project,
                 session=session,

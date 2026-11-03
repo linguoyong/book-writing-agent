@@ -39,7 +39,9 @@ export default function ApprovalCard({ approval, streaming, onSubmit }: Props): 
     setChoices(approval.requests.map(() => 'approve'))
     setReasons(approval.requests.map(() => ''))
     setEdits({})
-  }, [approval.approval_id, approval.requests])
+    // 只按审批 id 重置：同一审批被 SSE 重发时，不能把用户已经选好的
+    // 「拒绝 / 编辑后执行」清回默认的「通过」——写盘场景下这是危险默认值。
+  }, [approval.approval_id])
 
   const setChoice = (index: number, choice: Choice): void => {
     setChoices((prev) => prev.map((item, i) => (i === index ? choice : item)))

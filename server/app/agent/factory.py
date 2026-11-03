@@ -6,7 +6,7 @@ from typing import Any
 from deepagents import FilesystemPermission, create_deep_agent
 from deepagents.backends import CompositeBackend, FilesystemBackend
 
-from ..config import GLOBAL_SKILLS_DIR, load_settings
+from ..config import APP_HOME, GLOBAL_SKILLS_DIR, load_settings
 from ..context import ContextBundle, assemble, tool_context
 from ..domains import get_domain
 from ..llm import build_chat_model, normalize_window
@@ -102,18 +102,20 @@ def build_agent(
 
 
 def _backend(project: Path) -> CompositeBackend:
-    """项目根目录为主，另挂全局技能到 /global-skills。"""
+    """项目根目录为主，全局技能挂 /global-skills，压缩产物挂 /artifacts。"""
     default = FilesystemBackend(root_dir=str(project), virtual_mode=True)
-    if not GLOBAL_SKILLS_DIR.exists():
-        return CompositeBackend(default=default, routes={})
-    return CompositeBackend(
-        default=default,
-        routes={
-            "/global-skills/": FilesystemBackend(
-                root_dir=str(GLOBAL_SKILLS_DIR), virtual_mode=True
-            )
-        },
-    )
+    routes: dict[str, FilesystemBackend] = {}
+    if GLOBAL_SKILLS_DIR.exists():
+        routes["/global-skills/"] = FilesystemBackend(
+            root_dir=str(GLOBAL_SKILLS_DIR), virtual_mode=True
+        )
+    # 自动压缩会把淘汰的完整对话落盘。默认 artifacts_root="/" 会把
+    # conversation_history/ 写进书稿根目录，被 git add -A 带进版本库；
+    # 这里改挂到 ~/.book-agent/artifacts，书稿目录只留正文与设定。
+    artifacts = APP_HOME / "artifacts"
+    artifacts.mkdir(parents=True, exist_ok=True)
+    routes["/artifacts/"] = FilesystemBackend(root_dir=str(artifacts), virtual_mode=True)
+    return CompositeBackend(default=default, routes=routes, artifacts_root="/artifacts")
 
 
 def _skill_sources(project: Path, subdir: str) -> list[str] | None:

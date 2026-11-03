@@ -5,6 +5,7 @@ import { useAppStore } from '../store'
 import { KB_LABELS } from '../store'
 import type { Entity, GraphData, GraphEdge, GraphNode, KbKind } from '../types'
 
+const MAX_NODES = 300
 const WIDTH = 880
 const HEIGHT = 560
 
@@ -157,20 +158,43 @@ export default function KnowledgeGraph({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [project?.id, mentions])
 
+  // 力导向是 O(n²)：几百个提及节点就能把主线程卡住几秒。
+  // 超过上限时按连接度保留最重要的节点，其余不参与布局与渲染。
+  const view = useMemo(() => {
+    if (!data) return null
+    if (data.nodes.length <= MAX_NODES) {
+      return { nodes: data.nodes, edges: data.edges, trimmed: 0 }
+    }
+    const degree = new Map<string, number>()
+    for (const edge of data.edges) {
+      degree.set(edge.source, (degree.get(edge.source) ?? 0) + 1)
+      degree.set(edge.target, (degree.get(edge.target) ?? 0) + 1)
+    }
+    const kept = [...data.nodes]
+      .sort((a, b) => (degree.get(b.id) ?? 0) - (degree.get(a.id) ?? 0))
+      .slice(0, MAX_NODES)
+    const ids = new Set(kept.map((node) => node.id))
+    return {
+      nodes: kept,
+      edges: data.edges.filter((edge) => ids.has(edge.source) && ids.has(edge.target)),
+      trimmed: data.nodes.length - kept.length
+    }
+  }, [data])
+
   const positions = useMemo(
-    () => (data ? computePositions(data.nodes, data.edges, seed) : new Map()),
-    [data, seed]
+    () => (view ? computePositions(view.nodes, view.edges, seed) : new Map()),
+    [view, seed]
   )
 
   const nodeById = useMemo(
-    () => new Map((data?.nodes ?? []).map((node) => [node.id, node])),
-    [data]
+    () => new Map((view?.nodes ?? []).map((node) => [node.id, node])),
+    [view]
   )
 
   const neighbours = useMemo(() => {
-    if (!data || !active) return new Set<string>()
+    if (!view || !active) return new Set<string>()
     const set = new Set<string>([active])
-    data.edges.forEach((edge) => {
+    view.edges.forEach((edge) => {
       if (edge.source === active) set.add(edge.target)
       if (edge.target === active) set.add(edge.source)
     })
@@ -192,12 +216,12 @@ export default function KnowledgeGraph({
 
   const selected = active ? nodeById.get(active) : null
   const linked = useMemo(() => {
-    if (!data || !active) return []
+    if (!view || !active) return []
     const grouped = new Map<
       string,
       { node: GraphNode; labels: string[]; hasRelation: boolean }
     >()
-    data.edges
+    view.edges
       .filter((edge) => edge.source === active || edge.target === active)
       .forEach((edge) => {
         const other = nodeById.get(edge.source === active ? edge.target : edge.source)
@@ -214,7 +238,7 @@ export default function KnowledgeGraph({
     return [...grouped.values()].sort(
       (a, b) => Number(b.hasRelation) - Number(a.hasRelation)
     )
-  }, [data, active, nodeById])
+  }, [view, active, nodeById])
 
   const stats = data?.stats
 
@@ -225,6 +249,9 @@ export default function KnowledgeGraph({
           {stats ? (
             <>
               <span>{stats.nodes} 个节点</span>
+              {view && view.trimmed > 0 && (
+                <span className="graph-warn">（按连接度显示前 {MAX_NODES} 个）</span>
+              )}
               <span className="graph-dot">·</span>
               <span>{stats.relations} 条关系</span>
               <span className="graph-dot">·</span>
@@ -264,21 +291,21 @@ export default function KnowledgeGraph({
               读取关系…
             </div>
           )}
-          {!loading && data && data.nodes.length === 0 && (
+          {!loading && view && view.nodes.length === 0 && (
             <div className="empty-block">
               <Share2 size={20} />
               <div>还没有可画的条目</div>
               <p>先在「角色 / 势力 / 地点 / 物品」里建卡，或在卡片里写 relations。</p>
             </div>
           )}
-          {!loading && data && data.nodes.length > 0 && (
+          {!loading && view && view.nodes.length > 0 && (
             <svg
               className="graph-svg"
               viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
               onClick={() => setActive(null)}
             >
               <g>
-                {data.edges.map((edge, index) => {
+                {view.edges.map((edge, index) => {
                   const from = positions.get(edge.source)
                   const to = positions.get(edge.target)
                   if (!from || !to) return null
@@ -299,7 +326,7 @@ export default function KnowledgeGraph({
                 })}
               </g>
               <g>
-                {data.nodes.map((node) => {
+                {view.nodes.map((node) => {
                   const point = positions.get(node.id)
                   if (!point) return null
                   const radius = 7 + Math.min(node.degree, 8) * 1.7
