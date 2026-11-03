@@ -6,7 +6,7 @@ from typing import Any
 
 import yaml
 
-from ..text import read_text
+from ..text import normalize_newlines, read_text, save_text
 
 KINDS = [
     "characters",
@@ -37,21 +37,24 @@ def safe_entity_id(entity_id: str) -> str:
 
 
 def parse_note(text: str) -> tuple[dict[str, Any], str]:
+    text = normalize_newlines(text)
     match = _FRONT_MATTER.match(text)
     if not match:
         return {}, text
     try:
         meta = yaml.safe_load(match.group(1)) or {}
     except yaml.YAMLError:
-        meta = {}
-    if not isinstance(meta, dict):
-        meta = {}
+        # 首尾两行 --- 之间不是合法 YAML（常见于正文首行就是场景分隔线），
+        # 这时整份内容都算正文，不能把第一段当 front-matter 吃掉。
+        return {}, text
+    if not isinstance(meta, dict) or not meta:
+        return {}, text
     return meta, match.group(2)
 
 
 def dump_note(meta: dict[str, Any], body: str) -> str:
     header = yaml.safe_dump(meta, allow_unicode=True, sort_keys=False).strip()
-    return f"---\n{header}\n---\n\n{body.strip()}\n"
+    return f"---\n{header}\n---\n\n{normalize_newlines(body).strip()}\n"
 
 
 def entity_file(project: Path, kind: str, entity_id: str) -> Path:
@@ -83,7 +86,7 @@ def get_entity(project: Path, kind: str, entity_id: str) -> dict[str, Any] | Non
     file = entity_file(project, kind, entity_id)
     if not file.exists():
         return None
-    meta, body = parse_note(file.read_text(encoding="utf-8"))
+    meta, body = parse_note(read_text(file))
     return {
         "id": meta.get("id") or file.stem,
         "kind": kind,
@@ -107,7 +110,7 @@ def save_entity(
     merged_meta.setdefault("type", kind[:-1] if kind.endswith("s") else kind)
     merged_meta["updated_at"] = _now()
 
-    file.write_text(dump_note(merged_meta, body), encoding="utf-8")
+    save_text(file, dump_note(merged_meta, body))
     saved = get_entity(project, kind, entity_id)
     assert saved is not None
     return saved

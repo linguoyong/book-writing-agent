@@ -13,8 +13,10 @@ interface Window {
     backendInfo: () => Promise<{
       port: number
       ready: boolean
-      token?: string
       error?: string
     }>
+    setDirty: (dirty: boolean) => void
+    forceClose: () => void
+    onBeforeClose: (handler: () => void) => () => void
   }
 }

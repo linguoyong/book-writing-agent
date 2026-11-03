@@ -69,7 +69,7 @@
 | 成稿导出 | 合并 `manuscript/` 为单文件 TXT：卷/章自然排序、自动去 front-matter、书名作者抬头，可选目录与 GBK 编码 |
 | 逐章抽取 | 章节 → 结构化设定（角色/地点/势力/物品/事件/伏笔）→ 按名字与别名归并；低置信/冲突进待确认队列，已有卡片只补「自动摘要」，事件跨章去重 |
 | 混合检索 | FTS5(jieba) 与 sqlite-vec 两路召回，RRF 融合；支持按类型、按章节上限过滤（防剧透） |
-| 上下文装配 | 身份/人设/域规则/用户记忆/长期记忆/项目记忆/引用/技能/运行态 共 8 层，每层有字符预算并可查看注入清单 |
+| 上下文装配 | 身份/人设/域规则/用户记忆/长期记忆/项目记忆/主会话上下文（侧问）/引用/技能/运行态 共 10 层，每层有字符预算并可查看注入清单 |
 | 自动压缩 | 按所选模型的上下文窗口折算触发点，淘汰的消息先落盘再摘要，可用 `read_file` 回读 |
 | 防剧透 | 角色 timeline 按当前进度裁剪，`kb_get` 只给到第 N 章，并直接返回「当前状态」 |
 | 新建章节 | 文件面板一键新建，章号跨卷递增（`ch-004`），带 front-matter 并自动同步进度 |
@@ -119,7 +119,7 @@ pnpm dev              # 启动桌面端，Electron 会自动拉起 Python 后端
 
 ```bash
 pnpm server           # uvicorn app.main:app --port 8787 --reload
-pnpm test             # 后端单测（unittest，38 个用例）
+pnpm test             # 后端单测（unittest，161 个用例）
 pnpm build            # 构建 renderer / main / preload
 ```
 
@@ -190,10 +190,15 @@ pnpm build            # 构建 renderer / main / preload
 
 ## 安全边界
 
-- 后端只监听 `127.0.0.1`，所有 `/api/*` 需要 Electron 启动时生成的令牌，令牌不落盘。
+- 后端只监听 `127.0.0.1`，所有 `/api/*` 需要 Electron 启动时生成的令牌。
+  令牌只在主进程里，渲染层拿不到；每个 `/api/*` 请求由主进程在 `webRequest` 层补上请求头。
+- 窗口禁止导航、禁止开新窗（`will-navigate` / `setWindowOpenHandler`），
+  拖入 HTML 或点击外链都不会把外部页面加载进应用。
 - 工作区边界由 `FilesystemBackend(virtual_mode=True)` 拦截 `..`、`~`、越界绝对路径。
 - 路径规则引擎对 `.env`、`secrets/**`、`*.pem`、`id_rsa*` 默认全拒绝，`.git/config` 写拒绝；规则按顺序先命中先生效。
 - 写操作默认走人工审批；「完全访问」模式只跳过审批，不跳过 `deny`。
+- 书稿写入是原子的（临时文件 + `os.replace`），覆盖前旧版本留在 `.index/history/`，
+  进程被杀不会留下半截章节。
 - 没有 shell 工具，也就没有命令面；网络访问仅限模型与 embedding 出站。
 
 ## 现状

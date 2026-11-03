@@ -2,12 +2,19 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from .config import BOOKS_DIR
-from .text import read_text
+from .text import read_text, save_text
+
+# 写入前的旧版本留在这里：`.index/` 已在书稿 .gitignore 里，不进版本库，
+# 但被误覆盖时能从磁盘直接捞回来。
+HISTORY_DIR = ".index/history"
+HISTORY_KEEP = 20
 
 KB_DIRS = {
     "characters": "characters",
@@ -60,16 +67,14 @@ def init_book_dir(
         data["title"] = title
         data["author"] = author
         data["words_per_chapter"] = max(500, int(words_per_chapter or 5000))
-        book_file.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        save_text(book_file, json.dumps(data, ensure_ascii=False, indent=2))
     else:
         # 旧书稿补齐新字段，不改动已有设置
         try:
             data = json.loads(book_file.read_text(encoding="utf-8"))
             if "words_per_chapter" not in data:
                 data["words_per_chapter"] = 5000
-                book_file.write_text(
-                    json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-                )
+                save_text(book_file, json.dumps(data, ensure_ascii=False, indent=2))
             words_per_chapter = int(data.get("words_per_chapter") or words_per_chapter)
         except json.JSONDecodeError:
             pass
@@ -78,13 +83,52 @@ def init_book_dir(
     memory.set_project_words(path, words_per_chapter)
 
     if not (path / ".gitignore").exists():
-        (path / ".gitignore").write_text(".index/\n*.tmp\n", encoding="utf-8")
+        save_text(path / ".gitignore", ".index/\n*.tmp\n.tmp-*.tmp\n")
+    # 书稿由应用按 LF 写盘；不声明的话 autocrlf 会把工作区转成 CRLF，
+    # 内容没变也会一直显示「已修改」。
+    if not (path / ".gitattributes").exists():
+        save_text(path / ".gitattributes", "* text=auto eol=lf\n")
 
     if not (path / ".git").exists():
         _git(path, "init")
 
     _ensure_initial_commit(path)
     return path
+
+
+def snapshot_file(project: Path, file: Path, keep: int = HISTORY_KEEP) -> None:
+    """覆盖前把旧内容复制到 `.index/history/<相对路径>/<时间戳>.md`。
+
+    书稿是唯一不可重建的数据。原子写能防「写一半被杀」，但防不了
+    「模型把整章覆盖成别的内容」；这里留一份本地快照，不打扰 git 历史。
+    """
+    try:
+        if not file.exists() or file.stat().st_size == 0:
+            return
+        relative = file.resolve().relative_to(project.resolve())
+    except (OSError, ValueError):
+        return
+    history = project / HISTORY_DIR / relative.parent / relative.stem
+    try:
+        history.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        shutil.copy2(file, history / f"{stamp}{file.suffix}")
+        _prune_history(history, keep)
+    except OSError:
+        # 快照失败不该阻塞写入本身
+        return
+
+
+def _prune_history(directory: Path, keep: int) -> None:
+    try:
+        files = sorted(directory.iterdir(), key=lambda item: item.name)
+    except OSError:
+        return
+    for old in files[:-keep] if keep > 0 else files:
+        try:
+            old.unlink()
+        except OSError:
+            continue
 
 
 def _git(path: Path, *args: str) -> subprocess.CompletedProcess[str]:
@@ -133,9 +177,8 @@ def read_book_meta(path: Path) -> dict[str, Any]:
 
 
 def write_book_meta(path: Path, data: dict[str, Any]) -> None:
-    (path / "book.json").write_text(
-        json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    snapshot_file(path, path / "book.json")
+    save_text(path / "book.json", json.dumps(data, ensure_ascii=False, indent=2))
 
 
 def git_status(path: Path) -> str:

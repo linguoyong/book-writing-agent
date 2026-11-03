@@ -19,7 +19,7 @@ except ImportError:  # pragma: no cover
     sqlite_vec = None
 
 from ..config import EmbeddingSettings
-from ..text import read_text
+from ..text import read_text, save_text
 from .embedding import EmbeddingError, LOCAL_MODELS, try_build_embedder
 from .repository import KINDS, parse_note
 
@@ -964,7 +964,5 @@ def save_kb_config(project: Path, config: dict[str, Any]) -> dict[str, Any]:
     merged.update({key: config[key] for key in DEFAULT_KB_CONFIG if key in config})
     directory = project / "kb"
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / "config.json").write_text(
-        json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
+    save_text(directory / "config.json", json.dumps(merged, ensure_ascii=False, indent=2))
     return merged

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .export_book import chapter_files
-from .text import read_text
+from .text import read_text, save_text
 
 _FRONT_MATTER = re.compile(r"^---\r?\n[\s\S]*?\r?\n---\r?\n?")
 MAX_FILES = 400
@@ -159,7 +159,7 @@ def replace(
             )
         if not dry_run:
             try:
-                file.write_text(header + pattern.sub(replacement, body), encoding="utf-8")
+                save_text(file, header + pattern.sub(replacement, body))
             except OSError as exc:
                 raise SearchError(f"写入失败：{file}（{exc}）") from exc
 

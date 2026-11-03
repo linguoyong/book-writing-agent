@@ -85,6 +85,12 @@ interface AppState {
   writingStyle: string
   currentExpertId: string
   pendingComposer: string | null
+  promptRequest: {
+    title: string
+    value: string
+    placeholder?: string
+    allowEmpty?: boolean
+  } | null
 
   bootstrap: () => Promise<void>
   createProject: (
@@ -144,6 +150,12 @@ interface AppState {
   saveConfig: (config: AppConfig) => Promise<void>
   setModel: (modelId: string) => Promise<void>
   showToast: (text: string) => void
+  askPrompt: (
+    title: string,
+    value?: string,
+    options?: { placeholder?: string; allowEmpty?: boolean }
+  ) => Promise<string | null>
+  resolvePrompt: (value: string | null) => void
 
   clearError: () => void
   toggleLeft: () => void
@@ -170,6 +182,10 @@ const uid = (): string => `t${Date.now()}-${seq++}`
 /** 当前主对话的流式请求；同一时间只允许一个（侧问有自己的 controller） */
 let streamAbort: AbortController | null = null
 let toastTimer: number | null = null
+/** PromptDialog 的等待者：同一时间只允许一个输入框 */
+let promptResolver: ((value: string | null) => void) | null = null
+/** 会话消息加载序号：慢请求回来时不能覆盖后选的会话 */
+let selectSeq = 0
 
 export const KB_LABELS: Record<KbKind, string> = {
   characters: '角色',
@@ -183,6 +199,13 @@ export const KB_LABELS: Record<KbKind, string> = {
 }
 
 export const useAppStore = create<AppState>((set, get) => {
+  /** 切换文件 / 切换空间 / 关窗前的统一守卫：脏内容必须先问一句 */
+  const confirmDiscard = (): boolean => {
+    const current = get().openFile
+    if (!current?.dirty) return true
+    return window.confirm(`「${current.path}」有未保存的修改，继续会丢失。继续？`)
+  }
+
   /** 流结束时把仍标记为执行中的工具收尾，避免卡片永远停在「执行中」 */
   const settleRunning = (items: TimelineItem[]): TimelineItem[] =>
     items.map((item) =>
@@ -332,6 +355,7 @@ export const useAppStore = create<AppState>((set, get) => {
   writingStyle: '',
   currentExpertId: 'general',
   pendingComposer: null,
+  promptRequest: null,
 
   bootstrap: async () => {
     for (let attempt = 0; attempt < 15; attempt += 1) {
@@ -444,8 +468,15 @@ export const useAppStore = create<AppState>((set, get) => {
   selectProject: async (projectId, options) => {
     const project = get().projects.find((item) => item.id === projectId)
     if (!project) return
+    if (!confirmDiscard()) return
+    // 旧流不停就会把 token 继续追加到新空间的对话里，引导也会发错会话
+    streamAbort?.abort()
+    streamAbort = null
     set({
       activeProject: project,
+      streaming: false,
+      streamStartedAt: null,
+      approval: null,
       overview: null,
       sessions: [],
       activeSessionId: null,
@@ -589,17 +620,27 @@ export const useAppStore = create<AppState>((set, get) => {
     set({ sideSessionId: sessionId })
   },
 
-  selectSession: async (sessionId) => {    const session = get().sessions.find((item) => item.id === sessionId)
+  selectSession: async (sessionId) => {
+    const session = get().sessions.find((item) => item.id === sessionId)
+    // 旧流不停，token 会继续追加到新会话的 timeline，steer 也会发错会话
+    streamAbort?.abort()
+    streamAbort = null
+    const seq = ++selectSeq
     set({
       activeSessionId: sessionId,
       timeline: [],
       error: null,
+      streaming: false,
+      streamStartedAt: null,
+      approval: null,
       currentExpertId: session?.expert_id ?? get().currentExpertId,
       permissionMode:
         session?.permission_mode ?? get().config?.sandbox.default_mode ?? get().permissionMode
     })
     try {
       const messages = await api.messages(sessionId)
+      // 快速连点时，先发的请求可能后回来
+      if (seq !== selectSeq) return
       const items: TimelineItem[] = []
       for (const message of messages) {
         const meta = message.meta
@@ -794,10 +835,7 @@ export const useAppStore = create<AppState>((set, get) => {
     const project = get().activeProject
     if (!project) return
     const current = get().openFile
-    if (!force && current?.dirty && current.path !== path) {
-      const ok = window.confirm(`「${current.path}」有未保存的修改，切换会丢失。继续？`)
-      if (!ok) return
-    }
+    if (!force && current?.dirty && current.path !== path && !confirmDiscard()) return
     try {
       const file = await api.readFile(project.id, path, head)
       set({
@@ -820,29 +858,33 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   updateOpenFile: (content) => {
-    const openFile = get().openFile
-    if (!openFile) return
-    set({ openFile: { ...openFile, content, dirty: true } })
+    set((state) => (state.openFile ? { openFile: { ...state.openFile, content, dirty: true } } : {}))
   },
 
   saveOpenFile: async () => {
     const project = get().activeProject
-    const openFile = get().openFile
-    if (!project || !openFile || openFile.kind !== 'text') return
+    // 保存的是「点下保存那一刻」的内容；await 期间用户继续输入的字不能被回滚
+    const snapshot = get().openFile
+    if (!project || !snapshot || snapshot.kind !== 'text') return
 
     const write = async (expected?: number): Promise<number> => {
-      const result = await api.writeFile(
-        project.id,
-        openFile.path,
-        openFile.content,
-        expected
-      )
+      const result = await api.writeFile(project.id, snapshot.path, snapshot.content, expected)
       return result.mtime
     }
 
+    // 只更新脏标记与 mtime，绝不覆盖 content：
+    // 保存期间又打了字，就仍然是 dirty，等下一次保存。
+    const applySaved = (mtime: number): void => {
+      set((state) => {
+        const file = state.openFile
+        if (!file || file.path !== snapshot.path) return {}
+        return { openFile: { ...file, dirty: file.content !== snapshot.content, mtime } }
+      })
+    }
+
     try {
-      const mtime = await write(openFile.mtime)
-      set({ openFile: { ...openFile, dirty: false, mtime } })
+      const mtime = await write(snapshot.mtime)
+      applySaved(mtime)
       await get().refreshDiff()
       await get().refreshOverview()
     } catch (error) {
@@ -858,11 +900,11 @@ export const useAppStore = create<AppState>((set, get) => {
       try {
         if (overwrite) {
           const mtime = await write()
-          set({ openFile: { ...openFile, dirty: false, mtime } })
+          applySaved(mtime)
           await get().refreshDiff()
           await get().refreshOverview()
         } else {
-          await get().openFileByPath(openFile.path, true)
+          await get().openFileByPath(snapshot.path, true)
         }
       } catch (inner) {
         set({ error: (inner as Error).message })
@@ -1143,6 +1185,27 @@ export const useAppStore = create<AppState>((set, get) => {
     if (toastTimer) window.clearTimeout(toastTimer)
     set({ toast: text })
     toastTimer = window.setTimeout(() => set({ toast: null }), 5000)
+  },
+
+  askPrompt: (title, value = '', options) =>
+    new Promise<string | null>((resolve) => {
+      promptResolver?.(null)
+      promptResolver = resolve
+      set({
+        promptRequest: {
+          title,
+          value,
+          placeholder: options?.placeholder,
+          allowEmpty: options?.allowEmpty
+        }
+      })
+    }),
+
+  resolvePrompt: (value) => {
+    const resolver = promptResolver
+    promptResolver = null
+    set({ promptRequest: null })
+    resolver?.(value)
   },
 
   clearError: () => set({ error: null }),

@@ -13,7 +13,7 @@ from . import usage
 from .kb.repository import dump_note, list_entities, parse_note, safe_entity_id, save_entity
 from .kb.search import invalidate_entities
 from .llm import build_chat_model
-from .text import read_text
+from .text import read_text, save_text
 from .workspace import read_book_meta
 
 KINDS_FOR_EXTRACT = ("characters", "locations", "factions", "items")
@@ -151,7 +151,7 @@ def load_state(project: Path) -> dict[str, Any]:
 def save_state(project: Path, state: dict[str, Any]) -> None:
     path = state_path(project)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    save_text(path, json.dumps(state, ensure_ascii=False, indent=2))
 
 
 def _clean(value: Any, limit: int = 80) -> str:
@@ -310,8 +310,8 @@ def _append_line(project: Path, line: str) -> None:
             "tags": ["自动", "事件"],
         }
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(dump_note(meta, "\n"), encoding="utf-8")
-    with path.open("a", encoding="utf-8") as handle:
+        save_text(path, dump_note(meta, "\n"))
+    with path.open("a", encoding="utf-8", newline="\n") as handle:
         handle.write(line.rstrip() + "\n")
 
 
@@ -351,7 +351,7 @@ def load_candidates(project: Path) -> list[dict[str, Any]]:
 def save_candidates(project: Path, items: list[dict[str, Any]]) -> None:
     path = candidates_path(project)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(items, ensure_ascii=False, indent=2), encoding="utf-8")
+    save_text(path, json.dumps(items, ensure_ascii=False, indent=2))
 
 
 def queue_candidate(
@@ -611,7 +611,7 @@ def sort_timeline(project: Path) -> None:
         return int(match.group(1)) if match else 0
 
     if lines != sorted(lines, key=chapter_key):
-        path.write_text(dump_note(meta, "\n".join(sorted(lines, key=chapter_key))), encoding="utf-8")
+        save_text(path, dump_note(meta, "\n".join(sorted(lines, key=chapter_key))))
 
 
 def remaining_chapters(project: Path) -> list[tuple[int, str, Path]]:

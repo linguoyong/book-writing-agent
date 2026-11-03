@@ -47,7 +47,7 @@ from ..versioning import read_file_at as version_read
 from ..versioning import restore as version_restore
 from ..llm import normalize_window
 from ..sandbox import check_command, check_path, check_url
-from ..text import read_text
+from ..text import read_text, save_text
 from ..kb.lint import lint_project
 from ..kb.repository import (
     KINDS,
@@ -69,6 +69,7 @@ from ..workspace import (
     git_status_map,
     read_book_meta,
     safe_join,
+    snapshot_file,
     write_book_meta,
 )
 
@@ -493,6 +494,9 @@ def regenerate_session(session_id: str) -> StreamingResponse:
         raise HTTPException(status_code=404, detail="会话不存在")
     if db.pending_approval(session_id):
         raise HTTPException(status_code=400, detail="当前有待审批的写操作，处理后再重新生成")
+    # 先拦一道：重新生成会先删掉上一轮回答，等流开始才拒绝就来不及了
+    if steering.is_running(session_id):
+        raise HTTPException(status_code=409, detail="当前会话正在生成，等这一轮结束或先停止")
 
     messages = db.list_messages(session_id)
     last_user_index = -1
@@ -1508,7 +1512,8 @@ def write_file(project_id: str, req: WriteFileRequest) -> dict[str, Any]:
                 status_code=409, detail="文件已被其他操作修改，请重新加载后再保存"
             )
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(req.content, encoding="utf-8")
+    snapshot_file(root, target)
+    save_text(target, req.content)
     return {"ok": True, "mtime": int(target.stat().st_mtime * 1000)}
 
 
@@ -1539,7 +1544,7 @@ def fs_create(project_id: str, req: FsCreateRequest) -> dict[str, bool]:
         target.mkdir(parents=True)
     else:
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("", encoding="utf-8")
+        save_text(target, "")
     return {"ok": True}
 
 

@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import MEMORY_DIR
-from .text import read_text
+from .text import read_text, save_text
 
 SEED_USER = """# USER.md — 关于用户
 
@@ -57,11 +57,11 @@ def ensure_files(project: Path | None = None) -> None:
     for scope, seed in seeds.items():
         file = memory_path(scope)
         if not file.exists():
-            file.write_text(seed, encoding="utf-8")
+            save_text(file, seed)
     if project is not None:
         file = memory_path("project", project)
         if not file.exists():
-            file.write_text(_seed_project(project), encoding="utf-8")
+            save_text(file, _seed_project(project))
 
 
 def _seed_project(project: Path) -> str:
@@ -83,8 +83,8 @@ def set_project_words(project: Path, words: int) -> None:
     file = memory_path("project", project)
     if not file.exists():
         return
-    # Windows 下文件是 CRLF，先归一化再匹配
-    text = read_text(file).replace("\r\n", "\n")
+    # Windows 下文件是 CRLF，read_text 已统一成 LF
+    text = read_text(file)
     line = f"- 每章目标约 {max(500, int(words or 5000))} 字"
     pattern = re.compile(r"^- 每章目标约 \d+ 字$", re.M)
     if pattern.search(text):
@@ -93,7 +93,7 @@ def set_project_words(project: Path, words: int) -> None:
         text = text.replace("## 写作约定\n", f"## 写作约定\n{line}\n", 1)
     else:
         text = text.rstrip() + f"\n\n## 写作约定\n{line}\n"
-    file.write_text(text, encoding="utf-8")
+    save_text(file, text)
 
 
 def read(scope: str, project: Path | None = None) -> str:
@@ -106,7 +106,7 @@ def read(scope: str, project: Path | None = None) -> str:
 def write(scope: str, content: str, project: Path | None = None) -> dict[str, Any]:
     file = memory_path(scope, project)
     file.parent.mkdir(parents=True, exist_ok=True)
-    file.write_text(content.strip() + "\n", encoding="utf-8")
+    save_text(file, content.strip() + "\n")
     return _describe(scope, file, project)
 
 
@@ -129,7 +129,7 @@ def append(scope: str, text: str, project: Path | None = None, source: str = "")
         _append_dated(file, existing, f"- {text}{suffix}")
     else:
         separator = "" if existing.endswith("\n") else "\n"
-        file.write_text(f"{existing}{separator}- {text}{suffix}\n", encoding="utf-8")
+        save_text(file, f"{existing}{separator}- {text}{suffix}\n")
     return text
 
 
@@ -143,11 +143,11 @@ def _append_dated(file: Path, existing: str, line: str) -> None:
         if next_heading >= 0:
             body = tail[:next_heading].rstrip() + "\n" + line + "\n"
             rest = tail[next_heading:]
-            file.write_text(f"{head}{heading}{body}{rest}", encoding="utf-8")
+            save_text(file, f"{head}{heading}{body}{rest}")
         else:
-            file.write_text(f"{existing.rstrip()}\n{line}\n", encoding="utf-8")
+            save_text(file, f"{existing.rstrip()}\n{line}\n")
         return
-    file.write_text(f"{existing.rstrip()}\n\n{heading}\n{line}\n", encoding="utf-8")
+    save_text(file, f"{existing.rstrip()}\n\n{heading}\n{line}\n")
 
 
 def daily_log(text: str, project: Path | None = None, tag: str = "") -> None:
@@ -161,7 +161,7 @@ def daily_log(text: str, project: Path | None = None, tag: str = "") -> None:
     prefix = f"[{tag}] " if tag else ""
     header = f"# {datetime.now():%Y-%m-%d}\n\n"
     body = read_text(file) if file.exists() else header
-    file.write_text(f"{body.rstrip()}\n- {stamp} {prefix}{text}\n", encoding="utf-8")
+    save_text(file, f"{body.rstrip()}\n- {stamp} {prefix}{text}\n")
 
 
 def status(project: Path | None = None) -> list[dict[str, Any]]:
@@ -289,5 +289,5 @@ def delete_entry(scope: str, text: str, project: Path | None = None) -> bool:
                 continue
         cleaned.append(line)
 
-    file.write_text("\n".join(cleaned).rstrip() + "\n", encoding="utf-8")
+    save_text(file, "\n".join(cleaned).rstrip() + "\n")
     return True

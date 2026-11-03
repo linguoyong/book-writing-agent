@@ -8,7 +8,7 @@ from typing import Any
 
 from .export_book import chapter_files
 from .kb.repository import parse_note
-from .text import read_text
+from .text import read_text, save_text
 from .workspace import read_book_meta, write_book_meta
 
 CACHE_FILE = "stats.json"
@@ -108,9 +108,9 @@ def compute(project: Path) -> dict[str, Any]:
     }
 
     cache_path.parent.mkdir(parents=True, exist_ok=True)
-    cache_path.write_text(
+    save_text(
+        cache_path,
         json.dumps({"signature": signature, "stats": stats}, ensure_ascii=False, indent=2),
-        encoding="utf-8",
     )
     return stats
 

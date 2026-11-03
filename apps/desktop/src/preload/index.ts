@@ -15,7 +15,15 @@ contextBridge.exposeInMainWorld('desktop', {
   backendInfo: (): Promise<{
     port: number
     ready: boolean
-    token?: string
     error?: string
-  }> => ipcRenderer.invoke('backend:info')
+  }> => ipcRenderer.invoke('backend:info'),
+  setDirty: (dirty: boolean): void => ipcRenderer.send('app:set-dirty', dirty),
+  forceClose: (): void => ipcRenderer.send('window:force-close'),
+  onBeforeClose: (handler: () => void): (() => void) => {
+    const listener = (): void => handler()
+    ipcRenderer.on('app:before-close', listener)
+    return () => {
+      ipcRenderer.removeListener('app:before-close', listener)
+    }
+  }
 })

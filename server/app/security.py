@@ -8,6 +8,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from .config import APP_HOME
+from .text import save_text
 
 AUTH_HEADER = "x-book-agent-token"
 # 健康检查给 Electron 主进程轮询用，本身不返回任何业务数据
@@ -39,7 +40,11 @@ def _load_token() -> str:
                 return existing
         token = secrets.token_urlsafe(32)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(token, encoding="utf-8")
+        save_text(path, token)
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
         return token
     except OSError:
         # 磁盘不可写时退化为进程内令牌：仍然有鉴权，只是无法跨进程共享

@@ -128,21 +128,23 @@ export default function FileViewer({
     view.dispatch({
       changes: { from: selection.from, to: selection.to, insert: rewriteResult }
     })
+    // dispatch 是同步的，直接读当前文档并写回 store；
+    // 不能等 onChange 或 setTimeout —— 那一拍里 saveOpenFile 可能拿到旧内容
+    useAppStore.getState().updateOpenFile(view.state.doc.toString())
     setRewriting(false)
     setRewriteResult('')
-    // dispatch 之后 onChange 会同步内容，稍等一拍再落盘
-    window.setTimeout(() => {
-      void useAppStore.getState().saveOpenFile()
-    }, 60)
+    await useAppStore.getState().saveOpenFile()
     showToast('已替换选中内容并保存')
   }
 
   useEffect(() => {
     const handler = (event: KeyboardEvent): void => {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
-        event.preventDefault()
-        void useAppStore.getState().saveOpenFile()
-      }
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return
+      const target = event.target as HTMLElement | null
+      // 在设置/搜索的输入框里按 Ctrl+S 不该落盘当前章节
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
+      event.preventDefault()
+      void useAppStore.getState().saveOpenFile()
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)

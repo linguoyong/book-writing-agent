@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .kb.repository import dump_note, safe_entity_id
-from .text import read_text
+from .text import read_text, save_text
 
 MAX_SOURCE_BYTES = 50 * 1024 * 1024
 ALLOWED_SUFFIX = {".txt", ".md"}
@@ -198,7 +198,7 @@ def _write_expert_file(
     from .experts import expert_dir
 
     file = expert_dir(project) / f"{safe_entity_id(expert_id)}.md"
-    file.write_text(dump_note(meta, body), encoding="utf-8")
+    save_text(file, dump_note(meta, body))
 
 
 def _save_skill(project: Path, skill: dict[str, Any]) -> dict[str, Any] | None:
@@ -211,7 +211,5 @@ def _save_skill(project: Path, skill: dict[str, Any]) -> dict[str, Any] | None:
         "name": str(skill.get("name") or skill_id)[:40],
         "description": str(skill.get("description") or "")[:200],
     }
-    (directory / "SKILL.md").write_text(
-        dump_note(meta, str(skill["body"])), encoding="utf-8"
-    )
+    save_text(directory / "SKILL.md", dump_note(meta, str(skill["body"])))
     return {"id": skill_id, "name": meta["name"]}

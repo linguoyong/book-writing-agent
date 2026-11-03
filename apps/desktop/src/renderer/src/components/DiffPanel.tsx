@@ -20,6 +20,7 @@ export default function DiffPanel(): React.JSX.Element {
   const setDiffMode = useAppStore((state) => state.setDiffMode)
   const refreshDiff = useAppStore((state) => state.refreshDiff)
   const showToast = useAppStore((state) => state.showToast)
+  const askPrompt = useAppStore((state) => state.askPrompt)
 
   const [changes, setChanges] = useState<GitChange[]>([])
   const [selected, setSelected] = useState<string | null>(null)
@@ -74,7 +75,7 @@ export default function DiffPanel(): React.JSX.Element {
 
   const submit = async (): Promise<void> => {
     if (!project) return
-    const message = window.prompt('提交信息（会提交全部未保存的改动）', '保存当前修改')
+    const message = await askPrompt('提交信息（会提交全部未保存的改动）', '保存当前修改')
     if (!message?.trim()) return
     try {
       const result = await api.gitCommit(project.id, message.trim())

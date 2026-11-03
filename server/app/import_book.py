@@ -6,6 +6,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .text import normalize_newlines, save_text
+
 MAX_BYTES = 50 * 1024 * 1024
 MAX_CHAPTERS = 3000
 MAX_TITLE = 40
@@ -54,7 +56,15 @@ class ParsedBook:
 
 
 def decode_bytes(raw: bytes) -> tuple[str, str]:
-    """按 BOM → UTF-8 → GB18030 的顺序解码，最后兜底替换。"""
+    """按 BOM → UTF-8 → GB18030 的顺序解码，最后兜底替换。
+
+    返回值统一成 LF：源文件常是 CRLF，不归一化就会在落盘时翻成 `\r\r\n`。
+    """
+    text, encoding = _decode(raw)
+    return normalize_newlines(text), encoding
+
+
+def _decode(raw: bytes) -> tuple[str, str]:
     if raw.startswith(b"\xef\xbb\xbf"):
         return raw[3:].decode("utf-8", errors="replace"), "utf-8-sig"
     if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
@@ -279,7 +289,7 @@ def commit(
             "imported_at": imported_at,
         }
         body = _dump_note(meta, chapter.body)
-        (chapters_dir / name).write_text(body, encoding="utf-8")
+        save_text(chapters_dir / name, body)
         written.append({"number": number, "title": title, "file": f"chapters/{name}"})
 
     return {

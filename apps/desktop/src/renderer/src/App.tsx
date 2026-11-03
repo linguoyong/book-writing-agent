@@ -8,6 +8,7 @@ import ChatPane from './components/ChatPane'
 import RightSidebar from './components/RightSidebar'
 import ProjectModal from './components/ProjectModal'
 import SettingsModal from './components/SettingsModal'
+import PromptDialog from './components/PromptDialog'
 import ExpertsPage from './views/ExpertsPage'
 import SkillsPage from './views/SkillsPage'
 import KnowledgePage from './views/KnowledgePage'
@@ -30,6 +31,7 @@ export default function App(): React.JSX.Element {
   const clearError = useAppStore((state) => state.clearError)
   const toast = useAppStore((state) => state.toast)
   const bootstrap = useAppStore((state) => state.bootstrap)
+  const openFileDirty = useAppStore((state) => state.openFile?.dirty ?? false)
 
   const [leftHover, setLeftHover] = useState(false)
   const [bootError, setBootError] = useState<string | null>(null)
@@ -38,7 +40,7 @@ export default function App(): React.JSX.Element {
     const init = async (): Promise<void> => {
       try {
         const info = await window.desktop?.backendInfo?.()
-        if (info?.port) setApiBase(info.port, info.token ?? '')
+        if (info?.port) setApiBase(info.port)
         if (info?.error) setBootError(info.error)
       } catch {
         /* 浏览器预览没有 preload，沿用默认端口 */
@@ -51,6 +53,22 @@ export default function App(): React.JSX.Element {
   useEffect(() => {
     if (!leftCollapsed) setLeftHover(false)
   }, [leftCollapsed])
+
+  // 主进程据此决定关窗时要不要先问一句
+  useEffect(() => {
+    window.desktop?.setDirty?.(openFileDirty)
+  }, [openFileDirty])
+
+  useEffect(() => {
+    return window.desktop?.onBeforeClose?.(() => {
+      const { openFile } = useAppStore.getState()
+      if (openFile?.dirty) {
+        const ok = window.confirm(`「${openFile.path}」有未保存的修改，仍然退出？`)
+        if (!ok) return
+      }
+      window.desktop?.forceClose?.()
+    })
+  }, [])
 
   if (!ready) {
     return (
@@ -121,6 +139,7 @@ export default function App(): React.JSX.Element {
       {toast && <div className="toast">{toast}</div>}
 
       {settingsOpen && <SettingsModal />}
+      <PromptDialog />
       {showProjectModal && <ProjectModal canClose={projects.length > 0} />}
     </div>
   )

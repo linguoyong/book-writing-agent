@@ -54,6 +54,7 @@ export default function FileTree(): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
   const [menu, setMenu] = useState<MenuState | null>(null)
+  const askPrompt = useAppStore((state) => state.askPrompt)
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const initialized = useRef(false)
@@ -89,7 +90,7 @@ export default function FileTree(): React.JSX.Element {
   const create = async (node: TreeNode, kind: 'file' | 'dir'): Promise<void> => {
     if (!project) return
     setMenu(null)
-    const name = window.prompt(kind === 'dir' ? '新建文件夹名' : '新建文件名（可含 .md）')
+    const name = await askPrompt(kind === 'dir' ? '新建文件夹名' : '新建文件名（可含 .md）')
     if (!name?.trim()) return
     const base = node.type === 'dir' ? node.path : parentPath(node.path)
     const relative = base && base !== '.' ? `${base}/${name.trim()}` : name.trim()
@@ -106,7 +107,7 @@ export default function FileTree(): React.JSX.Element {
   const rename = async (node: TreeNode): Promise<void> => {
     if (!project) return
     setMenu(null)
-    const next = window.prompt('重命名', node.name)
+    const next = await askPrompt('重命名', node.name)
     if (!next?.trim() || next.trim() === node.name) return
     const base = parentPath(node.path)
     const target = base ? `${base}/${next.trim()}` : next.trim()
@@ -167,7 +168,7 @@ export default function FileTree(): React.JSX.Element {
 
   const newChapter = async (): Promise<void> => {
     if (!project) return
-    const title = window.prompt('新章节标题（留空则自动用「第N章」）', '')
+    const title = await askPrompt('新章节标题（留空则自动用「第N章」）', '', { allowEmpty: true })
     if (title === null) return
     try {
       const result = await api.newChapter(project.id, title.trim())

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from pathlib import Path
@@ -18,6 +19,19 @@ from .mcp_manager import manager as mcp_manager
 MODE_BUILDER = {"expert_builder": "expert", "skill_builder": "skill"}
 
 WRITE_TOOLS = {"kb_write", "manuscript_write", "write_file", "edit_file", "delete"}
+
+# 同一会话同一时间只允许一个 run。没有这把锁时，双击发送、两个窗口、
+# 「审批恢复」与「新消息」交叠都会让两个超步交错写同一份 checkpoint，
+# 最坏的结果是同一章被 append 两遍。
+_SESSION_LOCKS: dict[str, asyncio.Lock] = {}
+
+
+def _session_lock(session_id: str) -> asyncio.Lock:
+    lock = _SESSION_LOCKS.get(session_id)
+    if lock is None:
+        lock = asyncio.Lock()
+        _SESSION_LOCKS[session_id] = lock
+    return lock
 
 
 def _history_messages(records: list[dict[str, Any]]) -> list[Any]:
@@ -107,8 +121,13 @@ async def chat_stream(
     # 已落库的字符数：正常路径每段落库后更新；finally 据此判断是否还有未落库内容
     committed = 0
 
-    steering.begin(session_id)
+    lock = _session_lock(session_id)
+    if lock.locked():
+        yield _sse("error", {"message": "当前会话正在生成，请等这一轮结束或先停止。"})
+        return
+    await lock.acquire()
     try:
+        steering.begin(session_id)
         try:
             # MCP 工具在只读侧问里不注入：它们不经路径沙箱
             mcp_tools = [] if readonly else await mcp_manager.get_tools()
@@ -254,12 +273,15 @@ async def chat_stream(
                     usage_snapshot=meter.as_dict(),
                 )
         finally:
-            meter.flush(
-                project_id=session["project_id"],
-                session_id=session_id,
-                elapsed_ms=int((time.monotonic() - request_started) * 1000),
-            )
-            steering.end(session_id)
+            try:
+                meter.flush(
+                    project_id=session["project_id"],
+                    session_id=session_id,
+                    elapsed_ms=int((time.monotonic() - request_started) * 1000),
+                )
+            finally:
+                steering.end(session_id)
+                lock.release()
 
 
 async def approve_stream(
@@ -274,23 +296,40 @@ async def approve_stream(
         yield _sse("error", {"message": "项目不存在"})
         return
     project = Path(project_row["path"])
-    pending = db.pending_approval(session_id)
-    if not pending:
-        yield _sse("error", {"message": "没有待审批的操作"})
-        return
 
-    normalized = _normalize_decisions(decisions)
-    expected = len(pending["payload"].get("requests") or [])
-    if not normalized:
-        yield _sse("error", {"message": "审批决定为空"})
+    lock = _session_lock(session_id)
+    if lock.locked():
+        yield _sse("error", {"message": "当前会话正在生成，请等这一轮结束或先停止。"})
         return
-    if expected and len(normalized) != expected:
-        yield _sse("error", {"message": f"审批数量不匹配：需要 {expected} 条决定"})
-        return
+    await lock.acquire()
 
-    expert = resolve_expert(project, session.get("expert_id") or "general")
-    steering.begin(session_id)
+    buffer: list[str] = []
+    tool_calls: list[dict[str, Any]] = []
+    write_paths: set[str] = set()
+    meter = usage.UsageMeter()
+    thread_id = session.get("thread_id") or session_id
+    config = {"configurable": {"thread_id": thread_id}}
+    started = time.monotonic()
+    request_started = started
+    committed = 0
     try:
+        steering.begin(session_id)
+        # 拿到锁之后再读一次：并发的另一个审批可能已经把它消费掉了
+        pending = db.pending_approval(session_id)
+        if not pending:
+            yield _sse("error", {"message": "没有待审批的操作"})
+            return
+
+        normalized = _normalize_decisions(decisions)
+        expected = len(pending["payload"].get("requests") or [])
+        if not normalized:
+            yield _sse("error", {"message": "审批决定为空"})
+            return
+        if expected and len(normalized) != expected:
+            yield _sse("error", {"message": f"审批数量不匹配：需要 {expected} 条决定"})
+            return
+
+        expert = resolve_expert(project, session.get("expert_id") or "general")
         try:
             mcp_tools = await mcp_manager.get_tools()
             agent, _ = build_agent(
@@ -312,15 +351,7 @@ async def approve_stream(
             status = "partial"
         else:
             status = "approved"
-        db.resolve_approvals(session_id, status, normalized)
 
-        buffer: list[str] = []
-        tool_calls: list[dict[str, Any]] = []
-        write_paths: set[str] = set()
-        meter = usage.UsageMeter()
-        thread_id = session.get("thread_id") or session_id
-        config = {"configurable": {"thread_id": thread_id}}
-        started = time.monotonic()
         try:
             async for chunk in _run_events(
                 agent,
@@ -333,9 +364,13 @@ async def approve_stream(
             ):
                 yield chunk
         except Exception as exc:  # noqa: BLE001
+            # resume 失败时审批必须留在 pending：否则界面显示「已通过」，
+            # 实际一次都没执行，而会话已经不再拦截下一条消息。
             yield _sse("error", {"message": f"{type(exc).__name__}: {exc}"})
             return
 
+        # 恢复成功之后才记账
+        db.resolve_approvals(session_id, status, normalized)
         approval = await _approval_event(agent, config, session_id, project)
         elapsed_ms = int((time.monotonic() - started) * 1000)
         changes = turn_changes(project, sorted(write_paths))
@@ -348,6 +383,7 @@ async def approve_stream(
             changes=changes,
             usage_snapshot=meter.as_dict(),
         )
+        committed = len("".join(buffer))
         if approval:
             yield approval
         yield _sse(
@@ -362,12 +398,31 @@ async def approve_stream(
             },
         )
     finally:
-        meter.flush(
-            project_id=session["project_id"],
-            session_id=session_id,
-            elapsed_ms=int((time.monotonic() - started) * 1000),
-        )
-        steering.end(session_id)
+        # 与 chat_stream 对齐：审批通过后继续输出时断连，写入已落盘，
+        # 已生成的文本也必须留住。
+        try:
+            text = "".join(buffer)
+            if len(text) > committed and text.strip():
+                _persist_assistant(
+                    session_id,
+                    buffer,
+                    tool_calls,
+                    awaiting=False,
+                    elapsed_ms=int((time.monotonic() - started) * 1000),
+                    changes=turn_changes(project, sorted(write_paths)),
+                    interrupted=True,
+                    usage_snapshot=meter.as_dict(),
+                )
+        finally:
+            try:
+                meter.flush(
+                    project_id=session["project_id"],
+                    session_id=session_id,
+                    elapsed_ms=int((time.monotonic() - request_started) * 1000),
+                )
+            finally:
+                steering.end(session_id)
+                lock.release()
 
 
 async def _run_events(

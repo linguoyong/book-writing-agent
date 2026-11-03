@@ -44,16 +44,13 @@ import type {
 } from './types'
 
 let API_BASE = 'http://127.0.0.1:8787/api'
-let API_TOKEN = ''
 
-export function setApiBase(port: number, token = ''): void {
+/**
+ * 只设置端口。访问令牌由主进程在 `webRequest.onBeforeSendHeaders` 里注入，
+ * 渲染层拿不到、也不需要知道它。
+ */
+export function setApiBase(port: number): void {
   API_BASE = `http://127.0.0.1:${port}/api`
-  API_TOKEN = token
-}
-
-/** 本地后端的访问令牌：由 Electron 主进程生成，经 IPC 下发，不写入磁盘 */
-function authHeaders(): Record<string, string> {
-  return API_TOKEN ? { 'X-Book-Agent-Token': API_TOKEN } : {}
 }
 
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
@@ -61,7 +58,6 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: {
       'Content-Type': 'application/json',
-      ...authHeaders(),
       ...(init?.headers ?? {})
     }
   })
@@ -522,7 +518,7 @@ export async function streamChat(
   try {
     response = await fetch(`${API_BASE}/chat`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         session_id: sessionId,
         message,
@@ -561,7 +557,7 @@ export async function approveChat(
   try {
     response = await fetch(`${API_BASE}/chat/approve`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: sessionId, decisions }),
       signal
     })
@@ -591,7 +587,7 @@ export async function regenerateChat(
   try {
     response = await fetch(`${API_BASE}/sessions/${sessionId}/regenerate`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      headers: { 'Content-Type': 'application/json' },
       signal
     })
   } catch (error) {

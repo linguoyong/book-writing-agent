@@ -9,6 +9,7 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator
 
 from .sandbox import SandboxSettings
+from .text import save_text
 
 APP_HOME = Path(os.environ.get("BOOK_AGENT_HOME", Path.home() / ".book-agent"))
 CONFIG_FILE = APP_HOME / "config.json"
@@ -165,6 +166,4 @@ def load_settings() -> Settings:
 
 def save_settings(settings: Settings) -> None:
     _ensure_home()
-    CONFIG_FILE.write_text(
-        ensure_models(settings).model_dump_json(indent=2), encoding="utf-8"
-    )
+    save_text(CONFIG_FILE, ensure_models(settings).model_dump_json(indent=2))

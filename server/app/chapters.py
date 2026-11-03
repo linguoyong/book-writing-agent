@@ -6,7 +6,7 @@ from typing import Any
 
 from .export_book import chapter_files
 from .kb.repository import dump_note, parse_note
-from .text import read_text
+from .text import read_text, save_text
 
 
 class ChapterError(RuntimeError):
@@ -58,7 +58,7 @@ def create(project: Path, *, title: str = "", volume: int | None = None) -> dict
 
     body = f"{label}\n\n"
     content = dump_note({"title": label, "chapter": chapter_no}, body)
-    file.write_text(content, encoding="utf-8")
+    save_text(file, content)
     return {
         "path": str(file.relative_to(project)).replace("\\", "/"),
         "chapter": chapter_no,

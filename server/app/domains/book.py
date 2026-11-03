@@ -21,9 +21,8 @@ from ..kb.repository import (
 )
 from ..kb.search import KbIndex, load_kb_config
 from ..sandbox import check_path
-from ..text import read_text
-from ..workspace import read_book_meta
-from ..workspace import git_diff, read_book_meta, safe_join
+from ..text import read_text, save_text
+from ..workspace import git_diff, read_book_meta, safe_join, snapshot_file
 from .base import ToolContext
 
 RULES = """你工作在用户的书稿项目里，当前域是「长篇小说写作」。
@@ -223,11 +222,13 @@ def build_tools(ctx: ToolContext) -> list[Any]:
         except ValueError:
             return "路径越界"
         target.parent.mkdir(parents=True, exist_ok=True)
+        # 覆盖前留一份旧内容到 .index/history：进程被杀、误覆盖时还能捞回来
+        snapshot_file(project, target)
         if mode == "append" and target.exists():
             existing = read_text(target)
-            target.write_text(existing + "\n\n" + content, encoding="utf-8")
+            save_text(target, existing + "\n\n" + content)
         else:
-            target.write_text(content, encoding="utf-8")
+            save_text(target, content)
         return f"已写入 {target.relative_to(project)}"
 
     @tool
@@ -333,7 +334,7 @@ def build_tools(ctx: ToolContext) -> list[Any]:
             "description": description.strip(),
             "enabled": True,
         }
-        file.write_text(dump_note(meta, instructions), encoding="utf-8")
+        save_text(file, dump_note(meta, instructions))
         return f"已创建技能 {name}：{file.relative_to(project)}"
 
     readonly_tools = [
