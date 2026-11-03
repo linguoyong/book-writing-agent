@@ -88,7 +88,7 @@ def compute(project: Path) -> dict[str, Any]:
     meta = read_book_meta(project)
     total = sum(item["words"] for item in chapters)
     target = int(meta.get("target_words") or 0)
-    last = chapters[-1] if chapters else None
+    last = max(chapters, key=lambda item: (item["volume"], item["chapter"])) if chapters else None
     stats = {
         "chapters": len(chapters),
         "words": total,

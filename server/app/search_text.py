@@ -4,8 +4,11 @@ import re
 from pathlib import Path
 from typing import Any
 
+from .config import load_settings
 from .export_book import chapter_files
+from .sandbox import check_path
 from .text import read_text, save_text
+from .workspace import safe_join
 
 _FRONT_MATTER = re.compile(r"^---\r?\n[\s\S]*?\r?\n---\r?\n?")
 MAX_FILES = 400
@@ -17,10 +20,24 @@ class SearchError(RuntimeError):
     """搜索/替换失败，消息可直接展示给用户。"""
 
 
-def _files(project: Path, scope: str, path: str | None) -> list[Path]:
+def _guard(project: Path, target: Path, operation: str, sandbox: Any) -> bool:
+    """与 Agent 工具、REST 文件接口共用同一套路径规则。"""
+    try:
+        # 两侧都 resolve：Windows 临时目录的 8.3 短名会让相对路径算不出来
+        relative = target.resolve().relative_to(project.resolve()).as_posix()
+    except ValueError:
+        return False
+    return check_path(sandbox, relative, operation) != "deny"
+
+
+def _files(project: Path, scope: str, path: str | None, operation: str = "read") -> list[Path]:
+    sandbox = load_settings().sandbox
     if path:
-        target = (project / path).resolve()
-        if not str(target).startswith(str(project.resolve())) or not target.is_file():
+        try:
+            target = safe_join(project, path)
+        except ValueError as exc:
+            raise SearchError(f"文件不存在：{path}") from exc
+        if not target.is_file() or not _guard(project, target, operation, sandbox):
             raise SearchError(f"文件不存在：{path}")
         return [target]
     result: list[Path] = []
@@ -30,7 +47,9 @@ def _files(project: Path, scope: str, path: str | None) -> list[Path]:
         directory = project / "chapters"
         if directory.exists():
             result.extend(sorted(directory.glob("*.md")))
-    return result[:MAX_FILES]
+    # 范围检索同样要跳过被 deny 的文件（.env、私钥、secrets/**），
+    # 否则预览里就能把内容拼出来。
+    return [file for file in result if _guard(project, file, operation, sandbox)][:MAX_FILES]
 
 
 def _pattern(query: str, regex: bool, ignore_case: bool) -> re.Pattern[str]:
@@ -84,7 +103,7 @@ def search(
 ) -> dict[str, Any]:
     pattern = _pattern(query, regex, ignore_case)
     items: list[dict[str, Any]] = []
-    files = _files(project, scope, path)
+    files = _files(project, scope, path, "read")
     matched_files = 0
     total = 0
 
@@ -135,7 +154,7 @@ def replace(
     if "\u0000" in replacement:
         raise SearchError("替换内容不能包含空字符")
     pattern = _pattern(query, regex, ignore_case)
-    files = _files(project, scope, path)
+    files = _files(project, scope, path, "write")
     total = 0
     changed: list[dict[str, Any]] = []
     samples: list[dict[str, Any]] = []

@@ -133,6 +133,31 @@ class CommitTest(unittest.TestCase):
         self.assertEqual(result["imported"], 3)
         self.assertEqual(len(list((self.project / "chapters").glob("*.md"))), 6)
 
+    def test_preamble_does_not_shift_chapter_numbers(self) -> None:
+        # 800 字以上的卷首会被单独成篇；它不能把「第一章」顶成 2
+        preamble = "这是简介。" * 200
+        source = self.source
+        source.write_text(
+            preamble + "\n\n第一章 初生\n\n正文一。\n\n第二章 入城\n\n正文二。\n",
+            encoding="utf-8",
+        )
+        commit(self.project, source)
+        files = sorted((self.project / "chapters").glob("*.md"))
+        self.assertEqual(files[0].name, "0000-开篇.md")
+        self.assertEqual(files[1].name, "0001-第一章 初生.md")
+        self.assertEqual(files[2].name, "0002-第二章 入城.md")
+
+    def test_prologue_goes_before_chapter_one(self) -> None:
+        source = self.source
+        source.write_text(
+            "序章\n\n序章正文。\n\n第一章 初生\n\n正文一。\n",
+            encoding="utf-8",
+        )
+        commit(self.project, source)
+        files = sorted((self.project / "chapters").glob("*.md"))
+        self.assertEqual(files[0].name, "0000-序章.md")
+        self.assertEqual(files[1].name, "0001-第一章 初生.md")
+
     def test_chapter_number_from_title(self) -> None:
         self.assertEqual(chapter_number_from_title("第002章 初生"), 2)
         self.assertEqual(chapter_number_from_title("第十二回 夜谈"), 12)

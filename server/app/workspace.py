@@ -8,7 +8,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .config import BOOKS_DIR
+from .config import BOOKS_DIR, load_settings
+from .sandbox import check_path
 from .text import read_text, save_text
 
 # 写入前的旧版本留在这里：`.index/` 已在书稿 .gitignore 里，不进版本库，
@@ -132,14 +133,21 @@ def _prune_history(directory: Path, keep: int) -> None:
 
 
 def _git(path: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        ["git", *args],
-        cwd=str(path),
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
+    try:
+        return subprocess.run(
+            ["git", *args],
+            cwd=str(path),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        # 宁可少一段 diff，也不要让整个请求（甚至事件循环）挂住
+        return subprocess.CompletedProcess(
+            ["git", *args], 1, "", "git 命令超时"
+        )
 
 
 def _ensure_initial_commit(path: Path) -> None:
@@ -198,8 +206,13 @@ def git_diff(path: Path, relative: str | None = None) -> str:
     if not (path / ".git").exists():
         return ""
 
+    # 变更面板与模型上下文共用同一条读边界：.env / 私钥不该出现在 diff 里
+    sandbox = load_settings().sandbox
+
     if relative:
         normalized = relative.replace("\\", "/")
+        if check_path(sandbox, normalized, "read") == "deny":
+            return ""
         try:
             target = safe_join(path, normalized)
         except ValueError:
@@ -242,6 +255,8 @@ def git_diff(path: Path, relative: str | None = None) -> str:
     for line in untracked.splitlines():
         relative_path = line.strip()
         if not relative_path:
+            continue
+        if check_path(sandbox, relative_path.replace("\\", "/"), "read") == "deny":
             continue
         try:
             target = safe_join(path, relative_path)

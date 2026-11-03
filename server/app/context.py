@@ -8,8 +8,9 @@ from pathlib import Path
 from typing import Any
 
 from . import memory
-from .config import GLOBAL_SKILLS_DIR
+from .config import GLOBAL_SKILLS_DIR, load_settings
 from .domains import DomainPack, ToolContext, get_domain
+from .sandbox import check_path
 from .kb.repository import dump_note, get_entity, parse_note
 from .text import read_text
 from .kb.repository import trim_meta
@@ -54,6 +55,23 @@ LABELS = {
 }
 
 _WS = re.compile(r"\s+")
+
+# 记忆是往文件尾部追加的：超预算时必须保留「最近写入」，否则新记忆永远
+# 注入不进去，界面还显示已注入。
+TAIL_LAYERS = {"user", "long", "project"}
+
+
+def _clip_layer(text: str, limit: int, layer: str) -> str:
+    if len(text) <= limit:
+        return text
+    if layer in TAIL_LAYERS:
+        head, sep, _ = text.partition("\n")
+        head = f"{head}{sep}" if sep else ""
+        if len(head) < limit // 3:
+            keep = max(0, limit - len(head) - 12)
+            return f"{head}…（略）\n{text[-keep:]}"
+    return text[:limit]
+
 
 
 @dataclass
@@ -113,7 +131,7 @@ def assemble(
         text = (text or "").strip()
         limit = LIMITS[layer]
         included = bool(text)
-        clipped = text[:limit].rstrip() if included else ""
+        clipped = _clip_layer(text, limit, layer).rstrip() if included else ""
         truncated = included and len(text) > limit
         if truncated:
             clipped += "\n…（已按层预算截断）"
@@ -256,6 +274,10 @@ def _references_block(project: Path, references: list[dict[str, Any]]) -> str:
                 target = safe_join(project, path)
                 if not target.exists():
                     blocks.append(f'<ref type="{kind}" source="{path}">文件不存在</ref>')
+                    continue
+                relative = target.relative_to(project.resolve()).as_posix()
+                if check_path(load_settings().sandbox, relative, "read") == "deny":
+                    blocks.append(f'<ref type="{kind}" source="{path}">该路径不允许引用</ref>')
                     continue
                 text = read_text(target)
                 blocks.append(

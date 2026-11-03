@@ -98,7 +98,6 @@ def seed_experts(project: Path) -> None:
 
 
 def list_experts(project: Path) -> list[dict[str, Any]]:
-    seed_experts(project)
     items: list[dict[str, Any]] = []
     for file in sorted(expert_dir(project).glob("*.md")):
         meta, body = parse_note(read_text(file))

@@ -781,7 +781,9 @@ def get_entities(project_id: str, kind: str) -> list[dict[str, Any]]:
 def post_entity(project_id: str, kind: str, req: EntityRequest) -> dict[str, Any]:
     project = _require_project(project_id)
     _require_kind(kind)
-    saved = save_entity(Path(project["path"]), kind, req.id, req.meta, req.body)
+    root = Path(project["path"])
+    saved = save_entity(root, kind, req.id, req.meta, req.body)
+    _sync_kb_index(root, kind, str(saved["id"]))
     return saved
 
 
@@ -801,14 +803,21 @@ def put_entity(
 ) -> dict[str, Any]:
     project = _require_project(project_id)
     _require_kind(kind)
-    return save_entity(Path(project["path"]), kind, entity_id, req.meta, req.body)
+    root = Path(project["path"])
+    saved = save_entity(root, kind, entity_id, req.meta, req.body)
+    _sync_kb_index(root, kind, str(saved["id"]))
+    return saved
 
 
 @router.delete("/projects/{project_id}/kb/{kind}/{entity_id}")
 def remove_entity(project_id: str, kind: str, entity_id: str) -> dict[str, bool]:
     project = _require_project(project_id)
     _require_kind(kind)
-    return {"ok": delete_entity(Path(project["path"]), kind, entity_id)}
+    root = Path(project["path"])
+    deleted = delete_entity(root, kind, entity_id)
+    if deleted:
+        _drop_kb_index(root, kind, entity_id)
+    return {"ok": deleted}
 
 
 class SearchRequest(BaseModel):
@@ -1560,8 +1569,18 @@ def fs_rename(project_id: str, req: FsRenameRequest) -> dict[str, bool]:
         raise HTTPException(status_code=404, detail="源文件不存在")
     if target.exists():
         raise HTTPException(status_code=409, detail="目标已存在")
+    old_relative = source.relative_to(root.resolve()).as_posix()
+    new_relative = target.relative_to(root.resolve()).as_posix()
+    old_kb = _kb_path_parts(old_relative)
+    new_kb = _kb_path_parts(new_relative)
     target.parent.mkdir(parents=True, exist_ok=True)
     source.rename(target)
+    if old_kb:
+        _drop_kb_index(root, old_kb[0], old_kb[1])
+        if new_kb:
+            _sync_kb_index(root, new_kb[0], new_kb[1])
+    elif source.suffix.lower() == ".md":
+        _rename_index_source(root, old_relative, new_relative)
     return {"ok": True}
 
 
@@ -1573,12 +1592,19 @@ def fs_delete(project_id: str, path: str) -> dict[str, bool]:
     if target == root.resolve():
         raise HTTPException(status_code=400, detail="不能删除工作区根目录")
     _guard_visible(root, target)
+    relative = target.relative_to(root.resolve()).as_posix()
+    kb_parts = _kb_path_parts(relative)
     if target.is_dir():
         shutil.rmtree(target)
     elif target.exists():
         target.unlink()
     else:
         raise HTTPException(status_code=404, detail="文件不存在")
+    if kb_parts:
+        _drop_kb_index(root, kb_parts[0], kb_parts[1])
+    else:
+        # 删掉的章节也要退出索引，否则检索还在返回已经不存在的原文
+        _drop_index_source(root, relative)
     return {"ok": True}
 
 
@@ -1701,6 +1727,47 @@ def _resolve_workspace_file(
 def _require_kind(kind: str) -> None:
     if kind not in KINDS:
         raise HTTPException(status_code=400, detail=f"未知知识库类型: {kind}")
+
+
+def _sync_kb_index(project: Path, kind: str, entity_id: str) -> None:
+    """单条卡片的增量索引。索引是派生物，失败不该让保存本身报错。"""
+    try:
+        KbIndex(project, load_settings().embedding).reindex_entity(
+            kind, entity_id, build_baseline=False
+        )
+    except Exception:  # noqa: BLE001
+        return
+
+
+def _drop_kb_index(project: Path, kind: str, entity_id: str) -> None:
+    try:
+        KbIndex(project, load_settings().embedding).remove_entity(kind, entity_id)
+    except Exception:  # noqa: BLE001
+        return
+
+
+def _drop_index_source(project: Path, relative: str) -> None:
+    try:
+        KbIndex(project, load_settings().embedding).remove_source(relative)
+    except Exception:  # noqa: BLE001
+        return
+
+
+def _rename_index_source(project: Path, old: str, new: str) -> None:
+    try:
+        KbIndex(project, load_settings().embedding).rename_source(old, new)
+    except Exception:  # noqa: BLE001
+        return
+
+
+def _kb_path_parts(relative: str) -> tuple[str, str] | None:
+    """把 `kb/<kind>/<id>.md` 拆成 (kind, id)，其他路径返回 None。"""
+    parts = Path(relative).parts
+    if len(parts) != 3 or parts[0] != "kb" or not parts[2].endswith(".md"):
+        return None
+    if parts[1] not in KINDS:
+        return None
+    return parts[1], Path(parts[2]).stem
 
 
 def _tree_node(

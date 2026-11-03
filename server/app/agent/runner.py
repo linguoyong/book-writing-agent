@@ -190,7 +190,7 @@ async def chat_stream(
         # 引导消息可能晚于最后一次模型调用到达：当轮补一段跟进，避免留到无关的下一轮
         approval = await _approval_event(agent, config, session_id, project)
         elapsed_ms = int((time.monotonic() - started) * 1000)
-        changes = turn_changes(project, sorted(write_paths))
+        changes = await asyncio.to_thread(turn_changes, project, sorted(write_paths))
         _persist_assistant(
             session_id,
             buffer,
@@ -231,7 +231,7 @@ async def chat_stream(
                     yield _sse("error", {"message": f"{type(exc).__name__}: {exc}"})
                 approval = await _approval_event(agent, config, session_id, project)
                 elapsed_ms = int((time.monotonic() - started) * 1000)
-                changes = turn_changes(project, sorted(write_paths))
+                changes = await asyncio.to_thread(turn_changes, project, sorted(write_paths))
                 _persist_assistant(
                     session_id,
                     buffer,
@@ -268,7 +268,7 @@ async def chat_stream(
                     tool_calls,
                     awaiting=False,
                     elapsed_ms=int((time.monotonic() - started) * 1000),
-                    changes=turn_changes(project, sorted(write_paths)),
+                    changes=await asyncio.to_thread(turn_changes, project, sorted(write_paths)),
                     interrupted=True,
                     usage_snapshot=meter.as_dict(),
                 )
@@ -373,7 +373,7 @@ async def approve_stream(
         db.resolve_approvals(session_id, status, normalized)
         approval = await _approval_event(agent, config, session_id, project)
         elapsed_ms = int((time.monotonic() - started) * 1000)
-        changes = turn_changes(project, sorted(write_paths))
+        changes = await asyncio.to_thread(turn_changes, project, sorted(write_paths))
         _persist_assistant(
             session_id,
             buffer,
@@ -409,7 +409,7 @@ async def approve_stream(
                     tool_calls,
                     awaiting=False,
                     elapsed_ms=int((time.monotonic() - started) * 1000),
-                    changes=turn_changes(project, sorted(write_paths)),
+                    changes=await asyncio.to_thread(turn_changes, project, sorted(write_paths)),
                     interrupted=True,
                     usage_snapshot=meter.as_dict(),
                 )

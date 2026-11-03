@@ -124,6 +124,9 @@ class KbIndex:
         self.index_dir.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(self.db_path, timeout=15)
         conn.row_factory = sqlite3.Row
+        # 重建索引会长时间持有写事务；WAL 让检索侧的读不被挡住
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=15000")
         try:
             _load_sqlite_vec(conn)
             conn.executescript(INDEX_SCHEMA)
@@ -152,13 +155,22 @@ class KbIndex:
         对话里首次检索）时不能把整个书稿的向量编码塞进请求里，向量交给
         知识库页的「重建索引」后台任务或导入流程补齐。
         """
-        chunks = list(self._collect_chunks())
         with self.connect() as conn:
+            # 先拿写锁再扫描：否则「收集」与「写库」之间新写入的卡片会被这次
+            # 重建的 DELETE 覆盖掉（快照里没有它们）。
+            conn.execute("BEGIN IMMEDIATE")
+            chunks = list(self._collect_chunks())
             conn.execute("DELETE FROM chunks")
             conn.execute("DELETE FROM chunks_fts")
             for chunk in chunks:
                 _insert_chunk(conn, chunk)
             self._mark_baseline(conn)
+            if not embed and _vec_table_exists(conn):
+                # 只重建文本时，清掉指向已不存在切片的向量；否则 KNN 的 k
+                # 会被这些孤儿吃掉，向量路安静地退化。
+                conn.execute(
+                    "DELETE FROM vec_chunks WHERE chunk_id NOT IN (SELECT id FROM chunks)"
+                )
             conn.commit()
 
         embedded = 0
@@ -222,7 +234,7 @@ class KbIndex:
                         text=piece,
                         chapter=int(meta.get("first_chapter") or 0),
                         entities=[str(entity_id)],
-                        source=str(file.relative_to(self.project)),
+                        source=file.relative_to(self.project).as_posix(),
                     )
 
         chapters_dir = self.project / "chapters"
@@ -242,12 +254,14 @@ class KbIndex:
                         text=piece,
                         chapter=chapter_no,
                         entities=[],
-                        source=str(file.relative_to(self.project)),
+                        source=file.relative_to(self.project).as_posix(),
                     )
 
     # ------------------------------------------------------------ 增量索引
 
-    def reindex_entity(self, kind: str, entity_id: str) -> int:
+    def reindex_entity(
+        self, kind: str, entity_id: str, *, build_baseline: bool = True
+    ) -> int:
         """只重建一个实体的切片，避免每次写入触发全库重扫。"""
         from .repository import entity_file, safe_entity_id
 
@@ -262,13 +276,17 @@ class KbIndex:
         if not self.has_baseline():
             # 还没有全量基线时先补一次：否则只索引这一条，
             # 已导入的章节与既有条目会被永久挡在检索之外。
+            # REST 侧改卡片不走这里（build_baseline=False）：一次保存不该
+            # 把整本书的分词与向量编码同步跑完，交给知识库页的后台重建。
+            if not build_baseline:
+                return 0
             self.rebuild()
             return 1 if file.exists() else 0
         with self.connect() as conn:
             # 拆开后的切片是 kind:entity:0/1/2…，增量写入要把这一组一起换掉
             stale = conn.execute(
-                "SELECT id FROM chunks WHERE id = ? OR id LIKE ?",
-                (chunk_id, f"{chunk_id}:%"),
+                "SELECT id FROM chunks WHERE id = ? OR substr(id, 1, ?) = ?",
+                (chunk_id, len(chunk_id) + 1, f"{chunk_id}:"),
             ).fetchall()
             for row in stale:
                 conn.execute("DELETE FROM chunks WHERE id = ?", (row["id"],))
@@ -291,7 +309,7 @@ class KbIndex:
                     text=piece,
                     chapter=int(meta.get("first_chapter") or 0),
                     entities=[str(entity_id)],
-                    source=str(file.relative_to(self.project)),
+                    source=file.relative_to(self.project).as_posix(),
                 )
                 for index, piece in enumerate(pieces)
             ]
@@ -300,6 +318,67 @@ class KbIndex:
             conn.commit()
         self._embed_chunks(chunks, None)
         return len(chunks)
+
+    def remove_source(self, source: str) -> int:
+        """文件被删除后，按来源清掉它的切片与向量。"""
+        posix = source.replace("\\", "/").lstrip("/")
+        if not self.has_baseline():
+            return 0
+        invalidate_entities(self.project)
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT id FROM chunks WHERE source = ? OR source = ?",
+                (posix, posix.replace("/", "\\")),
+            ).fetchall()
+            for row in rows:
+                conn.execute("DELETE FROM chunks WHERE id = ?", (row["id"],))
+                conn.execute("DELETE FROM chunks_fts WHERE chunk_id = ?", (row["id"],))
+                _delete_vector(conn, row["id"])
+            conn.commit()
+        return len(rows)
+
+    def rename_source(self, source: str, new_source: str) -> int:
+        """文件改名后只改来源字段：切片与向量都还能用，不必重嵌。"""
+        old_posix = source.replace("\\", "/").lstrip("/")
+        new_posix = new_source.replace("\\", "/").lstrip("/")
+        if not self.has_baseline():
+            return 0
+        with self.connect() as conn:
+            cursor = conn.execute(
+                "UPDATE chunks SET source = ? WHERE source = ? OR source = ?",
+                (new_posix, old_posix, old_posix.replace("/", "\\")),
+            )
+            conn.commit()
+        return cursor.rowcount
+
+    def remove_entity(self, kind: str, entity_id: str) -> int:
+        """删除一个实体的全部切片与向量。
+
+        文件已经不在时也要能把索引清干净，否则删掉的角色卡仍会被检索命中、
+        还会被实体路由强制置顶注入上下文。
+        """
+        from .repository import safe_entity_id
+
+        if kind not in KINDS:
+            return 0
+        try:
+            chunk_id = f"{kind}:{safe_entity_id(entity_id)}"
+        except ValueError:
+            return 0
+        invalidate_entities(self.project)
+        if not self.has_baseline():
+            return 0
+        with self.connect() as conn:
+            rows = conn.execute(
+                "SELECT id FROM chunks WHERE id = ? OR substr(id, 1, ?) = ?",
+                (chunk_id, len(chunk_id) + 1, f"{chunk_id}:"),
+            ).fetchall()
+            for row in rows:
+                conn.execute("DELETE FROM chunks WHERE id = ?", (row["id"],))
+                conn.execute("DELETE FROM chunks_fts WHERE chunk_id = ?", (row["id"],))
+                _delete_vector(conn, row["id"])
+            conn.commit()
+        return len(rows)
 
     # ------------------------------------------------------------ 向量
 
@@ -365,6 +444,7 @@ class KbIndex:
         matched: set[tuple[str, str]],
         key: str,
         kinds: list[str] | None = None,
+        chapter_limit: int | None = None,
     ) -> list[dict[str, Any]]:
         """把查询里点名的实体顶到前面，并保证它至少有一条切片在结果里。
 
@@ -400,11 +480,22 @@ class KbIndex:
 
         with self.connect() as conn:
             for kind, ref in missing:
-                row = conn.execute(
-                    "SELECT * FROM chunks WHERE kind = ? AND (id = ? OR id LIKE ?) "
-                    "ORDER BY id LIMIT 1",
-                    (kind, f"{kind}:{ref}", f"{kind}:{ref}:%"),
-                ).fetchone()
+                # 两路检索已经把 chapter_limit 下推了，这里补回来时不能绕过它，
+                # 否则写第 10 章时会把第 500 章的角色卡重新捞出来置顶。
+                prefix = f"{kind}:{ref}:"
+                if chapter_limit is None:
+                    row = conn.execute(
+                        "SELECT * FROM chunks WHERE kind = ? "
+                        "AND (id = ? OR substr(id, 1, ?) = ?) ORDER BY id LIMIT 1",
+                        (kind, f"{kind}:{ref}", len(prefix) + 1, prefix),
+                    ).fetchone()
+                else:
+                    row = conn.execute(
+                        "SELECT * FROM chunks WHERE kind = ? "
+                        "AND (id = ? OR substr(id, 1, ?) = ?) AND chapter <= ? "
+                        "ORDER BY id LIMIT 1",
+                        (kind, f"{kind}:{ref}", len(prefix) + 1, prefix, int(chapter_limit)),
+                    ).fetchone()
                 if row is None:
                     continue
                 items.append(
@@ -441,13 +532,13 @@ class KbIndex:
 
         if mode == "keyword":
             items = self._search_lexical(query, kinds, chapter_limit, top_k * 2)
-            items = self._route_entities(items, matched, "lexical_score", kinds)
+            items = self._route_entities(items, matched, "lexical_score", kinds, chapter_limit)
             items.sort(key=lambda item: float(item.get("lexical_score") or 0.0), reverse=True)
             return _normalize(_dedupe_hits(items), "lexical_score", top_k, threshold)
 
         if mode == "vector":
             items = self._search_vector(query, kinds, chapter_limit, top_k * 2)
-            items = self._route_entities(items, matched, "vector_score", kinds)
+            items = self._route_entities(items, matched, "vector_score", kinds, chapter_limit)
             items.sort(key=lambda item: float(item.get("vector_score") or 0.0), reverse=True)
             results = []
             for item in _dedupe_hits(items):
@@ -472,7 +563,7 @@ class KbIndex:
             entry.setdefault("vector_score", item["vector_score"])
 
         ranked = sorted(fused.values(), key=lambda item: item["score"], reverse=True)
-        ranked = self._route_entities(ranked, matched, "score", kinds)
+        ranked = self._route_entities(ranked, matched, "score", kinds, chapter_limit)
         ranked.sort(key=lambda item: item["score"], reverse=True)
         return _normalize(_dedupe_hits(ranked), "score", top_k, threshold)
 
@@ -489,8 +580,9 @@ class KbIndex:
             sql.append("AND kind = ?")
             params.append(kind)
         if query:
-            sql.append("AND (title LIKE ? OR text LIKE ?)")
-            like = f"%{query}%"
+            sql.append("AND (title LIKE ? ESCAPE '\\' OR text LIKE ? ESCAPE '\\')")
+            escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            like = f"%{escaped}%"
             params.extend([like, like])
         sql.append("ORDER BY kind ASC, chapter ASC, id ASC LIMIT ? OFFSET ?")
         params.extend([limit, offset])

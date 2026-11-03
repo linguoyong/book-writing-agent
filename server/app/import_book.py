@@ -17,7 +17,8 @@ MAX_TITLE = 40
 DEFAULT_PATTERN = (
     r"^\s*(?:"
     r"第\s*[0-9零一二三四五六七八九十百千万两]+\s*[章回节篇]"
-    r"|序章|楔子|引子|尾声|后记|番外[一二三四五六七八九十0-9]*"
+    # 这几个词必须自成标题：「序章正文。」这类句子不能因为以「序章」开头就切章
+    r"|(?:序章|楔子|引子|尾声|后记|番外[一二三四五六七八九十0-9]*)(?=\s|$|[:：])"
     r"|Chapter\s+\d+"
     r")"
 )
@@ -99,10 +100,16 @@ def parse_book(path: Path, pattern: str = "") -> ParsedBook:
     if not chapters:
         raise ImportError("没有识别到正文")
 
+    if len(chapters) > MAX_CHAPTERS:
+        # 以前是静默截断：用户看到「导入成功 3000 章」，后面的章节直接没了。
+        raise ImportError(
+            f"识别到 {len(chapters)} 章，超过单次导入上限 {MAX_CHAPTERS} 章；"
+            "请先按卷拆分文件，或调整章节标记后分批导入。"
+        )
     return ParsedBook(
         text=text,
         encoding=encoding,
-        chapters=chapters[:MAX_CHAPTERS],
+        chapters=chapters,
         preamble_chars=len(preamble.strip()),
     )
 
@@ -271,14 +278,34 @@ def commit(
     written: list[dict[str, Any]] = []
     # 已存在的章号也算占用，否则重名会把旧文件覆盖掉
     used: set[int] = existing_numbers(chapters_dir)
+    # 先把标题里写死的章号占住：否则「开篇」这类无编号章节会抢走 1 号，
+    # 把真正的「第一章」顶成 2，之后全书章号整体偏移一章。
+    reserved = {
+        number
+        for _, title in selected
+        if (number := chapter_number_from_title(title)) is not None
+    }
     next_number = start
+    # 卷首/序章这类没有阿拉伯章号的，排到正文之前（0 或负数），
+    # 尾声/后记/番外则排到正文之后，都不占用正文章号。
+    front_after = max([start - 1, *reserved]) + 1
     for chapter, title in selected:
         # 正文标题里的章号优先，避免「第002章」被写成 0001 导致排序错乱
         number = chapter_number_from_title(title)
-        if number is None or number in used:
+        if number is None:
+            if title.strip() in {"开篇", "序章", "楔子", "引子"}:
+                number = 0
+                while number in used:
+                    number -= 1
+            else:
+                number = front_after
+                while number in used or number in reserved:
+                    number += 1
+                front_after = number + 1
+        elif number in used:
             number = next_number
-        while number in used:
-            number += 1
+            while number in used or number in reserved:
+                number += 1
         used.add(number)
         next_number = max(next_number, number + 1)
         name = f"{number:04d}-{sanitize_name(title)}.md"

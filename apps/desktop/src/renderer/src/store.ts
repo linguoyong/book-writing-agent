@@ -948,7 +948,7 @@ export const useAppStore = create<AppState>((set, get) => {
       await get().loadKb(kind)
       set({ kbActive: entity })
       await get().refreshTree()
-      await get().reindexKb()
+      // 服务端已按单条卡片增量索引，不再触发整库重嵌
     } catch (error) {
       set({ error: (error as Error).message })
     }
@@ -975,7 +975,7 @@ export const useAppStore = create<AppState>((set, get) => {
       set({ kbActive: saved })
       await get().refreshTree()
       await get().refreshDiff()
-      await get().reindexKb()
+      // 服务端已按单条卡片增量索引，不再触发整库重嵌
     } catch (error) {
       set({ error: (error as Error).message })
     }
@@ -990,7 +990,7 @@ export const useAppStore = create<AppState>((set, get) => {
       set({ kbActive: null })
       await get().loadKb(active.kind)
       await get().refreshDiff()
-      await get().reindexKb()
+      // 服务端已按单条卡片增量索引，不再触发整库重嵌
     } catch (error) {
       set({ error: (error as Error).message })
     }
