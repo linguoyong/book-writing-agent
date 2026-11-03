@@ -17,7 +17,7 @@ from ..usage import summary as usage_summary
 from ..agent.checkpointer import drop_thread
 from ..agent.compaction import compaction_plan
 from ..agent.factory import resolve_expert
-from ..agent.mcp_manager import manager as mcp_manager
+from ..agent.mcp_manager import MCP_ENABLED, manager as mcp_manager
 from ..agent.runner import approve_stream, chat_stream
 from ..agent import steering
 from ..config import load_settings, resolve_model, save_settings
@@ -572,13 +572,13 @@ async def post_approve(req: ApproveRequest) -> StreamingResponse:
 @router.get("/mcp/status")
 async def mcp_status() -> dict[str, Any]:
     status = await mcp_manager.refresh()
-    return {"servers": status}
+    return {"enabled": MCP_ENABLED, "servers": status}
 
 
 @router.post("/mcp/reload")
 async def mcp_reload() -> dict[str, Any]:
     status = await mcp_manager.refresh(force=True)
-    return {"servers": status}
+    return {"enabled": MCP_ENABLED, "servers": status}
 
 
 class SandboxCheckRequest(BaseModel):

@@ -71,7 +71,8 @@ class ModelPrice(BaseModel):
 
 class EmbeddingSettings(BaseModel):
     # none：只用 FTS5 关键词检索；local：本地 ONNX 模型；openai：OpenAI 兼容 /embeddings
-    provider: str = "none"
+    # 默认本地模型：免费、离线，首次启用时自动下载（约 91MB）。
+    provider: str = "local"
     base_url: str = "https://api.openai.com/v1"
     api_key: str = ""
     model: str = "bge-m3"

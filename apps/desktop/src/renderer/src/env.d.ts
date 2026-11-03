@@ -5,7 +5,7 @@ interface Window {
     minimize: () => void
     toggleMaximize: () => void
     close: () => void
-    pickDirectory: () => Promise<string | null>
+    pickDirectory: (defaultPath?: string) => Promise<string | null>
     pickTextFile: () => Promise<string | null>
     saveTextFile: (defaultName: string) => Promise<string | null>
     openExternal: (url: string) => Promise<boolean>

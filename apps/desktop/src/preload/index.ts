@@ -4,7 +4,8 @@ contextBridge.exposeInMainWorld('desktop', {
   minimize: (): void => ipcRenderer.send('window:minimize'),
   toggleMaximize: (): void => ipcRenderer.send('window:toggle-maximize'),
   close: (): void => ipcRenderer.send('window:close'),
-  pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('dialog:pick-directory'),
+  pickDirectory: (defaultPath?: string): Promise<string | null> =>
+    ipcRenderer.invoke('dialog:pick-directory', defaultPath),
   pickTextFile: (): Promise<string | null> => ipcRenderer.invoke('dialog:pick-text-file'),
   saveTextFile: (defaultName: string): Promise<string | null> =>
     ipcRenderer.invoke('dialog:save-text-file', defaultName),

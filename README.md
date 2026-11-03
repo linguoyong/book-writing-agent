@@ -80,7 +80,7 @@
 | 关系图 | 角色 / 势力 / 地点 / 物品按 `meta.relations` 连线，可叠加「正文提及」虚线；自研力导向布局，点节点看关系与正文摘要 |
 | 时间线 | 汇总所有卡片的 `timeline` 与逐章抽取事件，按章 / 按年代分两条轴，可按来源过滤 |
 | 素材收录 | 编辑器选中正文 →「收入素材」，按正文去重（换标题也不重复），记下来源文件与行号 |
-| 连接器 | MCP（stdio / streamable http），按配置指纹缓存，单服务器失败不阻塞对话 |
+| 连接器 | MCP 在当前版本**已停用**（工具不经过路径沙箱与审批，收益有限）；代码与配置保留，后续版本可再开 |
 
 ### 为什么不是「切块 + 向量」那么简单
 
@@ -119,7 +119,7 @@ pnpm dev              # 启动桌面端，Electron 会自动拉起 Python 后端
 
 ```bash
 pnpm server           # uvicorn app.main:app --port 8787 --reload
-pnpm test             # 后端单测（unittest，180 个用例）
+pnpm test             # 后端单测（unittest，182 个用例）
 pnpm build            # 构建 renderer / main / preload
 ```
 
@@ -183,7 +183,7 @@ pnpm build            # 构建 renderer / main / preload
 | 模式 | 说明 |
 |---|---|
 | 关闭 | 只做 FTS5 关键词检索，开箱可用，无需下载 |
-| **本地模型（推荐）** | `bge-small-zh-v1.5`（512 维 / 91MB / 纯 CPU），首次启用自动下载，之后完全离线；追求质量可切 `jina-v2-base-zh`（768 维 / 640MB） |
+| **本地模型（默认）** | `bge-small-zh-v1.5`（512 维 / 91MB / 纯 CPU），首次启用自动下载，之后完全离线；追求质量可切 `jina-v2-base-zh`（768 维 / 640MB） |
 | OpenAI 兼容接口 | 自备 `/embeddings` 端点（如 bge-m3），按量计费 |
 
 换模型或改维度后必须重建索引（知识库页右上角），页面会检测维度不一致并提示。
@@ -192,6 +192,7 @@ pnpm build            # 构建 renderer / main / preload
 
 - 后端只监听 `127.0.0.1`，所有 `/api/*` 需要 Electron 启动时生成的令牌。
   令牌只在主进程里，渲染层拿不到；每个 `/api/*` 请求由主进程在 `webRequest` 层补上请求头。
+- MCP 连接器默认停用，不会启动任何本地子进程；出网只有配置里的模型与 embedding 端点。
 - 窗口禁止导航、禁止开新窗（`will-navigate` / `setWindowOpenHandler`），
   拖入 HTML 或点击外链都不会把外部页面加载进应用。
 - 工作区边界由 `FilesystemBackend(virtual_mode=True)` 拦截 `..`、`~`、越界绝对路径。

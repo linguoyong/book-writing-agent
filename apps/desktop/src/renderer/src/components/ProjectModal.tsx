@@ -31,7 +31,8 @@ export default function ProjectModal({ canClose }: { canClose: boolean }): React
   }, [name, pathTouched, mode])
 
   const browse = async (): Promise<void> => {
-    const picked = await window.desktop?.pickDirectory?.()
+    const current = path.trim() || useAppStore.getState().activeProject?.path || undefined
+    const picked = await window.desktop?.pickDirectory?.(current)
     if (picked) {
       setPath(picked)
       setPathTouched(true)

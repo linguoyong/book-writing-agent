@@ -162,8 +162,10 @@ ipcMain.on('app:set-dirty', (event, dirty) => {
   hasUnsaved = Boolean(dirty)
 })
 
-handle('dialog:pick-directory', async () => {
+handle('dialog:pick-directory', async (_event, defaultPath: unknown) => {
   const result = await dialog.showOpenDialog({
+    // 默认停在当前目录，省得每次从系统默认位置翻起
+    defaultPath: typeof defaultPath === 'string' && defaultPath ? defaultPath : undefined,
     properties: ['openDirectory', 'createDirectory'],
     title: '选择书稿空间目录'
   })

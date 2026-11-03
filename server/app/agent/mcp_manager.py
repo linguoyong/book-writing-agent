@@ -8,6 +8,10 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 
 from ..config import McpServerSettings, load_settings
 
+# 当前版本停用 MCP：工具在独立进程里执行，不经过本项目的路径沙箱与 diff 审批，
+# 对「本地写作」这个场景收益有限、风险面却不小。代码保留，后续需要时打开。
+MCP_ENABLED = False
+
 
 def _fingerprint(servers: list[McpServerSettings]) -> str:
     return json.dumps(
@@ -68,6 +72,10 @@ class McpManager:
         self._fingerprint = ""
 
     async def refresh(self, *, force: bool = False) -> list[dict[str, Any]]:
+        if not MCP_ENABLED:
+            self._tools = []
+            self._status = []
+            return self._status
         async with self._lock:
             servers = load_settings().mcp
             fingerprint = _fingerprint(servers)
@@ -137,6 +145,8 @@ class McpManager:
             return self._status
 
     async def get_tools(self) -> list[Any]:
+        if not MCP_ENABLED:
+            return []
         await self.refresh()
         return self._tools
 

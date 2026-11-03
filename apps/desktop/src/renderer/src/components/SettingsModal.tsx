@@ -7,8 +7,6 @@ import type {
   EmbeddingOption,
   EmbeddingProbe,
   EmbeddingSettings,
-  McpServerSettings,
-  McpServerStatus,
   ModelProfile,
   ModelSettings,
   PathRule,
@@ -22,27 +20,10 @@ export default function SettingsModal(): React.JSX.Element | null {
   const setSettingsOpen = useAppStore((state) => state.setSettingsOpen)
 
   const [draft, setDraft] = useState<AppConfig | null>(config)
-  const [mcpServers, setMcpServers] = useState<McpServerStatus[]>([])
-  const [mcpBusy, setMcpBusy] = useState(false)
   const [embedOptions, setEmbedOptions] = useState<EmbeddingOption[]>([])
   const [embedError, setEmbedError] = useState('')
   const [embedProbe, setEmbedProbe] = useState<EmbeddingProbe | null>(null)
   const [probing, setProbing] = useState(false)
-
-  const loadMcp = async (force = false): Promise<void> => {
-    setMcpBusy(true)
-    try {
-      const result = force ? await api.mcpReload() : await api.mcpStatus()
-      setMcpServers(result.servers)
-    } catch {
-      setMcpServers([])
-    }
-    setMcpBusy(false)
-  }
-
-  useEffect(() => {
-    void loadMcp()
-  }, [])
 
   useEffect(() => {
     void api
@@ -141,19 +122,6 @@ export default function SettingsModal(): React.JSX.Element | null {
     })
   const removeCommand = (index: number): void =>
     setSandbox({ commands: draft.sandbox.commands.filter((_, i) => i !== index) })
-
-  const addServer = (): void =>
-    setDraft({
-      ...draft,
-      mcp: [
-        ...draft.mcp,
-        { name: '', transport: 'stdio', command: '', args: [], env: {}, url: '', enabled: true }
-      ]
-    })
-  const patchServer = (index: number, patch: Partial<McpServerSettings>): void =>
-    setDraft({ ...draft, mcp: draft.mcp.map((srv, i) => (i === index ? { ...srv, ...patch } : srv)) })
-  const removeServer = (index: number): void =>
-    setDraft({ ...draft, mcp: draft.mcp.filter((_, i) => i !== index) })
 
   return (
     <div className="modal-mask" onClick={() => setSettingsOpen(false)}>
@@ -525,105 +493,11 @@ export default function SettingsModal(): React.JSX.Element | null {
                 />
               </div>
             </div>
-          </div>
 
-            <div style={{ borderTop: '1px solid var(--border)', marginTop: 14, paddingTop: 12 }}>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  marginBottom: 4
-                }}
-              >
-                <div style={{ fontSize: 12.5 }}>MCP 连接器</div>
-                <button
-                  className="ghost-btn"
-                  style={{ height: 24, padding: '0 8px', fontSize: 11 }}
-                  disabled={mcpBusy}
-                  onClick={() => void loadMcp(true)}
-                  title="重连所有服务器并刷新工具列表"
-                >
-                  <RefreshCw size={11} /> 重连
-                </button>
-              </div>
-              <div className="field-hint" style={{ marginBottom: 8 }}>
-                stdio：本地命令（如 python xxx.py）；http：streamable http 端点。工具会以
-                服务器名为前缀注入对话；MCP 工具不经过路径沙箱与 diff 审批，只开自己信得过的服务。
-              </div>
-              {draft.mcp.map((server, index) => (
-                <div className="mcp-server" key={`${server.name}-${index}`}>
-                  <label className="mcp-enabled" title="启用后注入对话">
-                    <input
-                      type="checkbox"
-                      checked={server.enabled}
-                      onChange={(event) => patchServer(index, { enabled: event.target.checked })}
-                    />
-                  </label>
-                  <input
-                    className="mcp-name"
-                    value={server.name}
-                    placeholder="名称"
-                    onChange={(event) => patchServer(index, { name: event.target.value })}
-                  />
-                  <select
-                    value={server.transport}
-                    onChange={(event) =>
-                      patchServer(index, { transport: event.target.value as 'stdio' | 'http' })
-                    }
-                  >
-                    <option value="stdio">stdio</option>
-                    <option value="http">http</option>
-                  </select>
-                  {server.transport === 'stdio' ? (
-                    <>
-                      <input
-                        value={server.command}
-                        placeholder="命令，如 D:/xxx/python.exe"
-                        onChange={(event) => patchServer(index, { command: event.target.value })}
-                      />
-                      <input
-                        value={server.args.join(' ')}
-                        placeholder="参数（空格分隔）"
-                        onChange={(event) =>
-                          patchServer(index, {
-                            args: event.target.value.split(' ').map((item) => item.trim()).filter(Boolean)
-                          })
-                        }
-                      />
-                    </>
-                  ) : (
-                    <input
-                      value={server.url}
-                      placeholder="http(s):// endpoint"
-                      onChange={(event) => patchServer(index, { url: event.target.value })}
-                    />
-                  )}
-                  <button className="icon-btn" onClick={() => removeServer(index)} title="删除">
-                    <Trash2 size={12} />
-                  </button>
-                </div>
-              ))}
-              <button className="small-btn" style={{ marginTop: 6 }} onClick={addServer}>
-                <Plus size={12} />
-                添加服务器
-              </button>
-              {mcpServers.length > 0 && (
-                <div className="mcp-status">
-                  {mcpServers.map((server) => (
-                    <div className="mcp-status-row" key={server.name}>
-                      <span className={`mcp-dot ${server.connected ? 'on' : 'off'}`} />
-                      <span className="mcp-status-name">{server.name}</span>
-                      <span className="mcp-status-info">
-                        {server.connected
-                          ? `已连接 · ${(server.tools || []).join('、') || '无工具'}`
-                          : server.error || '未连接'}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
+            <div className="field-hint" style={{ marginTop: 12 }}>
+              MCP 连接器在当前版本已停用；已有配置仍保留在 config.json 里。
             </div>
+          </div>
         </div>
 
         <div className="modal-footer">
