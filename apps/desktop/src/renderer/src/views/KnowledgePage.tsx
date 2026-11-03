@@ -4,8 +4,18 @@ import { api } from '../api'
 import { useAppStore } from '../store'
 import type { IndexJob, KbKind, KnowledgeBaseSummary } from '../types'
 import KnowledgeDetail from './KnowledgeDetail'
+import KnowledgeGraph from './KnowledgeGraph'
+import KnowledgeTimeline from './KnowledgeTimeline'
 import ImportModal from '../components/ImportModal'
 import ExtractModal from '../components/ExtractModal'
+
+type TabKey = 'bases' | 'graph' | 'timeline'
+
+const TABS: { key: TabKey; label: string }[] = [
+  { key: 'bases', label: '条目' },
+  { key: 'graph', label: '关系图' },
+  { key: 'timeline', label: '时间线' }
+]
 
 interface IndexInfo {
   chunks: number
@@ -22,6 +32,7 @@ export default function KnowledgePage(): React.JSX.Element {
   const project = useAppStore((state) => state.activeProject)
   const [items, setItems] = useState<KnowledgeBaseSummary[]>([])
   const [indexInfo, setIndexInfo] = useState<IndexInfo>({ chunks: 0, embedded: 0 })
+  const [tab, setTab] = useState<TabKey>('bases')
   const [selected, setSelected] = useState<KbKind | null>(null)
   const [loading, setLoading] = useState(true)
   const [reindexing, setReindexing] = useState(false)
@@ -124,25 +135,52 @@ export default function KnowledgePage(): React.JSX.Element {
           <p>{subtitle}</p>
         </div>
         <div className="page-actions">
-          <button className="ghost-btn" onClick={() => setImportOpen(true)} disabled={reindexing}>
-            <Upload size={13} />
-            导入整本书
-          </button>
-          <button className="ghost-btn" onClick={() => setExtractOpen(true)} disabled={reindexing}>
-            <Sparkles size={13} />
-            抽取设定
-          </button>
-          <button className="ghost-btn" onClick={() => void reindexAll()} disabled={reindexing}>
-            <RefreshCw size={13} className={reindexing ? 'spin' : ''} />
-            {reindexing
-              ? job?.total
-                ? `重建中 ${job.done ?? 0}/${job.total}${formatEta(job.eta_seconds)}`
-                : '重建中…'
-              : '重建索引'}
-          </button>
+          {tab === 'bases' && (
+            <>
+              <button className="ghost-btn" onClick={() => setImportOpen(true)} disabled={reindexing}>
+                <Upload size={13} />
+                导入整本书
+              </button>
+              <button className="ghost-btn" onClick={() => setExtractOpen(true)} disabled={reindexing}>
+                <Sparkles size={13} />
+                抽取设定
+              </button>
+              <button className="ghost-btn" onClick={() => void reindexAll()} disabled={reindexing}>
+                <RefreshCw size={13} className={reindexing ? 'spin' : ''} />
+                {reindexing
+                  ? job?.total
+                    ? `重建中 ${job.done ?? 0}/${job.total}${formatEta(job.eta_seconds)}`
+                    : '重建中…'
+                  : '重建索引'}
+              </button>
+            </>
+          )}
         </div>
       </div>
 
+      <div className="page-tabs">
+        {TABS.map((item) => (
+          <button
+            key={item.key}
+            className={`page-tab ${tab === item.key ? 'active' : ''}`}
+            onClick={() => setTab(item.key)}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'graph' && (
+        <KnowledgeGraph
+          onOpenKind={(kind) => {
+            setTab('bases')
+            setSelected(kind)
+          }}
+        />
+      )}
+      {tab === 'timeline' && <KnowledgeTimeline />}
+
+      {tab === 'bases' && (
       <div className="page-scroll">
         {loading && <div className="panel-empty">正在读取知识库…</div>}
 
@@ -198,6 +236,7 @@ export default function KnowledgePage(): React.JSX.Element {
           </div>
         )}
       </div>
+      )}
 
       {importOpen && (
         <ImportModal onClose={() => setImportOpen(false)} onDone={() => void afterImport()} />

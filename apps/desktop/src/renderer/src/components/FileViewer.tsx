@@ -43,6 +43,7 @@ export default function FileViewer({
   const [rewriteBusy, setRewriteBusy] = useState('')
   const [rewriteResult, setRewriteResult] = useState('')
   const [rewriteAction, setRewriteAction] = useState('')
+  const [materialBusy, setMaterialBusy] = useState(false)
   const cmRef = useRef<ReactCodeMirrorRef>(null)
   const isText = !openFile || openFile.kind === 'text'
   const isMarkdown =
@@ -87,6 +88,37 @@ export default function FileViewer({
       setRewriting(false)
     } finally {
       setRewriteBusy('')
+    }
+  }
+
+  const saveSelectionAsMaterial = async (): Promise<void> => {
+    const view = cmRef.current?.view
+    if (!project || !view || !selection) return
+    const doc = view.state.doc
+    const text = doc.sliceString(selection.from, selection.to).trim()
+    if (!text) {
+      showToast('先选中一段文字')
+      return
+    }
+    const head = frontMatterEnd(doc.toString())
+    if (head && selection.from < head) {
+      showToast('选中范围包含了文件头（front-matter），请从正文开始选择')
+      return
+    }
+    const line = doc.lineAt(selection.from).number
+    setMaterialBusy(true)
+    try {
+      const result = await api.saveMaterial(project.id, {
+        text,
+        source: `${openFile?.path ?? ''} · 第 ${line} 行`
+      })
+      showToast(
+        result.duplicate ? '这段已经在素材库里了' : `已收入素材库：${result.title}`
+      )
+    } catch (error) {
+      showToast((error as Error).message)
+    } finally {
+      setMaterialBusy(false)
     }
   }
 
@@ -218,6 +250,15 @@ export default function FileViewer({
               {rewriteBusy === action ? <Loader2 size={11} className="spin" /> : label}
             </button>
           ))}
+          <span className="fv-rewrite-sep" />
+          <button
+            className="fv-rewrite-btn"
+            disabled={materialBusy}
+            onClick={() => void saveSelectionAsMaterial()}
+            title="把选中内容收进知识库的素材库"
+          >
+            {materialBusy ? <Loader2 size={11} className="spin" /> : '收入素材'}
+          </button>
         </div>
       )}
 

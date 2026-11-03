@@ -37,7 +37,10 @@ import type {
   TurnChanges,
   TokenUsage,
   UsageSummary,
-  ModelPrice
+  ModelPrice,
+  GraphData,
+  TimelineData,
+  MaterialResult
 } from './types'
 
 let API_BASE = 'http://127.0.0.1:8787/api'
@@ -197,6 +200,20 @@ export const api = {
     http<Entity[]>(`/projects/${projectId}/kb/${kind}`),
   entity: (projectId: string, kind: KbKind, entityId: string) =>
     http<Entity>(`/projects/${projectId}/kb/${kind}/${entityId}`),
+  projectGraph: (projectId: string, includeMentions = true) =>
+    http<GraphData>(
+      `/projects/${projectId}/graph?include_mentions=${includeMentions}`
+    ),
+  projectTimeline: (projectId: string) =>
+    http<TimelineData>(`/projects/${projectId}/timeline`),
+  saveMaterial: (
+    projectId: string,
+    body: { text: string; title?: string; source?: string; tags?: string[] }
+  ) =>
+    http<MaterialResult>(`/projects/${projectId}/materials`, {
+      method: 'POST',
+      body: JSON.stringify(body)
+    }),
   saveEntity: (projectId: string, kind: KbKind, body: { id: string; meta: Record<string, unknown>; body: string }) =>
     http<Entity>(`/projects/${projectId}/kb/${kind}`, {
       method: 'POST',

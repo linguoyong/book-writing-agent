@@ -587,3 +587,62 @@ export interface UsageSummary {
   cost: { total: number; today: number; currency: string; has_pricing: boolean }
   recorded: number
 }
+
+export interface GraphNode {
+  id: string
+  entity_id: string
+  kind: KbKind
+  name: string
+  aliases: string[]
+  path: string
+  degree: number
+}
+
+export interface GraphEdge {
+  source: string
+  target: string
+  label: string
+  type: 'relation' | 'mention'
+  weight: number
+}
+
+export interface GraphData {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  unresolved: { source: string; target: string }[]
+  stats: {
+    nodes: number
+    relations: number
+    mentions: number
+    isolated: number
+    unresolved: number
+  }
+}
+
+export interface KbTimelineItem {
+  text: string
+  chapter?: number | null
+  year?: string
+  axis: 'chapter' | 'year' | 'unknown'
+  order: number
+  seq: number
+  source_kind: string
+  source_id: string
+  source_name: string
+}
+
+export interface TimelineData {
+  items: KbTimelineItem[]
+  total: number
+  axes: { chapter: number; year: number; unknown: number }
+}
+
+export interface MaterialResult {
+  id: string
+  kind: KbKind
+  title: string
+  meta: Record<string, unknown>
+  body: string
+  file: string
+  duplicate: boolean
+}

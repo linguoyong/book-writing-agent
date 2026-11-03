@@ -38,6 +38,8 @@ from ..chapters import ChapterError, create as create_chapter
 from ..search_text import SearchError, replace as text_replace, search as text_search
 from ..rewrite import RewriteError, rewrite as rewrite_text
 from ..versioning import VersionError
+from ..insight import MaterialError, save_material
+from ..insight import collect_graph, collect_timeline
 from ..versioning import file_diff as version_diff
 from ..versioning import files as version_files
 from ..versioning import log as version_log
@@ -813,6 +815,51 @@ class SearchRequest(BaseModel):
     threshold: float = 0.0
     mode: str = "hybrid"
     alpha: float = 0.4
+
+
+class MaterialRequest(BaseModel):
+    text: str
+    title: str = ""
+    source: str = ""
+    tags: list[str] = Field(default_factory=list)
+
+
+@router.post("/projects/{project_id}/materials")
+def post_material(project_id: str, req: MaterialRequest) -> dict[str, Any]:
+    """把一段摘录收进 kb/materials/，供后续写作引用。"""
+    project = _require_project(project_id)
+    try:
+        saved = save_material(
+            Path(project["path"]),
+            req.text,
+            title=req.title,
+            source=req.source,
+            tags=req.tags,
+        )
+    except MaterialError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not saved.get("duplicate"):
+        # 新卡片要进检索，正文一改索引就旧了
+        _start_index_job(project_id, Path(project["path"]))
+    return saved
+
+
+@router.get("/projects/{project_id}/graph")
+def project_graph(
+    project_id: str, kinds: str = "", include_mentions: bool = True
+) -> dict[str, Any]:
+    project = _require_project(project_id)
+    selected = [item.strip() for item in kinds.split(",") if item.strip()]
+    return collect_graph(
+        Path(project["path"]), kinds=selected or None, include_mentions=include_mentions
+    )
+
+
+@router.get("/projects/{project_id}/timeline")
+def project_timeline(project_id: str, kinds: str = "") -> dict[str, Any]:
+    project = _require_project(project_id)
+    selected = [item.strip() for item in kinds.split(",") if item.strip()]
+    return collect_timeline(Path(project["path"]), kinds=selected or None)
 
 
 @router.post("/projects/{project_id}/search")

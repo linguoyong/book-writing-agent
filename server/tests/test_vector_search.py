@@ -63,6 +63,18 @@ class VectorSearchTest(unittest.TestCase):
         self.assertEqual(stats["dim"], 6)
         self.assertEqual(stats["backend"], "sqlite-vec")
 
+    def test_rebuild_drops_vectors_of_deleted_cards(self) -> None:
+        self.index.rebuild()
+        before = self.index.stats()
+        self.assertEqual(before["embedded"], before["chunks"])
+
+        # 删掉一张卡再重建：它的向量不该留成孤儿
+        (self.project / "kb" / "characters" / "lin.md").unlink()
+        self.index.rebuild()
+        after = self.index.stats()
+        self.assertEqual(after["embedded"], after["chunks"])
+        self.assertLess(after["embedded"], before["embedded"])
+
     def test_vector_mode_finds_chunk(self) -> None:
         self.index.rebuild()
         hits = self.index.search("青云山", mode="vector", top_k=3)

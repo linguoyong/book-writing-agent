@@ -163,6 +163,12 @@ class KbIndex:
 
         embedded = 0
         if embed and chunks:
+            # 先清旧向量：删掉的卡片否则会留下孤儿向量，「已嵌入」数量虚高，
+            # KNN 还会拿到已经不存在于 chunks 的 chunk_id 白跑一趟
+            with self.connect() as conn:
+                if _vec_table_exists(conn):
+                    conn.execute("DELETE FROM vec_chunks")
+                    conn.commit()
             embedded = self._embed_chunks(chunks, progress)
         elif progress:
             progress("done", 0, len(chunks))
