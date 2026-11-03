@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import {
   AlertTriangle,
   ArrowUp,
@@ -57,6 +57,8 @@ export default function ChatPane(): React.JSX.Element {
 
   const [input, setInput] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
+  // 用户往上翻时不要再自动跟随；发消息 / 换会话时重新贴底
+  const stickRef = useRef(true)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const pendingComposer = useAppStore((state) => state.pendingComposer)
   const setPendingComposer = useAppStore((state) => state.setPendingComposer)
@@ -75,7 +77,12 @@ export default function ChatPane(): React.JSX.Element {
 
   useEffect(() => {
     const element = scrollRef.current
-    if (element) element.scrollTop = element.scrollHeight
+    if (!element) return
+    const nearBottom =
+      element.scrollHeight - element.scrollTop - element.clientHeight < 80
+    if (!stickRef.current && !nearBottom) return
+    stickRef.current = true
+    element.scrollTop = element.scrollHeight
   }, [timeline])
 
   useEffect(() => {
@@ -87,6 +94,7 @@ export default function ChatPane(): React.JSX.Element {
 
   useEffect(() => {
     setInput('')
+    stickRef.current = true
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
   }, [activeSessionId])
 
@@ -140,16 +148,26 @@ export default function ChatPane(): React.JSX.Element {
     }, 160)
   }
 
-  const turns = groupTurns(timeline)
-  const lastChange = [...turns]
-    .reverse()
-    .find((turn) => (turn.meta?.changes.files.length ?? 0) > 0)
-  const navPoints = turns
-    .filter((turn) => turn.user && !turn.user.steering && turn.user.content.trim())
-    .map((turn) => ({
-      id: turn.id,
-      label: turn.user!.content.replace(/\s+/g, ' ').slice(0, 48)
-    }))
+  const turns = useMemo(() => groupTurns(timeline), [timeline])
+  const lastChange = useMemo(() => {
+    for (let index = turns.length - 1; index >= 0; index -= 1) {
+      if ((turns[index].meta?.changes.files.length ?? 0) > 0) return turns[index]
+    }
+    return undefined
+  }, [turns])
+  // 只依赖轮次数与最后一条用户消息：流式 token 不该重建导航刻度，
+  // 否则 MessageNav 的 scroll effect 每个 token 都会全量 measure 一次。
+  const navPoints = useMemo(
+    () =>
+      turns
+        .filter((turn) => turn.user && !turn.user.steering && turn.user.content.trim())
+        .map((turn) => ({
+          id: turn.id,
+          label: turn.user!.content.replace(/\s+/g, ' ').slice(0, 48)
+        })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [turns.length, turns[turns.length - 1]?.user?.content]
+  )
 
   return (
     <section className="chat-pane">
@@ -181,7 +199,15 @@ export default function ChatPane(): React.JSX.Element {
       </div>
 
       <div className="chat-stage">
-        <div className="chat-scroll" ref={scrollRef}>
+        <div
+          className="chat-scroll"
+          ref={scrollRef}
+          onScroll={(event) => {
+            const element = event.currentTarget
+            stickRef.current =
+              element.scrollHeight - element.scrollTop - element.clientHeight < 80
+          }}
+        >
           <div className="chat-inner">
           {turns.length === 0 ? (
             <div className="chat-empty">
@@ -213,7 +239,7 @@ export default function ChatPane(): React.JSX.Element {
             </div>
           ) : (
             turns.map((turn, index) => (
-              <TurnBlock
+              <MemoTurnBlock
                 key={turn.id}
                 turn={turn}
                 live={streaming && index === turns.length - 1}
@@ -761,6 +787,27 @@ function ModelPicker(): React.JSX.Element {
     </div>
   )
 }
+
+function sameTurn(a: TurnView, b: TurnView): boolean {
+  // 未变化的轮次在 groupTurns 里沿用同一批对象引用，逐项比引用就够
+  return (
+    a.id === b.id &&
+    a.user === b.user &&
+    a.conclusion === b.conclusion &&
+    a.meta === b.meta &&
+    a.process.length === b.process.length &&
+    a.process.every((item, index) => item === b.process[index])
+  )
+}
+
+const MemoTurnBlock = memo(
+  TurnBlock,
+  (prev, next) =>
+    sameTurn(prev.turn, next.turn) &&
+    prev.live === next.live &&
+    prev.isLast === next.isLast &&
+    prev.startedAt === next.startedAt
+)
 
 function groupTurns(items: TimelineItem[]): TurnView[] {
   const turns: TurnView[] = []

@@ -165,7 +165,8 @@ async def chat_stream(
         )
 
         if persist_user:
-            db.add_message(
+            await asyncio.to_thread(
+                db.add_message,
                 session_id,
                 "user",
                 user_message,
@@ -198,7 +199,8 @@ async def chat_stream(
         approval = await _approval_event(agent, config, session_id, project)
         elapsed_ms = int((time.monotonic() - started) * 1000)
         changes = await asyncio.to_thread(turn_changes, project, sorted(write_paths))
-        _persist_assistant(
+        await asyncio.to_thread(
+            _persist_assistant,
             session_id,
             buffer,
             tool_calls,
@@ -239,7 +241,8 @@ async def chat_stream(
                 approval = await _approval_event(agent, config, session_id, project)
                 elapsed_ms = int((time.monotonic() - started) * 1000)
                 changes = await asyncio.to_thread(turn_changes, project, sorted(write_paths))
-                _persist_assistant(
+                await asyncio.to_thread(
+                    _persist_assistant,
                     session_id,
                     buffer,
                     tool_calls,
@@ -269,7 +272,8 @@ async def chat_stream(
         try:
             text = "".join(buffer)
             if len(text) > committed and text.strip():
-                _persist_assistant(
+                await asyncio.to_thread(
+                    _persist_assistant,
                     session_id,
                     buffer,
                     tool_calls,
@@ -423,7 +427,8 @@ async def approve_stream(
         approval = await _approval_event(agent, config, session_id, project)
         elapsed_ms = int((time.monotonic() - started) * 1000)
         changes = await asyncio.to_thread(turn_changes, project, sorted(write_paths))
-        _persist_assistant(
+        await asyncio.to_thread(
+            _persist_assistant,
             session_id,
             buffer,
             tool_calls,
@@ -452,7 +457,8 @@ async def approve_stream(
         try:
             text = "".join(buffer)
             if len(text) > committed and text.strip():
-                _persist_assistant(
+                await asyncio.to_thread(
+                    _persist_assistant,
                     session_id,
                     buffer,
                     tool_calls,

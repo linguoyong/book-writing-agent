@@ -36,10 +36,12 @@ export default function MessageNav({ points, scrollRef }: Props): React.JSX.Elem
       raf.current = 0
       const line = el.getBoundingClientRect().top + 48
       let current = -1
-      for (let i = 0; i < points.length; i += 1) {
-        const node = document.getElementById(`turn-${points[i].id}`)
+      // 只量抽样的 32 个刻度：2000 轮会话里逐个 getBoundingClientRect
+      // 是滚动时最大的开销，刻度本身也不需要精确到轮。
+      for (const { point, index } of sampled) {
+        const node = document.getElementById(`turn-${point.id}`)
         if (!node) continue
-        if (node.getBoundingClientRect().top <= line) current = i
+        if (node.getBoundingClientRect().top <= line) current = index
         else break
       }
       setActive(current)
@@ -54,7 +56,7 @@ export default function MessageNav({ points, scrollRef }: Props): React.JSX.Elem
       el.removeEventListener('scroll', onScroll)
       if (raf.current) cancelAnimationFrame(raf.current)
     }
-  }, [points, scrollRef])
+  }, [sampled, scrollRef])
 
   if (points.length < 4) return null
 
