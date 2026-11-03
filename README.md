@@ -31,14 +31,6 @@
 |---|---|
 | ![设置](docs/screenshots/settings-vector.png) | ![导入](docs/screenshots/import.png) |
 
-| 能力 | 说明 |
-|---|---|
-| 正文搜索替换 | 正文 / 导入章节分范围检索，支持正则与忽略大小写；替换只动正文、不动 front-matter，先预览再执行 |
-| 选中改写 | 编辑器里选中一段 → 润色 / 扩写 / 压缩 → 左右对照预览 → 采用后直接替换并保存 |
-| 字数与进度 | 扫描 `manuscript/` 统计算字数、章节数、今日更新，自动把「写到第几章」写回 `book.json`；文件面板常驻进度条 |
-| 成稿导出 | 合并 `manuscript/` 为单文件 TXT：卷/章自然排序、自动去 front-matter、书名作者抬头，可选目录与 GBK 编码 |
-| 素材收录 | 编辑器选中正文 →「收入素材」，按正文去重并记下来源行号 |
-
 | 逐章抽取 | 选中改写 |
 |---|---|
 | ![抽取](docs/screenshots/extract.png) | ![改写](docs/screenshots/rewrite.png) |
@@ -108,10 +100,11 @@
 | 后端 | Python 3.13 + FastAPI + SSE（uvicorn，仅监听 `127.0.0.1`） |
 | Agent | deepagents（LangGraph 底座）+ LangGraph SQLite checkpointer |
 | 模型 | 任意 OpenAI 兼容接口，多模型来源可切换，写作/抽取模型分开配置 |
-| 业务存储 | SQLite（会话、消息、审批、checkpoint） |
+| 业务存储 | SQLite（会话、消息、审批、用量记录、checkpoint） |
 | 全文检索 | SQLite FTS5 + jieba |
 | 向量检索 | sqlite-vec（进程内扩展）+ fastembed 本地 ONNX / OpenAI 兼容 embedding |
 | 版本管理 | 每本书一个独立 git 仓库 |
+| 用量记账 | `usage_log` 表按轮 / 按章记录，单价按模型配置，元每百万 token 折算 |
 
 ## 快速开始
 
@@ -141,7 +134,7 @@ pnpm build            # 构建 renderer / main / preload
 │  ├─ src/preload/               # 预加载脚本（目录选择、打开文件）
 │  └─ src/renderer/src/
 │     ├─ components/             # 对话、知识库、文件树、diff、审批卡…
-│     ├─ views/                  # 专家 / 技能 / 知识库 / 记忆 / 审批 / 诊断
+│     ├─ views/                  # 专家 / 技能 / 知识库（条目·关系图·时间线）/ 版本 / 用量 / 记忆 / 审批 / 诊断
 │     └─ store.ts                # Zustand 状态机（会话、流式、审批、UI）
 ├─ server/
 │  ├─ app/
@@ -150,6 +143,10 @@ pnpm build            # 构建 renderer / main / preload
 │  │  ├─ domains/                # 域包（写作域的工具与规则）
 │  │  ├─ kb/                     # 知识库仓储、检索、一致性 lint、嵌入
 │  │  ├─ context.py              # 8 层上下文装配
+│  │  ├─ extract.py              # 逐章抽取与实体归并
+│  │  ├─ insight.py              # 素材收录、关系图、时间线
+│  │  ├─ usage.py                # token 记账与成本折算
+│  │  ├─ versioning.py           # git 历史、单文件 diff 与回滚
 │  │  ├─ sandbox.py              # 路径 / 命令 / 网络规则
 │  │  └─ memory.py               # 三层记忆
 │  └─ tests/                     # 单测
@@ -163,7 +160,7 @@ pnpm build            # 构建 renderer / main / preload
 ```
 ~/.book-agent/
 ├─ config.json          # 模型、向量服务、沙箱规则（密钥以 *** 回显）
-├─ app.db               # 会话 / 消息 / 审批 / checkpoint
+├─ app.db               # 会话 / 消息 / 审批 / 用量记录 / checkpoint
 ├─ memory/              # USER.md、MEMORY.md、YYYY-MM-DD.md
 ├─ skills/              # 全局技能（挂到 /global-skills）
 └─ books/<空间名>/
