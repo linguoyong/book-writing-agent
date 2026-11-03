@@ -24,6 +24,11 @@ export default function ConfirmDialog({
   return (
     <div
       className="modal-mask"
+      role="dialog"
+      aria-modal="true"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') onClose()
+      }}
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
@@ -35,13 +40,13 @@ export default function ConfirmDialog({
         </div>
         <div className="confirm-body">{request.message}</div>
         <div className="modal-footer">
-          <button className="small-btn" onClick={onClose}>
+          <button className="small-btn" onClick={onClose} autoFocus={Boolean(request.danger)}>
             取消
           </button>
           <button
             className={`small-btn ${request.danger ? 'confirm-danger' : 'primary'}`}
             onClick={confirm}
-            autoFocus
+            autoFocus={!request.danger}
           >
             {request.confirmLabel ?? '确定'}
           </button>

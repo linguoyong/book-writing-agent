@@ -639,8 +639,15 @@ async function consumeStream(response: Response, handlers: StreamHandlers): Prom
     handlers.onError(`流式读取中断：${(error as Error).message}`)
     handlers.onDone()
     return
+  } finally {
+    await reader.cancel().catch(() => undefined)
   }
-  if (!doneSeen) handlers.onDone()
+  if (!doneSeen) {
+    // 后端进程被杀 / 网络中断时流会「正常结束」但缺 done 事件，
+    // 不能把半截文字当成完整回答。
+    handlers.onError('生成中断：这次回答可能不完整，可以重新生成')
+    handlers.onDone()
+  }
 }
 
 function dispatchEvent(raw: string, handlers: StreamHandlers): boolean {

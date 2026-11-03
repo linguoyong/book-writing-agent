@@ -783,7 +783,7 @@ def distill(session_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="会话不存在")
     project = Path(_require_project(session["project_id"])["path"])
     try:
-        return memory.distill_session(session_id, project)
+        return memory.distill_session(session_id, project, session["project_id"])
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"沉淀失败：{exc}") from exc
 
@@ -1446,7 +1446,7 @@ def import_style_from_work(project_id: str, req: ImportStyleRequest) -> dict[str
     project = _require_project(project_id)
     source = Path(req.path).expanduser()
     try:
-        return import_style(Path(project["path"]), source)
+        return import_style(Path(project["path"]), source, project_id)
     except StyleImportError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except Exception as error:  # 模型调用失败等

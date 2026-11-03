@@ -740,8 +740,13 @@ export const useAppStore = create<AppState>((set, get) => {
     if (!message || get().streaming) return
     let sessionId = get().activeSessionId
     if (!sessionId) {
+      // 先占住 streaming：newSession 是 await，双击会建出两个会话、两路流写同一份 timeline
+      set({ streaming: true, streamStartedAt: Date.now(), error: null })
       const session = await get().newSession()
-      if (!session) return
+      if (!session) {
+        set({ streaming: false, streamStartedAt: null })
+        return
+      }
       sessionId = session.id
     }
 
@@ -1097,6 +1102,8 @@ export const useAppStore = create<AppState>((set, get) => {
     streamAbort = controller
     try {
       await approveChat(sessionId, decisions, makeHandlers(), controller.signal)
+      // 提交失败（400/500）时后端仍保留 pending，重新拉一次把卡片找回来
+      await get().refreshPending()
     } finally {
       if (streamAbort === controller) streamAbort = null
     }

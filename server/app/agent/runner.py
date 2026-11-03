@@ -10,7 +10,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.types import Command
 
 from .. import db, usage
-from ..workspace import turn_changes
+from ..workspace import safe_join, turn_changes
 from . import steering
 from .approvals import build_requests
 from .factory import build_agent, resolve_expert
@@ -336,6 +336,34 @@ async def approve_stream(
         if expected and len(normalized) != expected:
             yield _sse("error", {"message": f"审批数量不匹配：需要 {expected} 条决定"})
             return
+        # 审批期间文件被改过：工具会拿同一份 args 对当前磁盘重放，
+        # 卡片上展示的 diff 就失效了。宁可让用户重新发起一次。
+        stale: list[str] = []
+        for index, request in enumerate(requested):
+            expected = request.get("mtime")
+            if not expected:
+                continue
+            decision = normalized[index] if index < len(normalized) else {}
+            if decision.get("type") == "reject":
+                continue
+            target = str(request.get("target") or "")
+            try:
+                current = int(safe_join(project, target).stat().st_mtime * 1000)
+            except (OSError, ValueError):
+                continue
+            if abs(current - int(expected)) > 2:
+                stale.append(target)
+        if stale:
+            yield _sse(
+                "error",
+                {
+                    "message": "审批期间文件已被修改："
+                    + "、".join(stale[:3])
+                    + "；请重新发起这次写入"
+                },
+            )
+            return
+
         # 批量审批的 resume 没有 response_schema 兜底，工具名必须在这里钉死：
         # 否则「改参数」可以把待审的 manuscript_write 换成任意工具（含 MCP）。
         for index, decision in enumerate(normalized):

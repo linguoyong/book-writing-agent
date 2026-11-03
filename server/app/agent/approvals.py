@@ -22,6 +22,16 @@ def build_requests(project: Path, value: dict[str, Any]) -> list[dict[str, Any]]
         name = str(action.get("name") or "tool")
         args = action.get("args") or {}
         target, diff, note = describe(project, name, args)
+        # 记下审批那一刻目标文件的 mtime：用户点「通过」时工具会拿同一份 args
+        # 对「当前」磁盘内容重放，期间若在编辑器里改过，diff 展示与实际落盘就不一致。
+        mtime: int | None = None
+        if target:
+            try:
+                file = safe_join(project, target)
+                if file.exists():
+                    mtime = int(file.stat().st_mtime * 1000)
+            except (OSError, ValueError):
+                mtime = None
         requests.append(
             {
                 "name": name,
@@ -30,6 +40,7 @@ def build_requests(project: Path, value: dict[str, Any]) -> list[dict[str, Any]]
                 "raw_args": args,
                 "description": action.get("description") or "",
                 "target": target,
+                "mtime": mtime,
                 "diff": diff,
                 "note": note,
             }

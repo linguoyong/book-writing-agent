@@ -54,11 +54,17 @@ def _clean_title(path: Path, meta: dict[str, Any], body: str) -> str:
 
 
 def _clean_body(body: str, title: str) -> str:
+    """去掉正文开头重复的标题：`# 第N章` 与裸标题都算。"""
     lines = body.splitlines()
-    if lines:
-        match = HEADING.match(lines[0].strip())
-        if match and match.group(1).strip() == title:
-            lines = lines[1:]
+    index = 0
+    while index < len(lines) and not lines[index].strip():
+        index += 1
+    if index < len(lines):
+        stripped = lines[index].strip()
+        match = HEADING.match(stripped)
+        candidate = match.group(1).strip() if match else stripped
+        if candidate == title:
+            lines = lines[:index] + lines[index + 1:]
     text = "\n".join(lines).strip()
     return re.sub(r"\n{3,}", "\n\n", text)
 
@@ -86,6 +92,12 @@ def collect(project: Path) -> list[dict[str, Any]]:
     return chapters
 
 
+def _volume_label(volume: str) -> str:
+    """`vol-02` → 第2卷；已经是中文名的目录原样使用。"""
+    match = re.search(r"(\d+)", volume)
+    return f"第{int(match.group(1))}卷" if match else volume
+
+
 def build_txt(
     chapters: list[dict[str, Any]],
     *,
@@ -109,7 +121,16 @@ def build_txt(
             lines.append(f"{index}. {chapter['title']}")
         blocks.append("\n".join(lines))
 
+    # 单卷不额外加「第1卷」，多卷才恢复卷结构
+    volumes = {str(chapter.get("volume") or "") for chapter in chapters}
+    volumes.discard("")
+    show_volumes = len(volumes) > 1
+    current_volume = ""
     for chapter in chapters:
+        volume = str(chapter.get("volume") or "")
+        if show_volumes and volume and volume != current_volume:
+            current_volume = volume
+            blocks.append(_volume_label(volume))
         blocks.append(f"{chapter['title']}\n\n{chapter['body']}")
     return "\n\n\n".join(blocks).strip() + "\n"
 
@@ -152,7 +173,8 @@ def export_txt(
 
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        data = text.encode(encoding, errors="replace")
+        # gb18030 覆盖全部 Unicode（含 emoji 与扩展区），不需要 errors="replace"
+        data = text.encode(encoding)
         path.write_bytes(data)
     except OSError as exc:
         raise ExportError(f"写入失败：{exc}") from exc

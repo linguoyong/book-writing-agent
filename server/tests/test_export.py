@@ -53,6 +53,17 @@ class CollectTest(unittest.TestCase):
         chapters = collect(self.project)
         self.assertNotIn("title:", chapters[0]["body"])
 
+    def test_plain_title_line_is_removed(self) -> None:
+        # 新建章节的正文首行就是裸标题（没有 #），导出时不能又加一遍
+        write(
+            self.project / "manuscript" / "vol-01" / "ch-011.md",
+            "---\ntitle: 第十一章 归途\n---\n\n第十一章 归途\n\n他回来了。\n",
+        )
+        chapters = collect(self.project)
+        target = next(item for item in chapters if item["title"] == "第十一章 归途")
+
+        self.assertEqual(target["body"], "他回来了。")
+
     def test_title_falls_back_to_filename(self) -> None:
         write(self.project / "manuscript" / "vol-03" / "003-无题.md", "正文。")
         chapters = collect(self.project)
@@ -72,6 +83,21 @@ class BuildTxtTest(unittest.TestCase):
         chapters = [{"title": "第一章", "body": "正文。", "chars": 2}]
         self.assertNotIn("目录", build_txt(chapters))
         self.assertIn("目录", build_txt(chapters, include_toc=True))
+
+    def test_multi_volume_headings(self) -> None:
+        chapters = [
+            {"title": "第一章", "body": "甲", "chars": 1, "volume": "vol-01"},
+            {"title": "第二章", "body": "乙", "chars": 1, "volume": "vol-02"},
+        ]
+        text = build_txt(chapters)
+
+        self.assertIn("第1卷", text)
+        self.assertIn("第2卷", text)
+
+    def test_single_volume_has_no_heading(self) -> None:
+        chapters = [{"title": "第一章", "body": "甲", "chars": 1, "volume": "vol-01"}]
+
+        self.assertNotIn("第1卷", build_txt(chapters))
 
     def test_empty_raises(self) -> None:
         with self.assertRaises(ExportError):

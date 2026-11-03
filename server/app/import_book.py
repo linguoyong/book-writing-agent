@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .text import normalize_newlines, save_text
+from .text import decode_bytes, save_text
 
 MAX_BYTES = 50 * 1024 * 1024
 MAX_CHAPTERS = 3000
@@ -54,31 +54,6 @@ class ParsedBook:
     encoding: str
     chapters: list[ChapterDraft] = field(default_factory=list)
     preamble_chars: int = 0
-
-
-def decode_bytes(raw: bytes) -> tuple[str, str]:
-    """按 BOM → UTF-8 → GB18030 的顺序解码，最后兜底替换。
-
-    返回值统一成 LF：源文件常是 CRLF，不归一化就会在落盘时翻成 `\r\r\n`。
-    """
-    text, encoding = _decode(raw)
-    return normalize_newlines(text), encoding
-
-
-def _decode(raw: bytes) -> tuple[str, str]:
-    if raw.startswith(b"\xef\xbb\xbf"):
-        return raw[3:].decode("utf-8", errors="replace"), "utf-8-sig"
-    if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
-        try:
-            return raw.decode("utf-16"), "utf-16"
-        except UnicodeDecodeError:
-            pass
-    for encoding in ("utf-8", "gb18030"):
-        try:
-            return raw.decode(encoding), encoding
-        except UnicodeDecodeError:
-            continue
-    return raw.decode("utf-8", errors="replace"), "utf-8(替换非法字节)"
 
 
 def parse_book(path: Path, pattern: str = "") -> ParsedBook:

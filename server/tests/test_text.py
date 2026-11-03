@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 from app.kb.repository import get_entity, parse_note, save_entity
-from app.text import normalize_newlines, read_text, save_text
+from app.text import decode_bytes, normalize_newlines, read_text, save_text
 
 
 class NewlineTest(unittest.TestCase):
@@ -45,6 +45,21 @@ class NewlineTest(unittest.TestCase):
             raw = (project / "kb" / "characters" / "linzhao.md").read_bytes()
             self.assertNotIn(b"\r", raw)
             self.assertEqual(get_entity(project, "characters", "linzhao")["body"], "他走进屋子。\n\n门外有雨。\n")
+
+
+class DecodeTest(unittest.TestCase):
+    def test_utf16_without_bom(self) -> None:
+        text = "第一章 灯\n正文。\n"
+        for encoding in ("utf-16-le", "utf-16-be"):
+            decoded, name = decode_bytes(text.encode(encoding))
+            self.assertEqual(decoded, text)
+            self.assertEqual(name, "utf-16")
+
+    def test_gb18030_is_not_mistaken_for_utf16(self) -> None:
+        text = "第一章 雾\n正文。\n"
+        decoded, name = decode_bytes(text.encode("gb18030"))
+        self.assertEqual(decoded, text)
+        self.assertEqual(name, "gb18030")
 
 
 class FrontMatterTest(unittest.TestCase):

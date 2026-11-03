@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from . import usage
 from .config import MEMORY_DIR
 from .text import read_text, save_text
 
@@ -193,7 +194,9 @@ def _describe(scope: str, file: Path, project: Path | None) -> dict[str, Any]:
     }
 
 
-def distill_session(session_id: str, project: Path) -> dict[str, Any]:
+def distill_session(
+    session_id: str, project: Path, project_id: str = ""
+) -> dict[str, Any]:
     """把一段会话沉淀成长期记忆（3–6 条事实）。由用户显式触发。"""
     from . import db
     from .llm import build_chat_model
@@ -215,6 +218,18 @@ def distill_session(session_id: str, project: Path) -> dict[str, Any]:
     )
     model = build_chat_model("extractor")
     result = model.invoke(prompt)
+    if project_id:
+        parsed = usage.parse_message(result)
+        usage.record(
+            project_id=project_id,
+            session_id=session_id,
+            kind="extract",
+            model=parsed["model"],
+            input_tokens=parsed["input"],
+            output_tokens=parsed["output"],
+            cache_read=parsed["cache_read"],
+            calls=1,
+        )
     text = result.content if isinstance(result.content, str) else str(result.content)
     items = [
         line.lstrip("-* ").strip()

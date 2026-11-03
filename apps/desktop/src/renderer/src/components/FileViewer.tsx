@@ -352,6 +352,8 @@ export default function FileViewer({
             </div>
           ) : (
             <CodeMirror
+              // 换文件时重建实例：撤销历史、光标与缓存的选区都不该跟着走
+              key={openFile.path}
               ref={cmRef}
               value={openFile.content}
               height="100%"

@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from . import usage
 from .kb.repository import dump_note, safe_entity_id
 from .text import read_text, save_text
 
@@ -105,14 +106,18 @@ PROMPT_TEMPLATE = """你是写作风格分析师。根据下面的小说片段�
 {sample}"""
 
 
-def import_style(project: Path, source: Path) -> dict[str, Any]:
+def import_style(
+    project: Path, source: Path, project_id: str = ""
+) -> dict[str, Any]:
     validate_source(source)
     text = read_text(source)
     if len(text.strip()) < 800:
         raise StyleImportError("正文太短（少于 800 字），无法提炼风格")
 
     sample = sample_text(text)
-    raw = _ask_model(PROMPT_TEMPLATE.replace("{sample}", _escape_braces(sample)))
+    raw = _ask_model(
+        PROMPT_TEMPLATE.replace("{sample}", _escape_braces(sample)), project_id
+    )
     parsed = _parse_json(raw)
 
     expert = parsed.get("expert") or {}
@@ -137,11 +142,22 @@ def _escape_braces(sample: str) -> str:
     return sample.replace("{", "{{").replace("}", "}}")
 
 
-def _ask_model(prompt: str) -> str:
+def _ask_model(prompt: str, project_id: str = "") -> str:
     from .llm import build_chat_model
 
     model = build_chat_model("extractor")
     result = model.invoke(prompt)
+    if project_id:
+        parsed = usage.parse_message(result)
+        usage.record(
+            project_id=project_id,
+            kind="extract",
+            model=parsed["model"],
+            input_tokens=parsed["input"],
+            output_tokens=parsed["output"],
+            cache_read=parsed["cache_read"],
+            calls=1,
+        )
     content = result.content if isinstance(result.content, str) else str(result.content)
     if not content.strip():
         raise StyleImportError("模型返回为空，请重试")

@@ -119,7 +119,7 @@ pnpm dev              # 启动桌面端，Electron 会自动拉起 Python 后端
 
 ```bash
 pnpm server           # uvicorn app.main:app --port 8787 --reload
-pnpm test             # 后端单测（unittest，168 个用例）
+pnpm test             # 后端单测（unittest，176 个用例）
 pnpm build            # 构建 renderer / main / preload
 ```
 
