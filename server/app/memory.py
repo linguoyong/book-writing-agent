@@ -194,9 +194,7 @@ def _describe(scope: str, file: Path, project: Path | None) -> dict[str, Any]:
     }
 
 
-def distill_session(
-    session_id: str, project: Path, project_id: str = ""
-) -> dict[str, Any]:
+def distill_session(session_id: str, project: Path, project_id: str = "") -> dict[str, Any]:
     """把一段会话沉淀成长期记忆（3–6 条事实）。由用户显式触发。"""
     from . import db
     from .llm import build_chat_model

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from .config import ModelPrice, load_settings, save_settings
@@ -23,9 +23,7 @@ def parse_message(output: Any) -> dict[str, Any]:
         # 兜底：部分 provider 只填 response_metadata.token_usage
         raw = meta.get("token_usage") or meta.get("usage") or {}
         input_tokens = int(raw.get("prompt_tokens") or raw.get("input_tokens") or 0)
-        output_tokens = int(
-            raw.get("completion_tokens") or raw.get("output_tokens") or 0
-        )
+        output_tokens = int(raw.get("completion_tokens") or raw.get("output_tokens") or 0)
         cache_read = int(
             raw.get("prompt_cache_hit_tokens")
             or (raw.get("prompt_tokens_details") or {}).get("cached_tokens")
@@ -160,7 +158,7 @@ def _local_date(value: str) -> str:
     except (TypeError, ValueError):
         return str(value)[:10]
     if moment.tzinfo is None:
-        moment = moment.replace(tzinfo=timezone.utc)
+        moment = moment.replace(tzinfo=UTC)
     return moment.astimezone().date().isoformat()
 
 
@@ -230,8 +228,7 @@ def summary(project_id: str, days: int = 14) -> dict[str, Any]:
     totals = _empty_bucket()
     today_bucket = _empty_bucket()
     buckets: dict[str, dict[str, int]] = {
-        (start + timedelta(days=offset)).isoformat(): _empty_bucket()
-        for offset in range(days)
+        (start + timedelta(days=offset)).isoformat(): _empty_bucket() for offset in range(days)
     }
     by_model: dict[str, dict[str, Any]] = {}
     by_session: dict[str, dict[str, Any]] = {}
@@ -263,9 +260,7 @@ def summary(project_id: str, days: int = 14) -> dict[str, Any]:
         cost_by_day[day] = round(cost_by_day[day] + cost, 4)
         _accumulate(totals, row)
         _accumulate(buckets[day], row)
-        target = by_model.setdefault(
-            model, {**_empty_bucket(), "model": model, "cost": 0.0}
-        )
+        target = by_model.setdefault(model, {**_empty_bucket(), "model": model, "cost": 0.0})
         _accumulate(target, row)
         target["cost"] = round(target["cost"] + cost, 4)
         if row["kind"] == "chat" and row["session_id"]:
@@ -313,12 +308,8 @@ def summary(project_id: str, days: int = 14) -> dict[str, Any]:
         "series": series,
         "by_model": models,
         "by_session": sessions[:20],
-        "by_kind": [
-            {"kind": kind, **bucket} for kind, bucket in sorted(by_kind.items())
-        ],
-        "pricing": {
-            name: price.model_dump() for name, price in (settings.pricing or {}).items()
-        },
+        "by_kind": [{"kind": kind, **bucket} for kind, bucket in sorted(by_kind.items())],
+        "pricing": {name: price.model_dump() for name, price in (settings.pricing or {}).items()},
         "priced_models": sorted(priced_models),
         "cost": {
             "total": round(cost_total, 4),

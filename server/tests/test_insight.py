@@ -39,7 +39,9 @@ class GraphTest(InsightBase):
             "陆沉在苦泉村遇见祝先生。",
         )
         self.card("characters", "zhu", {"name": "祝先生"}, "祝先生教书，认识小陆。")
-        self.card("factions", "kuquan", {"name": "苦泉村", "relations": ["陆沉：村民"]}, "井水发苦。")
+        self.card(
+            "factions", "kuquan", {"name": "苦泉村", "relations": ["陆沉：村民"]}, "井水发苦。"
+        )
         self.card("world", "night", {"name": "长夜"}, "世界设定，不该出现在图里。")
 
     def test_only_graph_kinds(self) -> None:
@@ -106,7 +108,13 @@ class TimelineTest(InsightBase):
         self.card(
             "world",
             "night",
-            {"name": "长夜", "timeline": [{"year": "第3年", "event": "昼缩定名"}, {"year": "第0年", "event": "第一夜"}]},
+            {
+                "name": "长夜",
+                "timeline": [
+                    {"year": "第3年", "event": "昼缩定名"},
+                    {"year": "第0年", "event": "第一夜"},
+                ],
+            },
         )
         (self.root / "kb" / "outline").mkdir(parents=True)
         (self.root / "kb" / "outline" / "auto-timeline.md").write_text(

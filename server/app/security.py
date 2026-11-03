@@ -76,10 +76,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         provided = request.headers.get(AUTH_HEADER, "")
-        if not secrets.compare_digest(
-            provided.encode("utf-8", "ignore"), _TOKEN.encode("utf-8")
-        ):
-            return JSONResponse(
-                {"detail": "未授权：缺少或错误的访问令牌"}, status_code=401
-            )
+        if not secrets.compare_digest(provided.encode("utf-8", "ignore"), _TOKEN.encode("utf-8")):
+            return JSONResponse({"detail": "未授权：缺少或错误的访问令牌"}, status_code=401)
         return await call_next(request)

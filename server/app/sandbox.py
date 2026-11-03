@@ -34,6 +34,7 @@ class PathRule(BaseModel):
         return value
 
 
+# fmt: off
 DEFAULT_RULES: list[dict[str, str]] = [
     {"pattern": ".env", "read": "deny", "write": "deny", "delete": "deny", "note": "环境变量常含密钥"},
     {"pattern": ".env.*", "read": "deny", "write": "deny", "delete": "deny", "note": "环境变量变体"},
@@ -43,6 +44,7 @@ DEFAULT_RULES: list[dict[str, str]] = [
     {"pattern": "id_rsa*", "read": "deny", "write": "deny", "delete": "deny", "note": "SSH 私钥"},
     {"pattern": ".git/config", "read": "allow", "write": "deny", "delete": "deny", "note": "防止改写远端地址"},
 ]
+# fmt: on
 
 
 class CommandRule(BaseModel):
@@ -116,23 +118,19 @@ def compile_permissions(
     """
     ask_mode = "interrupt" if mode == "ask" else "allow"
     permissions: list[FilesystemPermission] = []
-    for rule in (sandbox.rules if sandbox else []):
+    for rule in sandbox.rules if sandbox else []:
         patterns = _expand(rule.pattern)
         if not patterns:
             continue
         read_target = _mapped(rule.read, ask_mode)
         if read_target != "allow":
             permissions.append(
-                FilesystemPermission(
-                    operations=["read"], paths=patterns, mode=read_target
-                )
+                FilesystemPermission(operations=["read"], paths=patterns, mode=read_target)
             )
         write_target = _mapped(_strongest(rule.write, rule.delete), ask_mode)
         if write_target != "allow":
             permissions.append(
-                FilesystemPermission(
-                    operations=["write"], paths=patterns, mode=write_target
-                )
+                FilesystemPermission(operations=["write"], paths=patterns, mode=write_target)
             )
 
     if mode == "ask":

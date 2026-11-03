@@ -33,8 +33,12 @@ class ChapterTest(unittest.TestCase):
         self.assertIn("第1章", body)
 
     def test_next_number_follows_largest_across_volumes(self) -> None:
-        write(self.project / "manuscript" / "vol-01" / "ch-001.md", "---\nchapter: 1\n---\n\n一。\n")
-        write(self.project / "manuscript" / "vol-02" / "ch-003.md", "---\nchapter: 7\n---\n\n七。\n")
+        write(
+            self.project / "manuscript" / "vol-01" / "ch-001.md", "---\nchapter: 1\n---\n\n一。\n"
+        )
+        write(
+            self.project / "manuscript" / "vol-02" / "ch-003.md", "---\nchapter: 7\n---\n\n七。\n"
+        )
 
         volume, number = next_position(self.project)
         self.assertEqual((volume, number), (2, 8))
@@ -44,14 +48,20 @@ class ChapterTest(unittest.TestCase):
         self.assertEqual(result["title"], "第8章 雾中来客")
 
     def test_existing_title_kept(self) -> None:
-        write(self.project / "manuscript" / "vol-01" / "ch-001.md", "---\nchapter: 1\n---\n\n一。\n")
+        write(
+            self.project / "manuscript" / "vol-01" / "ch-001.md", "---\nchapter: 1\n---\n\n一。\n"
+        )
         result = create(self.project, title="第二章 旧梦")
 
         self.assertEqual(result["title"], "第二章 旧梦")
 
     def test_existing_file_is_rejected(self) -> None:
-        write(self.project / "manuscript" / "vol-01" / "ch-001.md", "---\nchapter: 1\n---\n\n一。\n")
-        write(self.project / "manuscript" / "vol-01" / "ch-002.md", "---\nchapter: 2\n---\n\n二。\n")
+        write(
+            self.project / "manuscript" / "vol-01" / "ch-001.md", "---\nchapter: 1\n---\n\n一。\n"
+        )
+        write(
+            self.project / "manuscript" / "vol-01" / "ch-002.md", "---\nchapter: 2\n---\n\n二。\n"
+        )
         (self.project / "manuscript" / "vol-01" / "ch-003.md").write_text("占位", encoding="utf-8")
 
         with self.assertRaises(ChapterError):

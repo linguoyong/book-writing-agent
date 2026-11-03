@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -133,9 +134,9 @@ def _display_title(meta: dict[str, Any], fallback: str) -> str:
 
 
 def _now() -> str:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def state_at(meta: dict[str, Any], chapter: int) -> dict[str, Any] | None:

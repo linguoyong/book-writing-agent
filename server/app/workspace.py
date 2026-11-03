@@ -44,9 +44,7 @@ def slugify(name: str) -> str:
     return cleaned or "book"
 
 
-def init_book_dir(
-    path: Path, title: str, author: str = "", words_per_chapter: int = 5000
-) -> Path:
+def init_book_dir(path: Path, title: str, author: str = "", words_per_chapter: int = 5000) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     (path / "manuscript").mkdir(exist_ok=True)
     (path / "chapters").mkdir(exist_ok=True)
@@ -145,9 +143,7 @@ def _git(path: Path, *args: str) -> subprocess.CompletedProcess[str]:
         )
     except subprocess.TimeoutExpired:
         # 宁可少一段 diff，也不要让整个请求（甚至事件循环）挂住
-        return subprocess.CompletedProcess(
-            ["git", *args], 1, "", "git 命令超时"
-        )
+        return subprocess.CompletedProcess(["git", *args], 1, "", "git 命令超时")
 
 
 def _ensure_initial_commit(path: Path) -> None:
@@ -297,9 +293,7 @@ def git_commit(path: Path, message: str) -> tuple[bool, str]:
 
 def git_status_map(path: Path) -> dict[str, str]:
     """porcelain 状态 → {相对路径: untracked|added|modified|deleted}。"""
-    text = _git(
-        path, "-c", "core.quotepath=false", "status", "--porcelain", "-uall"
-    ).stdout
+    text = _git(path, "-c", "core.quotepath=false", "status", "--porcelain", "-uall").stdout
     result: dict[str, str] = {}
     for line in text.splitlines():
         if len(line) < 4:
@@ -414,9 +408,7 @@ def turn_changes(project: Path, paths: list[str], limit: int = 20000) -> dict[st
         relative = normalized
         files.append(relative)
         if relative in tracked_set:
-            diff = _git(
-                project, "-c", "core.quotepath=false", "diff", "--", relative
-            ).stdout
+            diff = _git(project, "-c", "core.quotepath=false", "diff", "--", relative).stdout
             if not diff.strip():
                 diff = _git(
                     project, "-c", "core.quotepath=false", "diff", "--cached", "--", relative
@@ -440,10 +432,10 @@ def _new_file_diff(target: Path, relative: str) -> str:
         return ""
     lines = content.splitlines()[:400]
     header = [
-        "diff --git a/{0} b/{0}".format(relative),
+        f"diff --git a/{relative} b/{relative}",
         "new file mode 100644",
         "--- /dev/null",
-        "+++ b/{}".format(relative),
-        "@@ -0,0 +1,{} @@".format(len(lines)),
+        f"+++ b/{relative}",
+        f"@@ -0,0 +1,{len(lines)} @@",
     ]
     return "\n".join([*header, *[f"+{line}" for line in lines]])

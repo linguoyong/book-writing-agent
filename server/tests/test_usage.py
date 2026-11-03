@@ -123,9 +123,7 @@ class RecordTest(UsageTestBase):
         self.assertEqual(usage.summary(self.project_id)["recorded"], 0)
 
     def test_negative_values_clamped(self) -> None:
-        usage.record(
-            project_id=self.project_id, input_tokens=-10, output_tokens=-5, calls=1
-        )
+        usage.record(project_id=self.project_id, input_tokens=-10, output_tokens=-5, calls=1)
         totals = usage.summary(self.project_id, 7)["totals"]
         self.assertEqual(totals["input"], 0)
         self.assertEqual(totals["output"], 0)

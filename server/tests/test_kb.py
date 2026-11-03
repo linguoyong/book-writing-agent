@@ -6,8 +6,7 @@ import unittest
 from pathlib import Path
 
 from app.config import EmbeddingSettings
-from app.kb.repository import save_entity
-from app.kb.repository import state_at, trim_meta
+from app.kb.repository import save_entity, state_at, trim_meta
 from app.kb.search import KbIndex, _chapter_number, _normalize
 
 

@@ -39,15 +39,11 @@ class AuthMiddlewareTest(unittest.TestCase):
         self.assertEqual(self.client.get("/api/private").status_code, 401)
 
     def test_wrong_token_is_rejected(self) -> None:
-        response = self.client.get(
-            "/api/private", headers={security.AUTH_HEADER: "wrong"}
-        )
+        response = self.client.get("/api/private", headers={security.AUTH_HEADER: "wrong"})
         self.assertEqual(response.status_code, 401)
 
     def test_correct_token_is_allowed(self) -> None:
-        response = self.client.get(
-            "/api/private", headers={security.AUTH_HEADER: "unit-token"}
-        )
+        response = self.client.get("/api/private", headers={security.AUTH_HEADER: "unit-token"})
         self.assertEqual(response.status_code, 200)
 
     def test_disabled_auth_lets_requests_through(self) -> None:

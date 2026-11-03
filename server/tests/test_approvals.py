@@ -39,9 +39,7 @@ class ApprovalGuardTest(unittest.TestCase):
         self.assertIsNone(requests[0]["mtime"])
 
     def test_out_of_bounds_target_has_no_mtime(self) -> None:
-        requests = self._requests(
-            {"path": "../../etc/passwd", "content": "x", "mode": "overwrite"}
-        )
+        requests = self._requests({"path": "../../etc/passwd", "content": "x", "mode": "overwrite"})
 
         self.assertIsNone(requests[0]["mtime"])
 

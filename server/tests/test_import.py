@@ -17,8 +17,8 @@ from app.import_book import (
 
 class DecodeTest(unittest.TestCase):
     def test_utf8_and_bom(self) -> None:
-        self.assertEqual(decode_bytes("第一章 灯".encode("utf-8")), ("第一章 灯", "utf-8"))
-        text, encoding = decode_bytes(b"\xef\xbb\xbf" + "第一章 灯".encode("utf-8"))
+        self.assertEqual(decode_bytes("第一章 灯".encode()), ("第一章 灯", "utf-8"))
+        text, encoding = decode_bytes(b"\xef\xbb\xbf" + "第一章 灯".encode())
         self.assertEqual((text, encoding), ("第一章 灯", "utf-8-sig"))
 
     def test_gb18030(self) -> None:
@@ -41,8 +41,7 @@ class ParseTest(unittest.TestCase):
 
     def test_split_by_chapter_heading(self) -> None:
         path = self._write(
-            "第一章 灯下有人\n\n北堤的灯点了三个时辰。\n\n"
-            "第二章 经纬仪\n\n夏栀是踩着潮水来的。\n"
+            "第一章 灯下有人\n\n北堤的灯点了三个时辰。\n\n第二章 经纬仪\n\n夏栀是踩着潮水来的。\n"
         )
         book = parse_book(path)
 

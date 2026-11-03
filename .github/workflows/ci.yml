@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+# 同一分支连推多次时，取消上一轮未跑完的任务
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  backend:
+    name: 后端（ruff + unittest）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+          cache-dependency-glob: server/uv.lock
+
+      # --frozen：uv.lock 与 pyproject.toml 不一致时直接失败，避免依赖漂移
+      - name: 安装依赖
+        run: uv sync --directory server --frozen
+
+      - name: 代码检查
+        run: |
+          uv run --directory server ruff check .
+          uv run --directory server ruff format --check .
+
+      - name: 单元测试
+        run: uv run --directory server python -m unittest discover -s tests -t . -v
+
+  frontend:
+    name: 前端（typecheck + build）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 版本取自 package.json 的 packageManager 字段
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # --frozen-lockfile：锁文件与 package.json 不一致时直接失败
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 类型检查
+        run: pnpm typecheck
+
+      - name: 构建
+        run: pnpm build

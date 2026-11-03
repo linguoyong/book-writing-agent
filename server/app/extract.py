@@ -4,10 +4,11 @@ import json
 import re
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from . import usage
 from .kb.repository import dump_note, list_entities, parse_note, safe_entity_id, save_entity
@@ -83,11 +84,21 @@ class ExtractStats:
     details: list[dict[str, Any]] = field(default_factory=list)
     samples: list[str] = field(default_factory=list)
 
-    def add(self, other: "ExtractStats") -> None:
+    def add(self, other: ExtractStats) -> None:
         for key in (
-            "chapters", "characters", "locations", "factions", "items",
-            "aliases", "events", "foreshadowing", "failed", "candidates",
-            "queued", "notes", "duplicates",
+            "chapters",
+            "characters",
+            "locations",
+            "factions",
+            "items",
+            "aliases",
+            "events",
+            "foreshadowing",
+            "failed",
+            "candidates",
+            "queued",
+            "notes",
+            "duplicates",
         ):
             setattr(self, key, getattr(self, key) + getattr(other, key))
         self.details.extend(other.details)
@@ -289,9 +300,7 @@ def build_entity_map(project: Path) -> dict[str, dict[str, Any]]:
             aliases = meta.get("aliases") or []
             if isinstance(aliases, str):
                 aliases = [
-                    item.strip()
-                    for item in re.split(r"[,，、;；/|]", aliases)
-                    if item.strip()
+                    item.strip() for item in re.split(r"[,，、;；/|]", aliases) if item.strip()
                 ]
             names.extend(str(item) for item in aliases if item)
             for name in names:
@@ -385,9 +394,7 @@ def queue_candidate(
     return True
 
 
-def _create_stub(
-    project: Path, kind: str, item: dict[str, Any], chapter_no: int
-) -> dict[str, Any]:
+def _create_stub(project: Path, kind: str, item: dict[str, Any], chapter_no: int) -> dict[str, Any]:
     entity_id = safe_entity_id(item["name"])
     meta = {
         "id": entity_id,
@@ -424,7 +431,7 @@ def _merge_note(project: Path, snapshot: dict[str, Any], chapter_no: int, note: 
     index = body.find(AUTO_SECTION)
     if index >= 0:
         head = body[:index].rstrip()
-        for line in body[index + len(AUTO_SECTION):].splitlines():
+        for line in body[index + len(AUTO_SECTION) :].splitlines():
             if line.strip().startswith("- 第"):
                 bullets.append(line.strip())
     if any(line.startswith(marker) for line in bullets):
@@ -509,8 +516,7 @@ def apply_result(
                     (
                         alias
                         for alias in item["aliases"]
-                        if index.get(alias) is not None
-                        and index[alias]["id"] != snapshot["id"]
+                        if index.get(alias) is not None and index[alias]["id"] != snapshot["id"]
                     ),
                     None,
                 )
@@ -695,8 +701,13 @@ def run(
                     stats.details.append({"chapter": number, "title": title, "error": error})
                 else:
                     chapter_stats = apply_result(
-                        project, number, data, ExtractStats(),
-                        dry_run=dry_run, entities=entities, seen_events=seen_events,
+                        project,
+                        number,
+                        data,
+                        ExtractStats(),
+                        dry_run=dry_run,
+                        entities=entities,
+                        seen_events=seen_events,
                     )
                     stats.add(chapter_stats)
                     stats.chapters += 1

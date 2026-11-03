@@ -18,7 +18,9 @@ def write(path: Path, text: str) -> None:
 class SearchTest(unittest.TestCase):
     def setUp(self) -> None:
         self.project = Path(tempfile.mkdtemp(prefix="search-"))
-        write(self.project / "manuscript" / "vol-01" / "ch-001.md", "灯已经点了三个时辰。\n雾漫上来。")
+        write(
+            self.project / "manuscript" / "vol-01" / "ch-001.md", "灯已经点了三个时辰。\n雾漫上来。"
+        )
         write(self.project / "manuscript" / "vol-01" / "ch-002.md", "雾里有人叫灯。\n灯灭了。")
         write(self.project / "chapters" / "0001.md", "第一章 灯\n\n灯火。")
 

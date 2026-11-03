@@ -73,7 +73,7 @@ def _split_front_matter(text: str) -> tuple[str, str, int]:
     if not match:
         return "", text, 0
     header = match.group(0)
-    return header, text[len(header):], header.count("\n")
+    return header, text[len(header) :], header.count("\n")
 
 
 def _relative(project: Path, file: Path) -> str:

@@ -3,8 +3,9 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.types import Command
@@ -217,8 +218,7 @@ async def chat_stream(
             if leftover:
                 follow = (
                     "[执行中排队、但在上一段生成结束前未被消费的引导。请据此补充或修正结论，"
-                    "不要重复已经说过的内容]\n"
-                    + "\n".join(f"- {item}" for item in leftover)
+                    "不要重复已经说过的内容]\n" + "\n".join(f"- {item}" for item in leftover)
                 )
                 buffer.clear()
                 tool_calls.clear()
@@ -295,9 +295,7 @@ async def chat_stream(
                 lock.release()
 
 
-async def approve_stream(
-    session_id: str, decisions: list[dict[str, Any]]
-) -> AsyncIterator[str]:
+async def approve_stream(session_id: str, decisions: list[dict[str, Any]]) -> AsyncIterator[str]:
     session = db.get_session(session_id)
     if not session:
         yield _sse("error", {"message": "会话不存在"})
@@ -552,9 +550,7 @@ async def _approval_event(
     requests = build_requests(project, value)
     if not requests:
         return None
-    record = db.add_approval(
-        session_id, getattr(interrupt, "id", None), {"requests": requests}
-    )
+    record = db.add_approval(session_id, getattr(interrupt, "id", None), {"requests": requests})
     return _sse(
         "approval",
         {

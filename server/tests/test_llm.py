@@ -24,7 +24,9 @@ class StreamUsageTest(unittest.TestCase):
         self.assertFalse(_is_stream_options_error(exc))
 
     def test_usage_key_is_stable(self) -> None:
-        self.assertEqual(_usage_key("https://api.example.com/v1", "m"), "https://api.example.com/v1|m")
+        self.assertEqual(
+            _usage_key("https://api.example.com/v1", "m"), "https://api.example.com/v1|m"
+        )
         self.assertEqual(_usage_key(None, "m"), "|m")
 
 

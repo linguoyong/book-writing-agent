@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 from typing import Any
 
 from langchain.agents.middleware.types import AgentMiddleware

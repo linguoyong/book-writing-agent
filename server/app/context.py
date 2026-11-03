@@ -10,11 +10,10 @@ from typing import Any
 from . import memory
 from .config import GLOBAL_SKILLS_DIR, load_settings
 from .domains import DomainPack, ToolContext, get_domain
+from .kb.repository import dump_note, get_entity, parse_note, trim_meta
 from .sandbox import check_path
-from .kb.repository import dump_note, get_entity, parse_note
-from .text import read_text
-from .kb.repository import trim_meta
 from .stats import compute as compute_stats
+from .text import read_text
 from .workspace import read_book_meta, safe_join
 
 IDENTITY = """你是「墨」，一个本地桌面写作 Agent 的内核。
@@ -73,7 +72,6 @@ def _clip_layer(text: str, limit: int, layer: str) -> str:
     return text[:limit]
 
 
-
 @dataclass
 class ContextItem:
     layer: str
@@ -124,7 +122,9 @@ def assemble(
     domain = domain or get_domain((session or {}).get("domain") or "book")
     memory.ensure_files(project)
 
-    bundle = ContextBundle(system_prompt="", expert_id=(expert or {}).get("id", ""), domain_id=domain.id)
+    bundle = ContextBundle(
+        system_prompt="", expert_id=(expert or {}).get("id", ""), domain_id=domain.id
+    )
     blocks: list[str] = []
 
     def add(layer: str, title: str, source: str, text: str) -> None:
@@ -180,7 +180,12 @@ def assemble(
             f"{len(references)} 项",
             _references_block(project, references),
         )
-    add("skills", LABELS["skills"], str(Path(domain.skills_subdir) / "*" / "SKILL.md"), _skills_index(project, domain))
+    add(
+        "skills",
+        LABELS["skills"],
+        str(Path(domain.skills_subdir) / "*" / "SKILL.md"),
+        _skills_index(project, domain),
+    )
 
     runtime = _runtime_block(project, session, expert, readonly, builder)
     add("runtime", LABELS["runtime"], "runtime", runtime)
@@ -243,8 +248,7 @@ def _parent_block(messages: list[dict[str, Any]]) -> str:
         return ""
     return (
         "以下是主会话最近的对话，只用于理解当前讨论背景。\n"
-        "不要复述这些内容，也不要把自己当成这些回合的参与者。\n\n"
-        + "\n\n".join(lines)
+        "不要复述这些内容，也不要把自己当成这些回合的参与者。\n\n" + "\n\n".join(lines)
     )
 
 
@@ -258,12 +262,10 @@ def _references_block(project: Path, references: list[dict[str, Any]]) -> str:
             if kind == "entity":
                 entity = get_entity(project, str(ref.get("kind") or ""), str(ref.get("id") or ""))
                 if not entity:
-                    blocks.append(f"<ref type=\"entity\" name=\"{name}\">未找到该条目</ref>")
+                    blocks.append(f'<ref type="entity" name="{name}">未找到该条目</ref>')
                     continue
                 progress = read_book_meta(project).get("progress") or {}
-                meta = trim_meta(
-                    entity["meta"], int(progress.get("chapter") or 0)
-                )
+                meta = trim_meta(entity["meta"], int(progress.get("chapter") or 0))
                 blocks.append(
                     f'<ref type="entity" name="{entity["title"]}" '
                     f'source="{entity["file"]}">\n'
@@ -280,9 +282,7 @@ def _references_block(project: Path, references: list[dict[str, Any]]) -> str:
                     blocks.append(f'<ref type="{kind}" source="{path}">该路径不允许引用</ref>')
                     continue
                 text = read_text(target)
-                blocks.append(
-                    f'<ref type="{kind}" source="{path}">\n{_clip_ref(text)}\n</ref>'
-                )
+                blocks.append(f'<ref type="{kind}" source="{path}">\n{_clip_ref(text)}\n</ref>')
         except (ValueError, OSError) as exc:
             blocks.append(f'<ref type="{kind}" name="{name}">引用失败：{exc}</ref>')
     return "\n\n".join(blocks) or "（引用为空）"
@@ -322,7 +322,9 @@ def _runtime_block(
         f"项目目录：{project}",
     ]
     if session:
-        lines.append(f"当前会话：{session.get('title') or '未命名'}（{session.get('kind') or 'main'}）")
+        lines.append(
+            f"当前会话：{session.get('title') or '未命名'}（{session.get('kind') or 'main'}）"
+        )
     if expert:
         lines.append(f"当前专家：{expert.get('name')}（{expert.get('id')}）")
     if readonly:
@@ -339,7 +341,9 @@ def _preview(text: str) -> str:
     return flat[:180]
 
 
-def tool_context(project: Path, *, project_id: str = "", session_id: str = "", readonly: bool = False) -> ToolContext:
+def tool_context(
+    project: Path, *, project_id: str = "", session_id: str = "", readonly: bool = False
+) -> ToolContext:
     from .config import load_settings
 
     settings = load_settings()

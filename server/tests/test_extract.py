@@ -53,12 +53,20 @@ class ExtractTest(unittest.TestCase):
             )
         self.payload = {
             "characters": [
-                {"name": "韩萧", "aliases": ["萧哥"], "role": "主角", "note": "机械师", "confidence": 0.9}
+                {
+                    "name": "韩萧",
+                    "aliases": ["萧哥"],
+                    "role": "主角",
+                    "note": "机械师",
+                    "confidence": 0.9,
+                }
             ],
             "locations": [{"name": "实验室", "note": "秘密基地", "confidence": 0.8}],
             "factions": [],
             "items": [],
-            "events": [{"summary": "韩萧第一次进入实验室", "characters": ["韩萧"], "importance": "major"}],
+            "events": [
+                {"summary": "韩萧第一次进入实验室", "characters": ["韩萧"], "importance": "major"}
+            ],
             "foreshadowing": [{"text": "海拉在记录什么数据"}],
         }
 
@@ -68,7 +76,9 @@ class ExtractTest(unittest.TestCase):
     def test_normalize_caps_and_cleans(self) -> None:
         data = normalize(
             {
-                "characters": [{"name": "  韩萧 ", "aliases": ["萧哥", "韩萧", "  "], "confidence": 5}]
+                "characters": [
+                    {"name": "  韩萧 ", "aliases": ["萧哥", "韩萧", "  "], "confidence": 5}
+                ]
                 + [{"name": f"角色{i}"} for i in range(20)],
                 "events": [{"summary": "x" * 200}],
                 "foreshadowing": "不是数组",
@@ -87,9 +97,7 @@ class ExtractTest(unittest.TestCase):
         self.assertEqual(data["characters"][0]["name"], "韩萧")
 
     def test_apply_dry_run_does_not_write(self) -> None:
-        stats = apply_result(
-            self.project, 1, normalize(self.payload), ExtractStats(), dry_run=True
-        )
+        stats = apply_result(self.project, 1, normalize(self.payload), ExtractStats(), dry_run=True)
 
         self.assertEqual(stats.characters, 1)
         self.assertEqual(stats.events, 1)
@@ -104,7 +112,9 @@ class ExtractTest(unittest.TestCase):
         text = card.read_text(encoding="utf-8")
         self.assertIn("status: 自动", text)
         self.assertIn("first_chapter: 1", text)
-        timeline = (self.project / "kb" / "outline" / "auto-timeline.md").read_text(encoding="utf-8")
+        timeline = (self.project / "kb" / "outline" / "auto-timeline.md").read_text(
+            encoding="utf-8"
+        )
         self.assertIn("[事件][第1章]", timeline)
         self.assertIn("[伏笔][第1章]", timeline)
         self.assertEqual(stats.events, 1)
@@ -127,7 +137,13 @@ class ExtractTest(unittest.TestCase):
     def test_low_confidence_goes_to_queue(self) -> None:
         payload = {
             "characters": [
-                {"name": "路人甲", "aliases": [], "role": "", "note": "只出现一次", "confidence": 0.2}
+                {
+                    "name": "路人甲",
+                    "aliases": [],
+                    "role": "",
+                    "note": "只出现一次",
+                    "confidence": 0.2,
+                }
             ]
         }
         stats = apply_result(self.project, 4, normalize(payload), ExtractStats())
@@ -162,7 +178,13 @@ class ExtractTest(unittest.TestCase):
         save_entity(self.project, "characters", "hx", {"name": "韩萧"}, "## 性格\n沉默。")
         payload = {
             "characters": [
-                {"name": "韩萧", "aliases": [], "role": "", "note": "第一次改装机械臂", "confidence": 0.9}
+                {
+                    "name": "韩萧",
+                    "aliases": [],
+                    "role": "",
+                    "note": "第一次改装机械臂",
+                    "confidence": 0.9,
+                }
             ]
         }
         apply_result(self.project, 7, normalize(payload), ExtractStats())
@@ -179,7 +201,9 @@ class ExtractTest(unittest.TestCase):
 
         seen: set[str] = set()
         payload = {
-            "events": [{"summary": "韩萧第一次进入实验室", "characters": ["韩萧"], "importance": "major"}]
+            "events": [
+                {"summary": "韩萧第一次进入实验室", "characters": ["韩萧"], "importance": "major"}
+            ]
         }
         apply_result(self.project, 1, normalize(payload), ExtractStats(), seen_events=seen)
         stats = apply_result(self.project, 2, normalize(payload), ExtractStats(), seen_events=seen)
@@ -193,7 +217,13 @@ class ExtractTest(unittest.TestCase):
 
         payload = {
             "characters": [
-                {"name": "路人甲", "aliases": [], "role": "", "note": "只出现一次", "confidence": 0.2}
+                {
+                    "name": "路人甲",
+                    "aliases": [],
+                    "role": "",
+                    "note": "只出现一次",
+                    "confidence": 0.2,
+                }
             ]
         }
         apply_result(self.project, 4, normalize(payload), ExtractStats())

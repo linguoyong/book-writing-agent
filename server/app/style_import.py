@@ -106,18 +106,14 @@ PROMPT_TEMPLATE = """你是写作风格分析师。根据下面的小说片段�
 {sample}"""
 
 
-def import_style(
-    project: Path, source: Path, project_id: str = ""
-) -> dict[str, Any]:
+def import_style(project: Path, source: Path, project_id: str = "") -> dict[str, Any]:
     validate_source(source)
     text = read_text(source)
     if len(text.strip()) < 800:
         raise StyleImportError("正文太短（少于 800 字），无法提炼风格")
 
     sample = sample_text(text)
-    raw = _ask_model(
-        PROMPT_TEMPLATE.replace("{sample}", _escape_braces(sample)), project_id
-    )
+    raw = _ask_model(PROMPT_TEMPLATE.replace("{sample}", _escape_braces(sample)), project_id)
     parsed = _parse_json(raw)
 
     expert = parsed.get("expert") or {}
@@ -208,9 +204,7 @@ def _save_expert(project: Path, expert: dict[str, Any]) -> dict[str, Any]:
     return {"id": expert_id, "meta": {"name": saved["name"]}, "body": str(expert["body"])}
 
 
-def _write_expert_file(
-    project: Path, expert_id: str, meta: dict[str, Any], body: str
-) -> None:
+def _write_expert_file(project: Path, expert_id: str, meta: dict[str, Any], body: str) -> None:
     from .experts import expert_dir
 
     file = expert_dir(project) / f"{safe_entity_id(expert_id)}.md"

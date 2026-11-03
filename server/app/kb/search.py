@@ -5,11 +5,12 @@ import re
 import sqlite3
 import struct
 import time
+from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator
+from typing import Any
 
 import jieba
 
@@ -20,7 +21,7 @@ except ImportError:  # pragma: no cover
 
 from ..config import EmbeddingSettings
 from ..text import read_text, save_text
-from .embedding import EmbeddingError, LOCAL_MODELS, try_build_embedder
+from .embedding import LOCAL_MODELS, EmbeddingError, try_build_embedder
 from .repository import KINDS, parse_note
 
 INDEX_SCHEMA = """
@@ -65,9 +66,44 @@ _ENTITY_TTL = 15.0
 
 # 单字实体名（晦、影、灯）按字符匹配；这些虚词永远不当实体名命中
 _NAME_STOPWORDS = {
-    "的", "了", "是", "在", "我", "你", "他", "她", "它", "不", "有", "和", "与",
-    "就", "都", "也", "很", "又", "把", "被", "给", "让", "从", "向", "对", "为",
-    "以", "及", "或", "而", "则", "若", "且", "这", "那", "哪", "谁", "什",
+    "的",
+    "了",
+    "是",
+    "在",
+    "我",
+    "你",
+    "他",
+    "她",
+    "它",
+    "不",
+    "有",
+    "和",
+    "与",
+    "就",
+    "都",
+    "也",
+    "很",
+    "又",
+    "把",
+    "被",
+    "给",
+    "让",
+    "从",
+    "向",
+    "对",
+    "为",
+    "以",
+    "及",
+    "或",
+    "而",
+    "则",
+    "若",
+    "且",
+    "这",
+    "那",
+    "哪",
+    "谁",
+    "什",
 }
 
 ProgressHook = Callable[[str, int, int], None]
@@ -146,9 +182,7 @@ class KbIndex:
             self.last_vector_error = error
         return self._embedder
 
-    def rebuild(
-        self, progress: ProgressHook | None = None, embed: bool = True
-    ) -> dict[str, int]:
+    def rebuild(self, progress: ProgressHook | None = None, embed: bool = True) -> dict[str, int]:
         """重建切片索引。
 
         embed=False 只重建文本索引（关键词检索）：隐式触发（打开切片页、
@@ -168,9 +202,7 @@ class KbIndex:
             if not embed and _vec_table_exists(conn):
                 # 只重建文本时，清掉指向已不存在切片的向量；否则 KNN 的 k
                 # 会被这些孤儿吃掉，向量路安静地退化。
-                conn.execute(
-                    "DELETE FROM vec_chunks WHERE chunk_id NOT IN (SELECT id FROM chunks)"
-                )
+                conn.execute("DELETE FROM vec_chunks WHERE chunk_id NOT IN (SELECT id FROM chunks)")
             conn.commit()
 
         embedded = 0
@@ -193,19 +225,15 @@ class KbIndex:
         否则残留的旧索引会让「chunks > 0」误判为已建库。
         """
         with self.connect() as conn:
-            row = conn.execute(
-                "SELECT value FROM index_meta WHERE key = 'baseline'"
-            ).fetchone()
+            row = conn.execute("SELECT value FROM index_meta WHERE key = 'baseline'").fetchone()
         return bool(row and row["value"] == "1")
 
     @staticmethod
     def _mark_baseline(conn: sqlite3.Connection) -> None:
-        conn.execute(
-            "INSERT OR REPLACE INTO index_meta (key, value) VALUES ('baseline', '1')"
-        )
+        conn.execute("INSERT OR REPLACE INTO index_meta (key, value) VALUES ('baseline', '1')")
         conn.execute(
             "INSERT OR REPLACE INTO index_meta (key, value) VALUES ('built_at', ?)",
-            (datetime.now(timezone.utc).isoformat(),),
+            (datetime.now(UTC).isoformat(),),
         )
 
     # ------------------------------------------------------------ 收集
@@ -259,9 +287,7 @@ class KbIndex:
 
     # ------------------------------------------------------------ 增量索引
 
-    def reindex_entity(
-        self, kind: str, entity_id: str, *, build_baseline: bool = True
-    ) -> int:
+    def reindex_entity(self, kind: str, entity_id: str, *, build_baseline: bool = True) -> int:
         """只重建一个实体的切片，避免每次写入触发全库重扫。"""
         from .repository import entity_file, safe_entity_id
 
@@ -409,7 +435,8 @@ class KbIndex:
                 if not dim:
                     return written
                 _ensure_vec_table(conn, dim, embedder.name, embedder.provider)
-                for chunk, vector in zip(batch, vectors):
+                # strict=True：编码器漏返向量时要立刻炸，不能悄悄少写几条
+                for chunk, vector in zip(batch, vectors, strict=True):
                     _delete_vector(conn, chunk.id)
                     conn.execute(
                         "INSERT INTO vec_chunks (chunk_id, kind, chapter, embedding) "
@@ -544,9 +571,7 @@ class KbIndex:
             for item in _dedupe_hits(items):
                 score = max(0.0, float(item["vector_score"]))
                 if score >= threshold:
-                    results.append(
-                        {**item, "score": round(score, 4), "raw_score": round(score, 4)}
-                    )
+                    results.append({**item, "score": round(score, 4), "raw_score": round(score, 4)})
             return results[:top_k]
 
         lexical = self._search_lexical(query, kinds, chapter_limit, top_k * 2)
@@ -612,9 +637,7 @@ class KbIndex:
 
     def stats_by_kind(self) -> dict[str, int]:
         with self.connect() as conn:
-            rows = conn.execute(
-                "SELECT kind, COUNT(*) AS n FROM chunks GROUP BY kind"
-            ).fetchall()
+            rows = conn.execute("SELECT kind, COUNT(*) AS n FROM chunks GROUP BY kind").fetchall()
         return {row["kind"]: row["n"] for row in rows}
 
     def _search_lexical(
@@ -743,7 +766,9 @@ class KbIndex:
             else ""
         )
         # 本地模型的维度是已知的：和索引里的实际维度对不上就说明要重建
-        expected_dim = int((LOCAL_MODELS.get(model) or {}).get("dim") or 0) if provider == "local" else 0
+        expected_dim = (
+            int((LOCAL_MODELS.get(model) or {}).get("dim") or 0) if provider == "local" else 0
+        )
         return {
             "chunks": total,
             "embedded": embedded,
@@ -787,9 +812,7 @@ def _vec_table_exists(conn: sqlite3.Connection) -> bool:
     return bool(row)
 
 
-def _ensure_vec_table(
-    conn: sqlite3.Connection, dim: int, model: str, provider: str
-) -> bool:
+def _ensure_vec_table(conn: sqlite3.Connection, dim: int, model: str, provider: str) -> bool:
     """保证 vec0 表存在且维度匹配。
 
     vec0 的维度建表时固定，换嵌入模型只能重建；这里发现不一致就重建空表，

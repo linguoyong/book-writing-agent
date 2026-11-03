@@ -14,7 +14,6 @@ from ..kb.repository import (
     dump_note,
     get_entity,
     list_entities,
-    safe_entity_id,
     save_entity,
     state_at,
     trim_meta,
@@ -308,10 +307,14 @@ def build_tools(ctx: ToolContext) -> list[Any]:
             {
                 "name": name,
                 "description": description,
-                "tags": [item.strip() for item in tags.replace("，", ",").split(",") if item.strip()],
+                "tags": [
+                    item.strip() for item in tags.replace("，", ",").split(",") if item.strip()
+                ],
                 "avatar": name[:1] if name else "专",
                 "prompt": prompt,
-                "skills": [item.strip() for item in skills.replace("，", ",").split(",") if item.strip()],
+                "skills": [
+                    item.strip() for item in skills.replace("，", ",").split(",") if item.strip()
+                ],
             },
             body,
         )

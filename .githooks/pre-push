@@ -1,0 +1,25 @@
+#!/bin/sh
+# 推送前的快速门禁：只跑秒级的静态检查。
+# 完整验证（单测 + 构建）手动跑 `pnpm check`，或交给 CI。
+#
+# 启用：git config core.hooksPath .githooks
+# 停用：git config --unset core.hooksPath
+
+set -e
+
+if command -v uv >/dev/null 2>&1; then
+    uv run --directory server ruff check . --quiet
+    uv run --directory server ruff format --check . --quiet
+else
+    echo "[pre-push] 未找到 uv，跳过后端检查" >&2
+fi
+
+if command -v pnpm >/dev/null 2>&1; then
+    if [ -d node_modules ] && [ -d apps/desktop/node_modules ]; then
+        pnpm typecheck
+    else
+        echo "[pre-push] 依赖未安装，跳过类型检查" >&2
+    fi
+else
+    echo "[pre-push] 未找到 pnpm，跳过前端检查" >&2
+fi

@@ -62,9 +62,7 @@ class CommandAndNetworkTest(unittest.TestCase):
         self.assertEqual(check_url(SandboxSettings(), "https://example.com"), "deny")
 
     def test_url_allow_suffix_only(self) -> None:
-        sandbox = SandboxSettings(
-            network=NetworkSettings(allow=["api.deepseek.com"])
-        )
+        sandbox = SandboxSettings(network=NetworkSettings(allow=["api.deepseek.com"]))
         self.assertEqual(check_url(sandbox, "https://api.deepseek.com/v1"), "allow")
         self.assertEqual(check_url(sandbox, "https://api.deepseek.com.evil.com/x"), "deny")
 

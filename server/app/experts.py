@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -128,7 +128,7 @@ def save_expert(
     meta.setdefault("prompt", "")
     meta.setdefault("skills", [])
     meta.setdefault("max_turns", 50)
-    meta["updated_at"] = datetime.now(timezone.utc).isoformat()
+    meta["updated_at"] = datetime.now(UTC).isoformat()
     save_text(directory / f"{expert_id}.md", dump_note(meta, body))
     saved = get_expert(project, expert_id)
     assert saved is not None

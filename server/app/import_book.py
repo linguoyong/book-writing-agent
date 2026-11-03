@@ -25,8 +25,19 @@ DEFAULT_PATTERN = (
 
 _ILLEGAL_NAME = re.compile(r'[\\/:*?"<>|\r\n\t]+')
 _CHAPTER_NO = re.compile(r"第\s*([0-9零一二三四五六七八九十百千两]+)\s*[章回节篇]")
-_CN_DIGITS = {"零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
-              "六": 6, "七": 7, "八": 8, "九": 9}
+_CN_DIGITS = {
+    "零": 0,
+    "一": 1,
+    "二": 2,
+    "两": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+}
 _CN_UNITS = {"十": 10, "百": 100, "千": 1000}
 
 
@@ -61,7 +72,9 @@ def parse_book(path: Path, pattern: str = "") -> ParsedBook:
         raise ImportError(f"文件不存在：{path}")
     size = path.stat().st_size
     if size > MAX_BYTES:
-        raise ImportError(f"文件过大：{size / 1024 / 1024:.1f}MB，上限 {MAX_BYTES // 1024 // 1024}MB")
+        raise ImportError(
+            f"文件过大：{size / 1024 / 1024:.1f}MB，上限 {MAX_BYTES // 1024 // 1024}MB"
+        )
 
     text, encoding = decode_bytes(path.read_bytes())
     text = text.replace("\r\n", "\n").replace("\r", "\n")
@@ -256,9 +269,7 @@ def commit(
     # 先把标题里写死的章号占住：否则「开篇」这类无编号章节会抢走 1 号，
     # 把真正的「第一章」顶成 2，之后全书章号整体偏移一章。
     reserved = {
-        number
-        for _, title in selected
-        if (number := chapter_number_from_title(title)) is not None
+        number for _, title in selected if (number := chapter_number_from_title(title)) is not None
     }
     next_number = start
     # 卷首/序章这类没有阿拉伯章号的，排到正文之前（0 或负数），

@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -96,9 +95,7 @@ class Settings(BaseModel):
     # 可切换的模型来源；为空时由旧 writer 配置自动生成一条
     models: list[ModelProfile] = Field(default_factory=list)
     active_model_id: str = ""
-    writer: ModelSettings = Field(
-        default_factory=lambda: ModelSettings(model="deepseek-flash")
-    )
+    writer: ModelSettings = Field(default_factory=lambda: ModelSettings(model="deepseek-flash"))
     extractor: ModelSettings = Field(
         default_factory=lambda: ModelSettings(model="deepseek-flash", temperature=0.1)
     )
@@ -131,9 +128,7 @@ def ensure_models(settings: Settings) -> Settings:
     return settings
 
 
-def resolve_model(
-    settings: Settings | None = None, model_id: str | None = None
-) -> ModelProfile:
+def resolve_model(settings: Settings | None = None, model_id: str | None = None) -> ModelProfile:
     settings = ensure_models(settings or load_settings())
     if model_id:
         for item in settings.models:

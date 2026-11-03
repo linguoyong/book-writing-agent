@@ -3,9 +3,10 @@ from __future__ import annotations
 import json
 import sqlite3
 import uuid
+from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
-from typing import Any, Iterator
+from datetime import UTC, datetime
+from typing import Any
 
 from .config import DB_FILE
 
@@ -97,7 +98,7 @@ _MIGRATIONS = {
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def init_db() -> None:
@@ -185,9 +186,7 @@ def get_project(project_id: str) -> dict[str, Any] | None:
 
 def touch_project(project_id: str) -> None:
     with get_conn() as conn:
-        conn.execute(
-            "UPDATE projects SET updated_at = ? WHERE id = ?", (now_iso(), project_id)
-        )
+        conn.execute("UPDATE projects SET updated_at = ? WHERE id = ?", (now_iso(), project_id))
 
 
 # ---------------------------------------------------------------- sessions
@@ -343,9 +342,7 @@ def add_message(
             "INSERT INTO messages_fts (message_id, content) VALUES (?, ?)",
             (message_id, " ".join(tokenize(content))),
         )
-        conn.execute(
-            "UPDATE sessions SET updated_at = ? WHERE id = ?", (ts, session_id)
-        )
+        conn.execute("UPDATE sessions SET updated_at = ? WHERE id = ?", (ts, session_id))
     return {
         "id": message_id,
         "session_id": session_id,
@@ -371,7 +368,9 @@ def list_messages(session_id: str, limit: int = 200, tail: bool = True) -> list[
     return result
 
 
-def search_messages(query: str, limit: int = 8, project_id: str | None = None) -> list[dict[str, Any]]:
+def search_messages(
+    query: str, limit: int = 8, project_id: str | None = None
+) -> list[dict[str, Any]]:
     """跨会话回忆：对历史消息做 FTS 检索。"""
     from .text import fts_query
 

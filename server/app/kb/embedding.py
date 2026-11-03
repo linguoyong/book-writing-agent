@@ -3,8 +3,9 @@ from __future__ import annotations
 import os
 import threading
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any
 
 import httpx
 

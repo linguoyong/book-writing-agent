@@ -123,6 +123,20 @@ pnpm test             # 后端单测（unittest，182 个用例）
 pnpm build            # 构建 renderer / main / preload
 ```
 
+提交/推送前的检查（也是 CI 跑的那一套）：
+
+```bash
+pnpm hooks            # 一次性：启用 .githooks/pre-push（推送前自动跑 lint + 类型检查）
+pnpm lint             # ruff check + ruff format --check
+pnpm typecheck        # tsc --noEmit
+pnpm check            # lint + typecheck + test + build，一次跑全
+```
+
+想让改动进仓库前就被守住，装一次钩子即可（`git config core.hooksPath .githooks` 被 `pnpm hooks` 封装）。
+钩子只做秒级的静态检查；完整验证走 `pnpm check`。
+CI 配置在 `.github/workflows/ci.yml`（GitHub Actions 语法；仓库托管在 Gitee 时要换成 Gitee Go，执行的就是上面 `pnpm check` 那几条命令）。
+后端依赖锁在 `server/uv.lock`、前端锁在 `pnpm-lock.yaml`，两处都用「锁文件不一致就失败」的方式安装（`--frozen`）。
+
 首次启动会让你创建「空间」（一本书一个目录），并写入 `book.json`、`kb/`、`manuscript/` 等骨架。
 
 ## 目录结构

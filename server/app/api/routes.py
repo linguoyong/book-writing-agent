@@ -11,43 +11,32 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from .. import db, memory, usage
-from ..usage import set_pricing as save_pricing
-from ..usage import summary as usage_summary
+from .. import db, memory
+from ..agent import steering
 from ..agent.checkpointer import drop_thread
 from ..agent.compaction import compaction_plan
 from ..agent.factory import resolve_expert
-from ..agent.mcp_manager import MCP_ENABLED, manager as mcp_manager
+from ..agent.mcp_manager import MCP_ENABLED
+from ..agent.mcp_manager import manager as mcp_manager
 from ..agent.runner import approve_stream, chat_stream
-from ..agent import steering
+from ..chapters import ChapterError
+from ..chapters import create as create_chapter
 from ..config import load_settings, resolve_model, save_settings
 from ..context import assemble
 from ..domains import list_domains
-from ..experts import delete_expert, get_expert, list_experts, save_expert
-from ..style_import import StyleImportError, import_style
-from ..import_book import ImportError as BookImportError
-from ..import_book import commit as import_commit
-from ..extract import jobs as extract_jobs
-from ..extract import accept_candidate, load_candidates, progress_summary as extract_progress, reject_candidate
-from ..extract import run as run_extract
-from ..import_book import preview as import_preview
+from ..experts import delete_expert, list_experts, save_expert
 from ..export_book import ExportError
 from ..export_book import export_txt as export_book_txt
-from ..stats import sync_progress
-from ..chapters import ChapterError, create as create_chapter
-from ..search_text import SearchError, replace as text_replace, search as text_search
-from ..rewrite import RewriteError, rewrite as rewrite_text
-from ..versioning import VersionError
-from ..insight import MaterialError, save_material
-from ..insight import collect_graph, collect_timeline
-from ..versioning import file_diff as version_diff
-from ..versioning import files as version_files
-from ..versioning import log as version_log
-from ..versioning import read_file_at as version_read
-from ..versioning import restore as version_restore
-from ..llm import normalize_window
-from ..sandbox import check_command, check_path, check_url
-from ..text import read_text, save_text
+from ..extract import accept_candidate, load_candidates, reject_candidate
+from ..extract import jobs as extract_jobs
+from ..extract import progress_summary as extract_progress
+from ..extract import run as run_extract
+from ..import_book import ImportError as BookImportError
+from ..import_book import commit as import_commit
+from ..import_book import preview as import_preview
+from ..insight import MaterialError, collect_graph, collect_timeline, save_material
+from ..kb.embedding import DEFAULT_LOCAL_MODEL, LOCAL_MODELS
+from ..kb.embedding import probe as probe_embedding
 from ..kb.lint import lint_project
 from ..kb.repository import (
     KINDS,
@@ -58,7 +47,24 @@ from ..kb.repository import (
     save_entity,
 )
 from ..kb.search import KbIndex, load_kb_config, save_kb_config
-from ..kb.embedding import DEFAULT_LOCAL_MODEL, LOCAL_MODELS, probe as probe_embedding
+from ..llm import normalize_window
+from ..rewrite import RewriteError
+from ..rewrite import rewrite as rewrite_text
+from ..sandbox import check_command, check_path, check_url
+from ..search_text import SearchError
+from ..search_text import replace as text_replace
+from ..search_text import search as text_search
+from ..stats import sync_progress
+from ..style_import import StyleImportError, import_style
+from ..text import read_text, save_text
+from ..usage import set_pricing as save_pricing
+from ..usage import summary as usage_summary
+from ..versioning import VersionError
+from ..versioning import file_diff as version_diff
+from ..versioning import files as version_files
+from ..versioning import log as version_log
+from ..versioning import read_file_at as version_read
+from ..versioning import restore as version_restore
 from ..workspace import (
     create_book,
     default_project_path,
@@ -70,7 +76,6 @@ from ..workspace import (
     read_book_meta,
     safe_join,
     snapshot_file,
-    write_book_meta,
 )
 
 router = APIRouter()
@@ -99,9 +104,7 @@ def _mask_secrets(data: dict[str, Any]) -> dict[str, Any]:
             continue
         env = server.get("env")
         if isinstance(env, dict):
-            server["env"] = {
-                str(key): (MASKED_KEY if value else "") for key, value in env.items()
-            }
+            server["env"] = {str(key): (MASKED_KEY if value else "") for key, value in env.items()}
     return data
 
 
@@ -242,9 +245,7 @@ def get_projects() -> list[dict[str, Any]]:
 def post_project(req: CreateProjectRequest) -> dict[str, Any]:
     if not req.name.strip():
         raise HTTPException(status_code=400, detail="项目名不能为空")
-    path = create_book(
-        req.name, req.title, req.author, req.path, req.words_per_chapter
-    )
+    path = create_book(req.name, req.title, req.author, req.path, req.words_per_chapter)
     existing = next((p for p in db.list_projects() if p["path"] == str(path)), None)
     if existing:
         return {**existing, "meta": read_book_meta(path)}
@@ -288,9 +289,7 @@ def open_project(req: OpenProjectRequest) -> dict[str, Any]:
     if not target.exists() or not target.is_dir():
         raise HTTPException(status_code=400, detail=f"目录不存在：{target}")
     path = target.resolve()
-    existing = next(
-        (p for p in db.list_projects() if Path(p["path"]).resolve() == path), None
-    )
+    existing = next((p for p in db.list_projects() if Path(p["path"]).resolve() == path), None)
     if existing:
         return {**existing, "meta": read_book_meta(path)}
     meta = read_book_meta(path)
@@ -320,9 +319,7 @@ def project_overview(project_id: str) -> dict[str, Any]:
     counts = {kind: len(list_entities(path, kind)) for kind in KINDS}
     chapters = sorted((path / "chapters").glob("*.md")) if (path / "chapters").exists() else []
     manuscript = (
-        sorted((path / "manuscript").rglob("*.md"))
-        if (path / "manuscript").exists()
-        else []
+        sorted((path / "manuscript").rglob("*.md")) if (path / "manuscript").exists() else []
     )
     index = KbIndex(path, load_settings().embedding)
     return {
@@ -357,9 +354,7 @@ class PricingRequest(BaseModel):
 def get_usage_pricing() -> dict[str, Any]:
     settings = load_settings()
     return {
-        "pricing": {
-            name: price.model_dump() for name, price in (settings.pricing or {}).items()
-        },
+        "pricing": {name: price.model_dump() for name, price in (settings.pricing or {}).items()},
         "currency": "CNY",
         "unit": "元 / 百万 token",
     }
@@ -538,9 +533,7 @@ def regenerate_session(session_id: str) -> StreamingResponse:
         db.delete_message(int(item["id"]))
 
     # 换 thread：旧 checkpoint 里还有上一轮回答，继续用会让模型重复原答案
-    db.update_session(
-        session_id, thread_id=f"{session_id}-r{int(time.time() * 1000)}"
-    )
+    db.update_session(session_id, thread_id=f"{session_id}-r{int(time.time() * 1000)}")
     history = db.list_messages(session_id)
     mode = "side" if session.get("kind") == "side" else "main"
     return StreamingResponse(
@@ -645,9 +638,7 @@ def get_approvals(session_id: str) -> list[dict[str, Any]]:
 
 
 @router.get("/projects/{project_id}/reference-candidates")
-def reference_candidates(
-    project_id: str, q: str = "", limit: int = 20
-) -> dict[str, Any]:
+def reference_candidates(project_id: str, q: str = "", limit: int = 20) -> dict[str, Any]:
     project = _require_project(project_id)
     root = Path(project["path"])
     keyword = q.strip().lower()
@@ -825,9 +816,7 @@ def get_entity_detail(project_id: str, kind: str, entity_id: str) -> dict[str, A
 
 
 @router.put("/projects/{project_id}/kb/{kind}/{entity_id}")
-def put_entity(
-    project_id: str, kind: str, entity_id: str, req: EntityRequest
-) -> dict[str, Any]:
+def put_entity(project_id: str, kind: str, entity_id: str, req: EntityRequest) -> dict[str, Any]:
     project = _require_project(project_id)
     _require_kind(kind)
     root = Path(project["path"])
@@ -933,11 +922,12 @@ def _run_index_job(project_id: str, root: Path) -> None:
     while True:
         started_at = time.monotonic()
 
-        def progress(stage: str, done: int, total: int) -> None:
-            # 重建可能跑几分钟（本地嵌入逐批编码），进度要能被前端轮询到
+        def progress(stage: str, done: int, total: int, _start: float = started_at) -> None:
+            # 重建可能跑几分钟（本地嵌入逐批编码），进度要能被前端轮询到。
+            # started_at 用默认参数绑死当前轮次的值，避免闭包读到下一轮的循环变量。
             eta = 0
             if stage == "embed" and done > 0 and total > done:
-                eta = int((time.monotonic() - started_at) / done * (total - done))
+                eta = int((time.monotonic() - _start) / done * (total - done))
             _patch_job(project_id, stage=stage, done=done, total=total, eta_seconds=eta)
 
         try:
@@ -970,9 +960,7 @@ def _run_index_job(project_id: str, root: Path) -> None:
             job = dict(_index_jobs.get(project_id) or {})
             if not job.get("queued"):
                 break
-            job.update(
-                running=True, queued=False, stage="collect", done=0, total=0, error=None
-            )
+            job.update(running=True, queued=False, stage="collect", done=0, total=0, error=None)
             _index_jobs[project_id] = job
 
 
@@ -998,9 +986,7 @@ def _start_index_job(project_id: str, root: Path) -> dict[str, Any]:
             "total": 0,
         }
         job = dict(_index_jobs[project_id])
-    threading.Thread(
-        target=_run_index_job, args=(project_id, root), daemon=True
-    ).start()
+    threading.Thread(target=_run_index_job, args=(project_id, root), daemon=True).start()
     return job
 
 
@@ -1166,9 +1152,7 @@ class CreateChapterRequest(BaseModel):
 def new_chapter(project_id: str, req: CreateChapterRequest) -> dict[str, Any]:
     project = _require_project(project_id)
     try:
-        result = create_chapter(
-            Path(project["path"]), title=req.title, volume=req.volume
-        )
+        result = create_chapter(Path(project["path"]), title=req.title, volume=req.volume)
     except ChapterError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     # 新建后立刻同步进度，运行态与防剧透能马上看到新章
@@ -1223,9 +1207,7 @@ def extract_preview(project_id: str, req: ExtractRequest) -> dict[str, Any]:
     """试抽取：同步跑几章，只统计不落盘，用来验收字段质量。"""
     project = _require_project(project_id)
     limit = max(1, min(req.limit or 5, 10))
-    result = run_extract(
-        Path(project["path"]), limit=limit, dry_run=True, project_id=project_id
-    )
+    result = run_extract(Path(project["path"]), limit=limit, dry_run=True, project_id=project_id)
     summary = extract_progress(Path(project["path"]))
     return {"preview": result, "state": summary}
 
@@ -1478,8 +1460,24 @@ IMAGE_MIME = {
     ".svg": "image/svg+xml",
 }
 BINARY_EXT = {
-    ".pdf", ".zip", ".gz", ".7z", ".rar", ".exe", ".dll", ".so", ".dylib",
-    ".woff", ".woff2", ".ttf", ".otf", ".ico", ".mp3", ".mp4", ".wav", ".webm",
+    ".pdf",
+    ".zip",
+    ".gz",
+    ".7z",
+    ".rar",
+    ".exe",
+    ".dll",
+    ".so",
+    ".dylib",
+    ".woff",
+    ".woff2",
+    ".ttf",
+    ".otf",
+    ".ico",
+    ".mp3",
+    ".mp4",
+    ".wav",
+    ".webm",
 }
 MAX_INLINE_IMAGE = 12 * 1024 * 1024
 MAX_TEXT_INLINE = 2 * 1024 * 1024
@@ -1544,9 +1542,7 @@ def write_file(project_id: str, req: WriteFileRequest) -> dict[str, Any]:
     if req.expected_mtime is not None and target.exists():
         current = int(target.stat().st_mtime * 1000)
         if abs(current - req.expected_mtime) > 2:
-            raise HTTPException(
-                status_code=409, detail="文件已被其他操作修改，请重新加载后再保存"
-            )
+            raise HTTPException(status_code=409, detail="文件已被其他操作修改，请重新加载后再保存")
     target.parent.mkdir(parents=True, exist_ok=True)
     snapshot_file(root, target)
     save_text(target, req.content)
@@ -1732,9 +1728,7 @@ def _require_project(project_id: str) -> dict[str, Any]:
     return project
 
 
-def _resolve_workspace_file(
-    root: Path, path: str, operation: Literal["read", "write"]
-) -> Path:
+def _resolve_workspace_file(root: Path, path: str, operation: Literal["read", "write"]) -> Path:
     """REST 文件读写与 Agent 工具共用同一套边界：先防越界，再过路径规则。
 
     这里按「真实解析后的相对路径」匹配规则，`manuscript/../.env` 这类写法

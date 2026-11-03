@@ -13,6 +13,7 @@ _SPEAK_RE = re.compile(r"([\u4e00-\u9fa5]{2,3})(?:说道|说|道|问道|喊道|�
 # 时间锚点：第 N 天/日/夜
 _ANCHOR_RE = re.compile(r"第\s*([0-9零一二两三四五六七八九十百千]+)\s*(?:天|日|夜)")
 # 不是人名的高频词（对白引导词前面的常见称谓/代词）
+# fmt: off
 _COMMON_HEADS = {
     "他们", "她们", "它们", "自己", "众人", "大家", "两人", "三人", "几人",
     "老板", "老者", "少女", "少年", "男人", "女人", "孩子", "青年", "中年",
@@ -20,6 +21,7 @@ _COMMON_HEADS = {
     "陌生人", "一个", "两个", "几个", "那个", "这个",
     "徒弟", "师兄", "师姐", "师弟", "师妹", "父亲", "母亲", "爹", "娘",
 }
+# fmt: on
 
 FORESHADOW_OPEN = {"open", "planted", "未回收", "待回收"}
 
@@ -28,8 +30,10 @@ def _cn_to_int(text: str) -> int | None:
     text = text.strip()
     if text.isdigit():
         return int(text)
+    # fmt: off
     digits = {"零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
     units = {"十": 10, "百": 100, "千": 1000}
+    # fmt: on
     section = 0
     number = 0
     for char in text:
@@ -69,7 +73,9 @@ def _characters(project: Path) -> list[dict[str, Any]]:
         meta = entity.get("meta") or {}
         raw_aliases = meta.get("aliases") or meta.get("alias") or ""
         if isinstance(raw_aliases, str):
-            aliases = [item.strip() for item in re.split(r"[,，、;；/]", raw_aliases) if item.strip()]
+            aliases = [
+                item.strip() for item in re.split(r"[,，、;；/]", raw_aliases) if item.strip()
+            ]
         else:
             aliases = [str(item).strip() for item in raw_aliases if str(item).strip()]
         names = {str(entity.get("title") or entity["id"]).strip(), *aliases}
@@ -130,7 +136,8 @@ def lint_project(project: Path) -> dict[str, Any]:
                 "chapter": "",
                 "message": f"有 {len(foreshadows)} 条未回收的伏笔："
                 + "；".join(
-                    f"{item['title']}" + (f"（埋于 {item['planted_in']}）" if item["planted_in"] else "")
+                    f"{item['title']}"
+                    + (f"（埋于 {item['planted_in']}）" if item["planted_in"] else "")
                     for item in foreshadows
                 ),
                 "detail": "给每条伏笔一个回收章节；写到大纲时标注「回收于」。",
@@ -143,7 +150,11 @@ def lint_project(project: Path) -> dict[str, Any]:
         found = _ANCHOR_RE.findall(chapter["text"])
         values = [value for value in (_cn_to_int(item[0]) for item in found) if value]
         anchors.append(
-            (chapter["label"], max(values) if values else None, [f"第{v}天" for v in sorted(set(values))])
+            (
+                chapter["label"],
+                max(values) if values else None,
+                [f"第{v}天" for v in sorted(set(values))],
+            )
         )
     last_label = ""
     last_value = 0

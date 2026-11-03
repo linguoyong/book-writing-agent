@@ -95,9 +95,7 @@ def collect_graph(
     - 显式关系：`meta.relations`（Agent 抽取或用户手写）
     - 自动关系：某张卡正文里提到了另一个实体的名字，记为「提及」（可关）
     """
-    selected = [kind for kind in (kinds or GRAPH_KINDS) if kind in GRAPH_KINDS] or list(
-        GRAPH_KINDS
-    )
+    selected = [kind for kind in (kinds or GRAPH_KINDS) if kind in GRAPH_KINDS] or list(GRAPH_KINDS)
     entities: list[dict[str, Any]] = []
     for kind in selected:
         for entity in list_entities(project, kind):
@@ -171,7 +169,7 @@ def collect_graph(
                 if count:
                     hits.append((count, other["id"], other["name"]))
             hits.sort(reverse=True)
-            for count, target, _name in hits[:MAX_MENTIONS_PER_NODE]:
+            for _count, target, _name in hits[:MAX_MENTIONS_PER_NODE]:
                 add_edge(node_id, target, "提及", "mention")
                 mentions += 1
 
@@ -249,9 +247,7 @@ def _auto_timeline(project: Path) -> list[dict[str, Any]]:
     return items
 
 
-def collect_timeline(
-    project: Path, kinds: list[str] | None = None
-) -> dict[str, Any]:
+def collect_timeline(project: Path, kinds: list[str] | None = None) -> dict[str, Any]:
     """汇总所有卡片 meta.timeline 与逐章抽取的事件，按章 / 按年代分两条轴。"""
     selected = [kind for kind in (kinds or KINDS) if kind in KINDS] or KINDS
     items: list[dict[str, Any]] = []

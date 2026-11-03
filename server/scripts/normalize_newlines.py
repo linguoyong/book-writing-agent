@@ -76,7 +76,9 @@ def main() -> int:
         removed += cr_count
         before_bytes += len(raw)
         after_bytes += len(cleaned.encode("utf-8"))
-        print(f"  {path}  去掉 {cr_count} 个 CR  ({len(raw)} → {len(cleaned.encode('utf-8'))} 字节)")
+        print(
+            f"  {path}  去掉 {cr_count} 个 CR  ({len(raw)} → {len(cleaned.encode('utf-8'))} 字节)"
+        )
 
         if args.apply:
             write_encoding = "utf-8" if encoding == "utf-8-sig" else encoding

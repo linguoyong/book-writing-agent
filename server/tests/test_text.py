@@ -17,7 +17,7 @@ class NewlineTest(unittest.TestCase):
     def test_read_text_returns_lf(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "a.md"
-            path.write_bytes("第一行\r\n第二行\r\n".encode("utf-8"))
+            path.write_bytes("第一行\r\n第二行\r\n".encode())
             self.assertEqual(read_text(path), "第一行\n第二行\n")
 
     def test_save_text_collapses_existing_cr(self) -> None:
@@ -25,9 +25,9 @@ class NewlineTest(unittest.TestCase):
             path = Path(tmp) / "a.md"
             save_text(path, "第一行\r\n第二行\r\n")
             # 落盘只有一层 LF；再读一次也不该多出 \r
-            self.assertEqual(path.read_bytes(), "第一行\n第二行\n".encode("utf-8"))
+            self.assertEqual(path.read_bytes(), "第一行\n第二行\n".encode())
             save_text(path, read_text(path) + "第三行\n")
-            self.assertEqual(path.read_bytes(), "第一行\n第二行\n第三行\n".encode("utf-8"))
+            self.assertEqual(path.read_bytes(), "第一行\n第二行\n第三行\n".encode())
 
     def test_save_text_keeps_original_when_content_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -35,16 +35,20 @@ class NewlineTest(unittest.TestCase):
             save_text(path, "内容\n")
             for _ in range(3):
                 save_text(path, read_text(path))
-            self.assertEqual(path.read_bytes(), "内容\n".encode("utf-8"))
+            self.assertEqual(path.read_bytes(), "内容\n".encode())
 
     def test_entity_round_trip_has_no_cr(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             project = Path(tmp)
             for _ in range(3):
-                save_entity(project, "characters", "linzhao", {"name": "林昭"}, "他走进屋子。\n\n门外有雨。")
+                save_entity(
+                    project, "characters", "linzhao", {"name": "林昭"}, "他走进屋子。\n\n门外有雨。"
+                )
             raw = (project / "kb" / "characters" / "linzhao.md").read_bytes()
             self.assertNotIn(b"\r", raw)
-            self.assertEqual(get_entity(project, "characters", "linzhao")["body"], "他走进屋子。\n\n门外有雨。\n")
+            self.assertEqual(
+                get_entity(project, "characters", "linzhao")["body"], "他走进屋子。\n\n门外有雨。\n"
+            )
 
 
 class DecodeTest(unittest.TestCase):

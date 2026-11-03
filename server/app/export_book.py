@@ -64,7 +64,7 @@ def _clean_body(body: str, title: str) -> str:
         match = HEADING.match(stripped)
         candidate = match.group(1).strip() if match else stripped
         if candidate == title:
-            lines = lines[:index] + lines[index + 1:]
+            lines = lines[:index] + lines[index + 1 :]
     text = "\n".join(lines).strip()
     return re.sub(r"\n{3,}", "\n\n", text)
 

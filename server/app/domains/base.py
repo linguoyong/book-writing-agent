@@ -29,8 +29,7 @@ class DomainPack(Protocol):
     rules: str
     skills_subdir: str
 
-    def build_tools(self, ctx: ToolContext) -> list[Any]:
-        ...
+    def build_tools(self, ctx: ToolContext) -> list[Any]: ...
 
 
 @dataclass
