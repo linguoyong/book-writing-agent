@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { api, approveChat, regenerateChat, streamChat } from './api'
+import { ApiError, api, approveChat, regenerateChat, streamChat } from './api'
 import type { StreamHandlerSet } from './api'
 import type {
   AppConfig,
@@ -411,8 +411,7 @@ export const useAppStore = create<AppState>((set, get) => {
 
   deleteProject: async (projectId, purge = false) => {
     const state = get()
-    try {
-      await api.deleteProject(projectId, purge)
+    const dropLocally = async (): Promise<void> => {
       const projects = state.projects.filter((item) => item.id !== projectId)
       const summaries = { ...state.spaceSummaries }
       delete summaries[projectId]
@@ -435,7 +434,18 @@ export const useAppStore = create<AppState>((set, get) => {
         if (projects.length > 0) await get().selectProject(projects[0].id)
         else get().setProjectModalOpen(true)
       }
+    }
+    try {
+      await api.deleteProject(projectId, purge)
+      await dropLocally()
     } catch (error) {
+      // 后端已经被删掉了（列表还没刷新就重复点）：当成成功，别把 404 说成
+      // 「接口不存在、后端是旧进程」——那会把用户引到错误的方向
+      if (error instanceof ApiError && error.status === 404) {
+        await dropLocally()
+        get().showToast('该空间已经删掉了')
+        return
+      }
       set({ error: (error as Error).message })
     }
   },

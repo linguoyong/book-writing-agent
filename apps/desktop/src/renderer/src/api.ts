@@ -53,6 +53,16 @@ export function setApiBase(port: number): void {
   API_BASE = `http://127.0.0.1:${port}/api`
 }
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
@@ -63,20 +73,21 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
   })
   if (!response.ok) {
     const text = await response.text()
-    let message = text
+    let detail = ''
     try {
       const parsed = JSON.parse(text) as { detail?: unknown }
-      if (typeof parsed.detail === 'string') message = parsed.detail
+      if (typeof parsed.detail === 'string') detail = parsed.detail
     } catch {
       /* 非 JSON 错误体，沿用原文 */
     }
+    let message = detail || text
     if (response.status === 401) {
       message = '本地后端拒绝了请求：缺少访问令牌，请从桌面应用启动'
-    } else if (response.status === 404) {
-      // 开发时最容易踩：界面热更新了，Python 后端还是旧进程
+    } else if (response.status === 404 && (!detail || detail === 'Not Found')) {
+      // 只有「路由本身不存在」才这么猜；业务上的 404（空间/会话不存在）保留原文
       message = `接口不存在（${path}）：本地后端可能是更新前的旧进程，重启一次应用后重试`
     }
-    throw new Error(message || `请求失败：${response.status}`)
+    throw new ApiError(message || `请求失败：${response.status}`, response.status)
   }
   return (await response.json()) as T
 }

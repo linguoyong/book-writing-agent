@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+import os
 import shutil
+import stat
 import threading
 import time
 from pathlib import Path
@@ -253,23 +255,59 @@ def post_project(req: CreateProjectRequest) -> dict[str, Any]:
     return {**project, "meta": read_book_meta(path)}
 
 
+def _purge_directory(target: Path, attempts: int = 4) -> None:
+    """递归删目录，占用导致失败时重试几次。
+
+    Windows 上刚写完的文件常被杀软扫描或索引服务短暂占用，一次 rmtree 很容易
+    撞上「目录不是空的 / 拒绝访问」。这类占用通常几十毫秒就释放，退避重试即可；
+    重试仍失败才把原因抛给上层。
+    """
+
+    def retry_once(func: Any, path: str, exc: BaseException) -> None:
+        # 只读文件（比如 .git 里的对象）先去掉只读位再删一次
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        except OSError:
+            raise exc from None
+
+    for attempt in range(attempts):
+        try:
+            shutil.rmtree(target, onexc=retry_once)
+            return
+        except OSError:
+            if attempt == attempts - 1:
+                raise
+            time.sleep(0.25 * (attempt + 1))
+
+
 @router.delete("/projects/{project_id}")
 def delete_project(project_id: str, purge: bool = False) -> dict[str, bool]:
     project = db.get_project(project_id)
     if not project:
-        raise HTTPException(status_code=404, detail="空间不存在")
-    # 先删会话（连带消息与审批），再删空间记录
+        # 幂等：列表刷新慢一拍时重复点删除，不该报成「接口不存在」
+        raise HTTPException(status_code=404, detail="空间不存在或已删除")
+    if purge:
+        target = Path(project["path"])
+        if target.exists():
+            try:
+                _purge_directory(target)
+            except OSError as exc:
+                # 目录删不掉就整单回滚：记录保留，用户关掉占用后再点一次即可。
+                # 之前是先删记录再删目录，失败后空间从列表消失、目录留在盘上，
+                # 再点删除只会拿到 404。
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"目录删不掉：{target}（{type(exc).__name__}）。"
+                        "可能有程序正打开里面的文件（编辑器预览、杀毒扫描、后台建索引），"
+                        "关掉后重试；这次没有删除任何记录。"
+                    ),
+                ) from exc
+    # 目录已清干净（或本来就不需要清）再删记录
     for session in db.list_sessions(project_id):
         db.delete_session(session["id"])
     db.delete_project(project_id)
-    if purge:
-        target = Path(project["path"])
-        shutil.rmtree(target, ignore_errors=True)
-        if target.exists():
-            raise HTTPException(
-                status_code=500,
-                detail="目录删除失败（可能有文件被占用），空间与会话记录已删除",
-            )
     return {"ok": True}
 
 
