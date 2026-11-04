@@ -1,3 +1,5 @@
-# 钩子脚本必须保持 LF：CRLF 会让 shebang 变成 "#!/bin/sh\r"，在 sh 下直接报
-# bad interpreter。只针对这一处做 eol 约束，不动全仓库的换行策略。
+# 钩子与 shell 脚本必须保持 LF：CRLF 会让 shebang 变成 "#!/bin/sh\r"，
+# 在 sh 下直接报 bad interpreter。只针对这两类做 eol 约束，
+# 不动全仓库的换行策略（避免一次性把历史文件全改成 LF）。
 .githooks/** text eol=lf
+*.sh text eol=lf
