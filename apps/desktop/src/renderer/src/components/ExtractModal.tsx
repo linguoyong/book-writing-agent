@@ -150,7 +150,13 @@ export default function ExtractModal({
 
   return (
     <div className="modal-mask" onClick={onClose}>
-      <div className="modal extract-modal" onClick={(event) => event.stopPropagation()}>
+      <div
+        className="modal extract-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="逐章抽取设定"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="modal-header">
           <span>逐章抽取设定</span>
           <button className="icon-btn" onClick={onClose} title="关闭">

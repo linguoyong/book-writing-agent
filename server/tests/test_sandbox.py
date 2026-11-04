@@ -66,6 +66,23 @@ class CommandAndNetworkTest(unittest.TestCase):
         self.assertEqual(check_url(sandbox, "https://api.deepseek.com/v1"), "allow")
         self.assertEqual(check_url(sandbox, "https://api.deepseek.com.evil.com/x"), "deny")
 
+    def test_url_userinfo_cannot_fake_host(self) -> None:
+        # https://allowed:443@evil.com/ 的真实主机是 evil.com，
+        # 按 ":" 切字符串会误判成 allowed.com
+        sandbox = SandboxSettings(network=NetworkSettings(allow=["allowed.com"]))
+        self.assertEqual(check_url(sandbox, "https://allowed.com:443@evil.com/x"), "deny")
+        self.assertEqual(check_url(sandbox, "https://user:pw@allowed.com/x"), "allow")
+
+    def test_url_ignores_port_and_trailing_dot(self) -> None:
+        sandbox = SandboxSettings(network=NetworkSettings(allow=["example.com"]))
+        self.assertEqual(check_url(sandbox, "http://example.com:8080/a"), "allow")
+        self.assertEqual(check_url(sandbox, "https://example.com./a"), "allow")
+
+    def test_url_garbage_is_denied(self) -> None:
+        sandbox = SandboxSettings(network=NetworkSettings(default="allow"))
+        self.assertEqual(check_url(sandbox, "http://[::1"), "deny")
+        self.assertEqual(check_url(SandboxSettings(), ""), "deny")
+
 
 if __name__ == "__main__":
     unittest.main()

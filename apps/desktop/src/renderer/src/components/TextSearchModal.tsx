@@ -114,7 +114,13 @@ export default function TextSearchModal({
 
   return (
     <div className="modal-mask" onClick={onClose}>
-      <div className="modal search-modal" onClick={(event) => event.stopPropagation()}>
+      <div
+        className="modal search-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="查找与替换"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="modal-header">
           <span>查找与替换</span>
           <button className="icon-btn" onClick={onClose} title="关闭">

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Literal
+from urllib.parse import urlsplit
 
 from deepagents import FilesystemPermission
 from pydantic import BaseModel, Field, field_validator
@@ -178,13 +179,23 @@ def check_command(sandbox: SandboxSettings | None, command: str) -> str:
 
 
 def check_url(sandbox: SandboxSettings | None, url: str) -> str:
-    """出网门禁：域名后缀匹配放行表才 allow，否则按 network.default。"""
+    """出网门禁：域名后缀匹配放行表才 allow，否则按 network.default。
+
+    只用 hostname 比对：`https://allowed.com:443@evil.com/` 里的 host 是 evil.com，
+    按字符串切 `:` 会误判成 allowed.com（userinfo 伪造）。
+    注意：这是诊断用的判定，不是拦截——目前没有任何出网工具经过它。
+    """
     if sandbox is None:
         return "deny"
     policy = sandbox.network
-    host = str(url).strip().lower()
-    host = host.split("://", 1)[1] if "://" in host else host
-    host = host.split("/", 1)[0].split(":", 1)[0]
+    raw = str(url or "").strip()
+    if not raw:
+        return policy.default
+    try:
+        parsed = urlsplit(raw if "://" in raw else f"//{raw}")
+        host = (parsed.hostname or "").lower().rstrip(".")
+    except ValueError:
+        return "deny"
     if not host:
         return policy.default
     for allowed in policy.allow:

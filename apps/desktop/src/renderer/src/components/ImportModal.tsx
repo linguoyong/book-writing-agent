@@ -86,7 +86,13 @@ export default function ImportModal({
 
   return (
     <div className="modal-mask" onClick={close}>
-      <div className="modal import-modal" onClick={(event) => event.stopPropagation()}>
+      <div
+        className="modal import-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="导入整本书"
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="modal-header">
           <span>导入整本书</span>
           <button className="icon-btn" onClick={close} disabled={busy} title="关闭">

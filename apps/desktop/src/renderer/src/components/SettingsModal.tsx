@@ -125,7 +125,14 @@ export default function SettingsModal(): React.JSX.Element | null {
 
   return (
     <div className="modal-mask" onClick={() => setSettingsOpen(false)}>
-      <div className="modal" style={{ width: 640 }} onClick={(event) => event.stopPropagation()}>
+      <div
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="设置"
+        style={{ width: 640 }}
+        onClick={(event) => event.stopPropagation()}
+      >
         <div className="modal-header">
           <span>模型设置</span>
           <button className="icon-btn" onClick={() => setSettingsOpen(false)}>

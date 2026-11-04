@@ -62,7 +62,7 @@ export default function ProjectModal({ canClose }: { canClose: boolean }): React
 
   return (
     <div className="modal-mask">
-      <div className="modal">
+      <div className="modal" role="dialog" aria-modal="true" aria-label="书稿空间">
         <div className="modal-header">
           <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {mode === 'create' ? <BookPlus size={15} /> : <FolderOpen size={15} />}
