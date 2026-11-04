@@ -8,10 +8,14 @@ import {
   Cpu,
   Copy,
   FileDiff,
+  Folder,
+  FolderOpen,
   Loader2,
   MessageSquareReply,
   Pencil,
+  Plus,
   RotateCcw,
+  Search,
   ShieldCheck,
   Sparkles,
   Square,
@@ -196,7 +200,7 @@ export default function ChatPane(): React.JSX.Element {
   return (
     <section className="chat-pane">
       <div className="chat-header">
-        <span>{activeSessionId ? '对话' : '未选择会话'}</span>
+        <span>{activeSessionId ? '对话' : project ? '新对话' : '未选择会话'}</span>
         {builder && (
           <span className="builder-chip">
             <Sparkles size={11} />
@@ -362,6 +366,7 @@ export default function ChatPane(): React.JSX.Element {
               }}
             />
             <div className="composer-actions">
+              <WorkspacePicker />
               <ExpertPicker />
               <PermissionPicker />
               <ModelPicker />
@@ -608,6 +613,113 @@ function StepRow({ item }: { item: TimelineItem }): React.JSX.Element | null {
     )
   }
   return null
+}
+
+/** 输入区左下角的空间选择：切空间、新建空间、把本地文件夹当空间打开。 */
+function WorkspacePicker(): React.JSX.Element {
+  const projects = useAppStore((state) => state.projects)
+  const activeProject = useAppStore((state) => state.activeProject)
+  const selectProject = useAppStore((state) => state.selectProject)
+  const openProject = useAppStore((state) => state.openProject)
+  const setProjectModalOpen = useAppStore((state) => state.setProjectModalOpen)
+  const showToast = useAppStore((state) => state.showToast)
+
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const wrapRef = useDismiss(open, setOpen)
+
+  const keyword = query.trim().toLowerCase()
+  const visible = keyword
+    ? projects.filter(
+        (project) =>
+          project.name.toLowerCase().includes(keyword) ||
+          project.path.toLowerCase().includes(keyword)
+      )
+    : projects
+
+  const pick = (projectId: string): void => {
+    setOpen(false)
+    setQuery('')
+    if (projectId === activeProject?.id) return
+    // draft：切过去停在草稿态，别顺手打开上一个会话
+    void selectProject(projectId, { draft: true })
+  }
+
+  const openFolder = async (): Promise<void> => {
+    setOpen(false)
+    setQuery('')
+    const picked = await window.desktop?.pickDirectory?.(activeProject?.path)
+    if (!picked) return
+    try {
+      await openProject(picked, { draft: true })
+    } catch (error) {
+      showToast((error as Error).message)
+    }
+  }
+
+  return (
+    <div className="workspace-wrap" ref={wrapRef}>
+      {open && (
+        <div className="workspace-pop">
+          <div className="workspace-search">
+            <Search size={12} />
+            <input
+              autoFocus
+              value={query}
+              placeholder="搜索工作空间"
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </div>
+          <div className="workspace-list">
+            {visible.map((project) => (
+              <button
+                key={project.id}
+                className={`workspace-option ${
+                  project.id === activeProject?.id ? 'active' : ''
+                }`}
+                onClick={() => pick(project.id)}
+                title={project.path}
+              >
+                <Folder size={13} />
+                <span className="workspace-option-name">{project.name}</span>
+                {project.id === activeProject?.id && <Check size={12} />}
+              </button>
+            ))}
+            {visible.length === 0 && (
+              <div className="panel-empty">
+                {projects.length === 0 ? '还没有空间' : '没有匹配的空间'}
+              </div>
+            )}
+          </div>
+          <div className="workspace-actions">
+            <button
+              className="workspace-action"
+              onClick={() => {
+                setOpen(false)
+                setProjectModalOpen(true)
+              }}
+            >
+              <Plus size={13} />
+              新建工作空间
+            </button>
+            <button className="workspace-action" onClick={() => void openFolder()}>
+              <FolderOpen size={13} />
+              打开本地文件夹
+            </button>
+          </div>
+        </div>
+      )}
+      <button
+        className="workspace-chip"
+        onClick={() => setOpen((value) => !value)}
+        title="选择工作空间：切空间、新建空间，或把本地文件夹当空间打开"
+      >
+        <Folder size={12} />
+        <span className="workspace-chip-name">{activeProject?.name ?? '选择工作空间'}</span>
+        <ChevronDown size={12} />
+      </button>
+    </div>
+  )
 }
 
 /** 点击面板外部或按 Esc 关闭弹层。

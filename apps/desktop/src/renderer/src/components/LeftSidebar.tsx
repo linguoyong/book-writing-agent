@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   Archive,
   BarChart3,
@@ -32,7 +32,7 @@ export default function LeftSidebar(): React.JSX.Element {
   const leftWidth = useAppStore((state) => state.leftWidth)
   const setLeftWidth = useAppStore((state) => state.setLeftWidth)
   const selectProject = useAppStore((state) => state.selectProject)
-  const newSession = useAppStore((state) => state.newSession)
+  const startDraft = useAppStore((state) => state.startDraft)
   const openSession = useAppStore((state) => state.openSession)
   const removeSession = useAppStore((state) => state.removeSession)
   const renameSession = useAppStore((state) => state.renameSession)
@@ -103,6 +103,13 @@ export default function LeftSidebar(): React.JSX.Element {
     })
   }
 
+  // 发出第一条消息后新会话会挂到当前空间下；空间若是折叠的就把它摊开
+  useEffect(() => {
+    if (!activeSessionId || !activeProject) return
+    expandSpace(activeProject.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId, activeProject?.id])
+
   const startResize = (event: React.MouseEvent): void => {
     event.preventDefault()
     const startX = event.clientX
@@ -131,7 +138,8 @@ export default function LeftSidebar(): React.JSX.Element {
               return
             }
             setView('chat')
-            void newSession()
+            // 只是进入草稿态：左侧不落条目，发出第一条消息时才创建会话
+            startDraft()
           }}
         >
           <Plus size={14} />

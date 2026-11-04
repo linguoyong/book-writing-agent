@@ -101,14 +101,19 @@ interface AppState {
     wordsPerChapter?: number
   ) => Promise<void>
   deleteProject: (projectId: string, purge?: boolean) => Promise<void>
-  openProject: (path: string) => Promise<void>
+  openProject: (path: string, options?: { draft?: boolean }) => Promise<void>
   refreshSpaceSummaries: () => Promise<void>
-  selectProject: (projectId: string, options?: { sessionId?: string }) => Promise<void>
+  selectProject: (
+    projectId: string,
+    options?: { sessionId?: string; draft?: boolean }
+  ) => Promise<void>
   openSession: (projectId: string, sessionId: string) => Promise<void>
   refreshAllSessions: () => Promise<void>
   refreshOverview: () => Promise<void>
 
   refreshSessions: () => Promise<void>
+  /** 进入草稿态：不建会话，左侧列表不动，发出第一条消息时才落库 */
+  startDraft: () => void
   newSession: () => Promise<Session | null>
   selectSession: (sessionId: string) => Promise<void>
   setSideSessionId: (sessionId: string | null) => void
@@ -396,7 +401,8 @@ export const useAppStore = create<AppState>((set, get) => {
       })
       const projects = await api.listProjects()
       set({ projects, projectModalOpen: false })
-      await get().selectProject(project.id)
+      // 新建空间后停在草稿态：左侧不该先冒出一个空会话
+      await get().selectProject(project.id, { draft: true })
       await get().refreshSpaceSummaries()
     } catch (error) {
       set({ error: (error as Error).message })
@@ -439,7 +445,8 @@ export const useAppStore = create<AppState>((set, get) => {
       const project = await api.openProject(path)
       const projects = await api.listProjects()
       set({ projects, projectModalOpen: false })
-      await get().selectProject(project.id)
+      // 新建空间后停在草稿态：左侧不该先冒出一个空会话
+      await get().selectProject(project.id, { draft: true })
       await get().refreshSpaceSummaries()
     } catch (error) {
       set({ error: (error as Error).message })
@@ -511,7 +518,7 @@ export const useAppStore = create<AppState>((set, get) => {
       void get().refreshMemory()
       if (options?.sessionId) {
         await get().selectSession(options.sessionId)
-      } else {
+      } else if (!options?.draft) {
         const mainSessions = sessions.filter((session) => session.kind === 'main')
         if (mainSessions.length > 0) await get().selectSession(mainSessions[0].id)
       }
@@ -566,6 +573,30 @@ export const useAppStore = create<AppState>((set, get) => {
     } catch (error) {
       set({ error: (error as Error).message })
     }
+  },
+
+  startDraft: () => {
+    const project = get().activeProject
+    if (!project) {
+      get().setProjectModalOpen(true)
+      return
+    }
+    if (!confirmDiscard()) return
+    // 停掉旧流：否则旧会话的 token 会继续往这份新 timeline 里写
+    streamAbort?.abort()
+    streamAbort = null
+    set({
+      view: 'chat',
+      activeSessionId: null,
+      timeline: [],
+      context: null,
+      streaming: false,
+      streamStartedAt: null,
+      approval: null,
+      references: [],
+      builder: null,
+      error: null
+    })
   },
 
   newSession: async () => {
