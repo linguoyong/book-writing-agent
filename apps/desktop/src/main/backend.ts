@@ -5,7 +5,7 @@ import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import net from 'node:net'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 export interface BackendInfo {
   port: number
@@ -32,6 +32,17 @@ function serverDir(): string | null {
     join(process.cwd(), 'server')
   ].filter((item): item is string => Boolean(item))
   return candidates.find((dir) => existsSync(join(dir, 'app', 'main.py'))) ?? null
+}
+
+/** 安装包里带的冻结后端（PyInstaller 产物）；没有就回落到本机 Python。 */
+function serverBinary(): string | null {
+  const name = process.platform === 'win32' ? 'book-server.exe' : 'book-server'
+  const candidates = [
+    process.env['BOOK_AGENT_SERVER_BIN'],
+    process.resourcesPath ? join(process.resourcesPath, 'server-bin', name) : '',
+    join(app.getAppPath(), '..', '..', 'server', 'dist', 'book-server', name)
+  ].filter((item): item is string => Boolean(item))
+  return candidates.find((item) => existsSync(item)) ?? null
 }
 
 function pythonPath(dir: string): string {
@@ -132,29 +143,35 @@ export async function startBackend(): Promise<BackendInfo> {
   starting = true
   try {
     await killStale()
-    const dir = serverDir()
-    if (!dir) {
-      info = { port: 0, ready: false, token: TOKEN, error: '找不到后端目录（server/app/main.py）' }
+    // 优先用随包冻结的后端（安装包形态），没有才回落到本机 Python（开发态）
+    const binary = serverBinary()
+    const dir = binary ? null : serverDir()
+    if (!binary && !dir) {
+      info = {
+        port: 0,
+        ready: false,
+        token: TOKEN,
+        error: '找不到后端：既没有 resources/server-bin，也没有 server/app/main.py'
+      }
       return info
     }
     const port = (await canListen(PREFERRED_PORT)) ? PREFERRED_PORT : await freePort()
     info = { port, ready: false, token: TOKEN }
-    const python = pythonPath(dir)
-    child = spawn(
-      python,
-      ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', String(port)],
-      {
-        cwd: dir,
-        env: {
-          ...process.env,
-          PYTHONUNBUFFERED: '1',
-          BOOK_AGENT_PORT: String(port),
-          BOOK_AGENT_TOKEN: TOKEN
-        },
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe']
-      }
-    )
+    const command = binary ?? pythonPath(dir as string)
+    const args = binary
+      ? []
+      : ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', String(port)]
+    child = spawn(command, args, {
+      cwd: binary ? dirname(binary) : (dir as string),
+      env: {
+        ...process.env,
+        PYTHONUNBUFFERED: '1',
+        BOOK_AGENT_PORT: String(port),
+        BOOK_AGENT_TOKEN: TOKEN
+      },
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe']
+    })
     child.stdout?.on('data', (data) => console.log('[backend]', String(data).trim()))
     child.stderr?.on('data', (data) => console.error('[backend]', String(data).trim()))
     if (child.pid) {

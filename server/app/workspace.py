@@ -144,6 +144,10 @@ def _git(path: Path, *args: str) -> subprocess.CompletedProcess[str]:
     except subprocess.TimeoutExpired:
         # 宁可少一段 diff，也不要让整个请求（甚至事件循环）挂住
         return subprocess.CompletedProcess(["git", *args], 1, "", "git 命令超时")
+    except OSError as exc:
+        # 目标机器没装 git：版本功能整体降级，不要因此让整个接口 500。
+        # stderr 里带上原因，前端「版本」页会把它当成「未启用」而不是「出错」。
+        return subprocess.CompletedProcess(["git", *args], 1, "", f"git 不可用：{exc}")
 
 
 def _ensure_initial_commit(path: Path) -> None:

@@ -11,8 +11,10 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "dist": "electron-builder --win --x64",
-    "dist:dir": "electron-builder --dir"
+    "dist": "pnpm build && pnpm build:server && electron-builder --win --x64",
+    "dist:dir": "pnpm build && pnpm build:server && electron-builder --dir",
+    "build:server": "uv run --directory ../../server --group build pyinstaller book-server.spec --noconfirm --log-level WARN",
+    "dist:offline": "bash scripts/pack-windows.sh"
   },
   "dependencies": {
     "@codemirror/lang-markdown": "^6.5.2",

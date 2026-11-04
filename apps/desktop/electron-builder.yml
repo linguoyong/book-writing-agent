@@ -10,20 +10,11 @@ files:
   - package.json
   - "!**/*.map"
 
-# 后端源码随包走：运行时通过 resourcesPath/server 找到 app/main.py。
-# 不打包 .venv（不可重定位）与测试/缓存；Python 解释器在目标机器上按
-# BOOK_AGENT_PYTHON → server/.venv → PATH 的顺序找。
+# 冻结后的 Python 后端（PyInstaller one-dir）。用 `pnpm build:server` 生成，
+# 缺了它安装包会打不开——所以放在 extraResources 里、不加 filter 兜底。
 extraResources:
-  - from: ../../server
-    to: server
-    filter:
-      - "**/*"
-      - "!.venv/**"
-      - "!tests/**"
-      - "!**/__pycache__/**"
-      - "!**/*.pyc"
-      - "!uv.lock"
-      - "!pyproject.toml"
+  - from: ../../server/dist/book-server
+    to: server-bin
   - from: ../../README.md
     to: README.md
 

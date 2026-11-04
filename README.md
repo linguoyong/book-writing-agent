@@ -138,22 +138,28 @@ pnpm check            # lint + typecheck + 两端单测 + build，一次跑全
 CI 配置在 `.github/workflows/ci.yml`（GitHub Actions 语法；仓库托管在 Gitee 时要换成 Gitee Go，执行的就是上面 `pnpm check` 那几条命令）。
 后端依赖锁在 `server/uv.lock`、前端锁在 `pnpm-lock.yaml`，两处都用「锁文件不一致就失败」的方式安装（`--frozen`）。
 
-打包：
+打包（Windows）：
 
 ```bash
-pnpm --filter desktop dist:dir   # 只出目录（release/win-unpacked），用来验证打包布局
-pnpm --filter desktop dist       # 出 NSIS 安装包（需要能访问 electron-builder 的二进制包）
+pnpm --filter desktop dist:dir       # 只出目录，验证用
+pnpm --filter desktop dist            # NSIS 安装包，产物在 apps/desktop/release-win
+pnpm --filter desktop dist:offline    # 同上，但用本机工具集，GitHub 不可达时用
 ```
 
-打包产物结构：`resources/app.asar`（渲染层 + 主进程，Vite 已把 renderer 打成一个 bundle）
-加 `resources/server`（Python 后端源码，不含 `.venv`）。运行时 Electron 按
-`BOOK_AGENT_SERVER_DIR` → `resources/server` → `./server` 找后端，按
-`BOOK_AGENT_PYTHON` → `server/.venv` → `PATH` 里的 `python` 找解释器。
-也就是说当前安装包是「自带前端、复用本机 Python」的形态：目标机器要装 Python 3.13 并
-`uv sync` 一次后端依赖。要发给不装 Python 的机器，下一步是把后端用 PyInstaller 冻成
-`book-server.exe`，放进 `resources/server` 并让 `BOOK_AGENT_SERVER_DIR` 指向它。
+`dist` 会先 `electron-vite build`，再把 Python 后端用 PyInstaller 冻成
+`resources/server-bin/book-server.exe`（one-dir，约 200MB），最后打 NSIS 安装包。
+装上之后不需要目标机器装 Python：后端就是随包的一个 exe，Electron 按
+`BOOK_AGENT_SERVER_BIN` → `resources/server-bin/book-server.exe` → 开发态的
+`server/app/main.py` 顺序找它。
 
-首次启动会让你创建「空间」（一本书一个目录），并写入 `book.json`、`kb/`、`manuscript/` 等骨架。
+- 冻结配置在 `server/book-server.spec`：jieba 词典、sqlite-vec 的 vec0.dll、
+  fastembed 的动态 import 与 langchain 系列 dist-info 都显式收集，缺少会在
+  启动时报 ModuleNotFoundError。
+- `dist:offline` 用 `~/.book-agent/pack-tools/` 里的 NSIS 与 winCodeSign 顶掉
+  electron-builder 的下载（脚本见 `apps/desktop/scripts/pack-windows.sh`）。
+- 重复打包到同一个输出目录可能撞上杀软对 `app.asar` 的文件锁（报 EBUSY），
+  换 `BOOK_AGENT_OUT=release-2` 再跑即可。
+- 安装包未做代码签名，首次运行 Windows SmartScreen 会提示「未知发布者」。
 
 ## 目录结构
 
