@@ -71,7 +71,13 @@ async function killStale(): Promise<void> {
     process.kill(pid, 0)
     if (process.platform === 'win32') {
       await new Promise<void>((resolve) => {
-        execFile('taskkill', ['/pid', String(pid), '/T', '/F'], () => resolve())
+        execFile(
+          'taskkill',
+          ['/pid', String(pid), '/T', '/F'],
+          // windowsHide：主进程虽然没有控制台，但 execFile 默认仍可能闪一个窗口
+          { windowsHide: true },
+          () => resolve()
+        )
       })
     } else {
       process.kill(pid, 'SIGKILL')
@@ -223,7 +229,12 @@ export async function stopBackend(): Promise<void> {
   if (current?.pid) {
     if (process.platform === 'win32') {
       await new Promise<void>((resolve) => {
-        execFile('taskkill', ['/pid', String(current.pid), '/T', '/F'], () => resolve())
+        execFile(
+          'taskkill',
+          ['/pid', String(current.pid), '/T', '/F'],
+          { windowsHide: true },
+          () => resolve()
+        )
       })
     } else {
       current.kill('SIGTERM')

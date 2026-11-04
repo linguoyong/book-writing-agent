@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import BOOKS_DIR, load_settings
+from .proc import run_hidden
 from .sandbox import check_path
 from .text import read_text, save_text
 
@@ -132,7 +133,8 @@ def _prune_history(directory: Path, keep: int) -> None:
 
 def _git(path: Path, *args: str) -> subprocess.CompletedProcess[str]:
     try:
-        return subprocess.run(
+        # run_hidden：安装包里的后端是 windowed 程序，直接 subprocess.run 会闪黑框
+        return run_hidden(
             ["git", *args],
             cwd=str(path),
             capture_output=True,

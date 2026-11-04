@@ -5,6 +5,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .proc import run_hidden
+
 HASH_RE = re.compile(r"^[0-9a-f]{7,40}$")
 
 
@@ -13,7 +15,8 @@ class VersionError(RuntimeError):
 
 
 def _git(project: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
+    # run_hidden：windowed 后端拉起 git 会闪黑框
+    return run_hidden(
         ["git", *args],
         cwd=project,
         capture_output=True,
@@ -104,7 +107,7 @@ def read_file_at(project: Path, commit: str, path: str) -> dict[str, Any]:
 
 def _read_blob(project: Path, commit: str, path: str) -> bytes:
     """按原始字节取出某个提交里的文件，避免 Windows 换行转换把内容改掉。"""
-    result = subprocess.run(
+    result = run_hidden(
         ["git", "show", f"{commit}:{path}"],
         cwd=project,
         capture_output=True,
