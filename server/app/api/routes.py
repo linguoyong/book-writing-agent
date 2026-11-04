@@ -256,11 +256,14 @@ def post_project(req: CreateProjectRequest) -> dict[str, Any]:
 
 
 def _purge_directory(target: Path, attempts: int = 4) -> None:
-    """递归删目录，占用导致失败时重试几次。
+    """递归删目录；只读文件与短暂占用都要能扛住。
 
-    Windows 上刚写完的文件常被杀软扫描或索引服务短暂占用，一次 rmtree 很容易
-    撞上「目录不是空的 / 拒绝访问」。这类占用通常几十毫秒就释放，退避重试即可；
-    重试仍失败才把原因抛给上层。
+    两个坑叠在一起：
+    - git 的松散对象与 pack 文件是 0444，Windows 上就是「只读」属性，
+      `os.unlink` 会直接拒绝，而 `rmtree(ignore_errors=True)` 会**静默跳过**它们，
+      于是目录看起来删了、其实还在。
+    - 杀软扫描 / 索引服务也会短暂占用刚写完的文件，几十毫秒后释放。
+    所以这里去掉只读位再删，并对整棵树退避重试。
     """
 
     def retry_once(func: Any, path: str, exc: BaseException) -> None:
@@ -300,8 +303,8 @@ def delete_project(project_id: str, purge: bool = False) -> dict[str, bool]:
                     status_code=409,
                     detail=(
                         f"目录删不掉：{target}（{type(exc).__name__}）。"
-                        "可能有程序正打开里面的文件（编辑器预览、杀毒扫描、后台建索引），"
-                        "关掉后重试；这次没有删除任何记录。"
+                        "可能是只读文件或程序正占用（杀毒扫描、后台建索引），稍后重试即可；"
+                        "这次没有删除任何记录。"
                     ),
                 ) from exc
     # 目录已清干净（或本来就不需要清）再删记录
