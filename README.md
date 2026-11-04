@@ -119,7 +119,7 @@ pnpm dev              # 启动桌面端，Electron 会自动拉起 Python 后端
 
 ```bash
 pnpm server           # uvicorn app.main:app --port 8787 --reload
-pnpm test             # 后端单测（unittest，190 个用例）
+pnpm test             # 后端单测（unittest，236 个用例）
 pnpm test:web         # 前端单测（vitest，纯函数：diff 解析、格式化）
 pnpm build            # 构建 renderer / main / preload
 ```
@@ -137,6 +137,21 @@ pnpm check            # lint + typecheck + 两端单测 + build，一次跑全
 钩子只做秒级的静态检查；完整验证走 `pnpm check`。
 CI 配置在 `.github/workflows/ci.yml`（GitHub Actions 语法；仓库托管在 Gitee 时要换成 Gitee Go，执行的就是上面 `pnpm check` 那几条命令）。
 后端依赖锁在 `server/uv.lock`、前端锁在 `pnpm-lock.yaml`，两处都用「锁文件不一致就失败」的方式安装（`--frozen`）。
+
+打包：
+
+```bash
+pnpm --filter desktop dist:dir   # 只出目录（release/win-unpacked），用来验证打包布局
+pnpm --filter desktop dist       # 出 NSIS 安装包（需要能访问 electron-builder 的二进制包）
+```
+
+打包产物结构：`resources/app.asar`（渲染层 + 主进程，Vite 已把 renderer 打成一个 bundle）
+加 `resources/server`（Python 后端源码，不含 `.venv`）。运行时 Electron 按
+`BOOK_AGENT_SERVER_DIR` → `resources/server` → `./server` 找后端，按
+`BOOK_AGENT_PYTHON` → `server/.venv` → `PATH` 里的 `python` 找解释器。
+也就是说当前安装包是「自带前端、复用本机 Python」的形态：目标机器要装 Python 3.13 并
+`uv sync` 一次后端依赖。要发给不装 Python 的机器，下一步是把后端用 PyInstaller 冻成
+`book-server.exe`，放进 `resources/server` 并让 `BOOK_AGENT_SERVER_DIR` 指向它。
 
 首次启动会让你创建「空间」（一本书一个目录），并写入 `book.json`、`kb/`、`manuscript/` 等骨架。
 

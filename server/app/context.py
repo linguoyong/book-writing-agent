@@ -64,11 +64,17 @@ def _clip_layer(text: str, limit: int, layer: str) -> str:
     if len(text) <= limit:
         return text
     if layer in TAIL_LAYERS:
-        head, sep, _ = text.partition("\n")
+        # 记忆是往尾部追加的：先保住标题行（通常是 "# 项目记忆"），
+        # 剩下的预算按尾部回填，保证最近写进去的那几条一定在。
+        head, sep, rest = text.partition("\n")
         head = f"{head}{sep}" if sep else ""
-        if len(head) < limit // 3:
-            keep = max(0, limit - len(head) - 12)
-            return f"{head}…（略）\n{text[-keep:]}"
+        if len(head) >= limit // 3:
+            # 首行就吃掉了小半预算（没有标题的大段文本）：标题不要了，全部留给尾部
+            head, rest = "", text
+        keep = max(0, limit - len(head) - 12)
+        if keep <= 0:
+            return text[:limit]
+        return f"{head}…（略）\n{rest[-keep:]}"
     return text[:limit]
 
 

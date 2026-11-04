@@ -1,0 +1,49 @@
+appId: com.molan.book
+productName: 墨阑
+copyright: Copyright © 2026 墨阑
+
+directories:
+  output: release
+
+files:
+  - out/**/*
+  - package.json
+  - "!**/*.map"
+
+# 后端源码随包走：运行时通过 resourcesPath/server 找到 app/main.py。
+# 不打包 .venv（不可重定位）与测试/缓存；Python 解释器在目标机器上按
+# BOOK_AGENT_PYTHON → server/.venv → PATH 的顺序找。
+extraResources:
+  - from: ../../server
+    to: server
+    filter:
+      - "**/*"
+      - "!.venv/**"
+      - "!tests/**"
+      - "!**/__pycache__/**"
+      - "!**/*.pyc"
+      - "!uv.lock"
+      - "!pyproject.toml"
+  - from: ../../README.md
+    to: README.md
+
+asar: true
+compression: maximum
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: ${productName}-${version}-setup.${ext}
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: 墨阑
+  uninstallDisplayName: 墨阑 ${version}
+
+portable:
+  artifactName: ${productName}-${version}-portable.${ext}
