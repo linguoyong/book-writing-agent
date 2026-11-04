@@ -65,6 +65,29 @@ export default function FileTree(): React.JSX.Element {
     setExpanded(new Set(collectDirs(tree[0], 1)))
   }, [tree])
 
+  // 打开的文件如果落在折叠的目录里（Agent 刚写到新目录、搜索结果跳转），
+  // 把它的祖先目录摊开，否则右侧开着文件、左侧看不见它在哪
+  useEffect(() => {
+    if (!currentPath) return
+    const parts = currentPath.split('/')
+    // chapters/vol1/0001.md → ["chapters", "chapters/vol1"]
+    const parents: string[] = []
+    for (let index = 0; index < parts.length - 1; index += 1) {
+      parents.push(parts.slice(0, index + 1).join('/'))
+    }
+    if (!parents.length) return
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      let changed = false
+      for (const parent of parents) {
+        if (next.has(parent)) continue
+        next.add(parent)
+        changed = true
+      }
+      return changed ? next : prev
+    })
+  }, [currentPath])
+
   const toggle = (path: string): void => {
     setExpanded((prev) => {
       const next = new Set(prev)

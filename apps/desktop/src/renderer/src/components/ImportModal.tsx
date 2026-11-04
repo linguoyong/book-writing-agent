@@ -78,12 +78,18 @@ export default function ImportModal({
     }
   }
 
+  // 导入请求不会因为关掉弹窗而中断，但用户看不见进度就容易以为卡死，
+  // 也会因为「关掉又点进来」把同一本书导两遍——写入期间禁止关闭。
+  const close = (): void => {
+    if (!busy) onClose()
+  }
+
   return (
-    <div className="modal-mask" onClick={onClose}>
+    <div className="modal-mask" onClick={close}>
       <div className="modal import-modal" onClick={(event) => event.stopPropagation()}>
         <div className="modal-header">
           <span>导入整本书</span>
-          <button className="icon-btn" onClick={onClose} title="关闭">
+          <button className="icon-btn" onClick={close} disabled={busy} title="关闭">
             <X size={14} />
           </button>
         </div>

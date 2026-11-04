@@ -103,6 +103,20 @@ function annotateWordDiff(block: FileBlock): void {
   }
 }
 
+const _isLowSurrogate = (code: number): boolean => code >= 0xdc00 && code <= 0xdfff
+
+/** 落点若在低位代理上，说明把一个 emoji 劈成两半了，退回高代理的位置 */
+function alignBack(text: string, index: number): number {
+  return index > 0 && index < text.length && _isLowSurrogate(text.charCodeAt(index))
+    ? index - 1
+    : index
+}
+
+/** 结尾若切在低位代理上，往后吞掉这一位，别把 emoji 拆开 */
+function alignForward(text: string, index: number): number {
+  return index < text.length && _isLowSurrogate(text.charCodeAt(index)) ? index + 1 : index
+}
+
 function markPair(del: DiffLine, add: DiffLine): void {
   const a = del.content
   const b = add.content
@@ -116,6 +130,11 @@ function markPair(del: DiffLine, add: DiffLine): void {
     endA -= 1
     endB -= 1
   }
+  // 😀 与 😁 的高位代理相同（0xD83D），逐位比较会从低位代理开始算差异，
+  // 直接切会把代理对劈成两个非法字符，渲染成「�」。这里把边界拉回整字符。
+  start = Math.min(alignBack(a, start), alignBack(b, start))
+  endA = alignForward(a, endA)
+  endB = alignForward(b, endB)
   if (start >= endA || start >= endB) return
   del.wordStart = start
   del.wordEnd = endA

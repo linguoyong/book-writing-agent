@@ -120,6 +120,7 @@ pnpm dev              # 启动桌面端，Electron 会自动拉起 Python 后端
 ```bash
 pnpm server           # uvicorn app.main:app --port 8787 --reload
 pnpm test             # 后端单测（unittest，190 个用例）
+pnpm test:web         # 前端单测（vitest，纯函数：diff 解析、格式化）
 pnpm build            # 构建 renderer / main / preload
 ```
 
@@ -129,7 +130,7 @@ pnpm build            # 构建 renderer / main / preload
 pnpm hooks            # 一次性：启用 .githooks/pre-push（推送前自动跑 lint + 类型检查）
 pnpm lint             # ruff check + ruff format --check
 pnpm typecheck        # tsc --noEmit
-pnpm check            # lint + typecheck + test + build，一次跑全
+pnpm check            # lint + typecheck + 两端单测 + build，一次跑全
 ```
 
 想让改动进仓库前就被守住，装一次钩子即可（`git config core.hooksPath .githooks` 被 `pnpm hooks` 封装）。

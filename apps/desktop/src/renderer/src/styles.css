@@ -3377,6 +3377,31 @@ textarea:focus {
 
 /* ---------- 对话轮次 ---------- */
 
+/* 长会话折叠提示：点一下把更早的轮次挂回来 */
+.turn-fold-more {
+  align-self: center;
+  margin: 4px 0 14px;
+  padding: 6px 14px;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--faint);
+  font-size: 11px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.turn-fold-more:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+.turn-fold-more span {
+  color: var(--accent);
+}
+
 .turn {
   display: flex;
   flex-direction: column;

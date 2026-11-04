@@ -8,10 +8,11 @@
     "build": "pnpm --filter desktop build",
     "server": "uv run --directory server uvicorn app.main:app --port 8787 --reload",
     "test": "uv run --directory server python -m unittest discover -s tests -t .",
+    "test:web": "pnpm --filter desktop test",
     "typecheck": "pnpm --filter desktop typecheck",
     "lint": "uv run --directory server ruff check . && uv run --directory server ruff format --check .",
     "format": "uv run --directory server ruff format .",
-    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm build",
+    "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm test:web && pnpm build",
     "hooks": "git config core.hooksPath .githooks"
   },
   "pnpm": {

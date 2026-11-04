@@ -32,6 +32,11 @@ const SUGGESTIONS = [
   '检索与「宗门大比」相关的原文'
 ]
 
+// 长会话只挂载最近这些轮，更早的折叠成一个「展开」按钮。
+// 500 轮全挂上去时，每个 token 的 re-render 都要过一遍 500 个块的布局，
+// 折叠后 DOM 与 diff 成本都是常数级。
+const VISIBLE_TURNS = 60
+
 type UserItem = Extract<TimelineItem, { type: 'user' }>
 type AssistantItem = Extract<TimelineItem, { type: 'assistant' }>
 
@@ -73,6 +78,7 @@ export default function ChatPane(): React.JSX.Element {
 
   const [candidates, setCandidates] = useState<ReferenceItem[]>([])
   const [refOpen, setRefOpen] = useState(false)
+  const [showAllTurns, setShowAllTurns] = useState(false)
   const refTimer = useRef<number | null>(null)
 
   useEffect(() => {
@@ -95,6 +101,8 @@ export default function ChatPane(): React.JSX.Element {
   useEffect(() => {
     setInput('')
     stickRef.current = true
+    // 换会话时回到折叠状态：另一个会话的前 400 轮没必要一起挂上来
+    setShowAllTurns(false)
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
   }, [activeSessionId])
 
@@ -149,6 +157,22 @@ export default function ChatPane(): React.JSX.Element {
   }
 
   const turns = useMemo(() => groupTurns(timeline), [timeline])
+  // 长会话只挂载最近 VISIBLE_TURNS 轮，更早的折叠起来
+  const folded = showAllTurns ? 0 : Math.max(0, turns.length - VISIBLE_TURNS)
+  const visibleTurns = folded > 0 ? turns.slice(folded) : turns
+
+  const jumpToTurn = (id: string): void => {
+    const node = document.getElementById(`turn-${id}`)
+    if (node) {
+      node.scrollIntoView({ block: 'start', behavior: 'smooth' })
+      return
+    }
+    // 目标还在折叠区里：先展开，等这一帧挂上节点再滚
+    setShowAllTurns(true)
+    requestAnimationFrame(() => {
+      document.getElementById(`turn-${id}`)?.scrollIntoView({ block: 'start' })
+    })
+  }
   const lastChange = useMemo(() => {
     for (let index = turns.length - 1; index >= 0; index -= 1) {
       if ((turns[index].meta?.changes.files.length ?? 0) > 0) return turns[index]
@@ -238,19 +262,27 @@ export default function ChatPane(): React.JSX.Element {
               )}
             </div>
           ) : (
-            turns.map((turn, index) => (
-              <MemoTurnBlock
-                key={turn.id}
-                turn={turn}
-                live={streaming && index === turns.length - 1}
-                isLast={index === turns.length - 1}
-                startedAt={streamStartedAt}
-              />
-            ))
+            <>
+              {folded > 0 && (
+                <button className="turn-fold-more" onClick={() => setShowAllTurns(true)}>
+                  上方还有 {folded} 轮更早的对话
+                  <span>点此展开</span>
+                </button>
+              )}
+              {visibleTurns.map((turn, index) => (
+                <MemoTurnBlock
+                  key={turn.id}
+                  turn={turn}
+                  live={streaming && folded + index === turns.length - 1}
+                  isLast={folded + index === turns.length - 1}
+                  startedAt={streamStartedAt}
+                />
+              ))}
+            </>
           )}
           </div>
         </div>
-        <MessageNav points={navPoints} scrollRef={scrollRef} />
+        <MessageNav points={navPoints} scrollRef={scrollRef} onJump={jumpToTurn} />
       </div>
 
       {approval && (

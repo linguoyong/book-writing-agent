@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Loader2, Search, X } from 'lucide-react'
 import { api } from '../api'
 import { useAppStore } from '../store'
@@ -37,6 +37,21 @@ export default function TextSearchModal({
     regex,
     ignore_case: ignoreCase
   }
+
+  // Esc 关窗（替换框里按 Esc 只清空输入，不关窗）
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return
+      const active = document.activeElement
+      if (active instanceof HTMLInputElement && active.dataset.keepOpen === '1') {
+        active.blur()
+        return
+      }
+      onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
 
   const runSearch = async (): Promise<void> => {
     if (!project || !query.trim() || busy) return
@@ -180,6 +195,7 @@ export default function TextSearchModal({
               className="search-replace"
               value={replacement}
               placeholder="替换为（留空表示删除）"
+              data-keep-open="1"
               onChange={(event) => {
                 setReplacement(event.target.value)
                 setPending(0)

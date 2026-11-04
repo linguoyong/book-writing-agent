@@ -8,12 +8,18 @@ export interface NavPoint {
 interface Props {
   points: NavPoint[]
   scrollRef: React.RefObject<HTMLDivElement | null>
+  /** 目标轮次可能被折叠起来了：交给调用方「先展开再滚」。 */
+  onJump?: (id: string) => void
 }
 
 const MAX_TICKS = 32
 
 /** 长会话的轮次刻度：悬停看首句，点击跳转。太少轮次时不渲染。 */
-export default function MessageNav({ points, scrollRef }: Props): React.JSX.Element | null {
+export default function MessageNav({
+  points,
+  scrollRef,
+  onJump
+}: Props): React.JSX.Element | null {
   const [active, setActive] = useState(-1)
   const [hover, setHover] = useState(-1)
   const raf = useRef(0)
@@ -61,6 +67,10 @@ export default function MessageNav({ points, scrollRef }: Props): React.JSX.Elem
   if (points.length < 4) return null
 
   const jump = (id: string): void => {
+    if (onJump) {
+      onJump(id)
+      return
+    }
     document.getElementById(`turn-${id}`)?.scrollIntoView({ block: 'start', behavior: 'smooth' })
   }
 
