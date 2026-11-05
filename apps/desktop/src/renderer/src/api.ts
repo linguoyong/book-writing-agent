@@ -516,6 +516,17 @@ interface StreamHandlers {
 
 export interface StreamHandlerSet extends StreamHandlers {}
 
+/** 流式请求失败时优先展示后端 detail（如「当前会话还在生成…」），没有才回落到状态码。 */
+async function streamFailure(response: Response, prefix: string): Promise<string> {
+  try {
+    const body = (await response.json()) as { detail?: unknown }
+    if (typeof body.detail === 'string' && body.detail.trim()) return body.detail
+  } catch {
+    /* 非 JSON 错误体 */
+  }
+  return `${prefix}：${response.status}`
+}
+
 function isAbort(error: unknown): boolean {
   return (error as { name?: string } | null)?.name === 'AbortError'
 }
@@ -554,7 +565,7 @@ export async function streamChat(
   }
 
   if (!response.ok || !response.body) {
-    handlers.onError(`对话请求失败：${response.status}`)
+    handlers.onError(await streamFailure(response, '对话请求失败'))
     handlers.onDone()
     return
   }
@@ -586,7 +597,7 @@ export async function approveChat(
     return
   }
   if (!response.ok || !response.body) {
-    handlers.onError(`审批请求失败：${response.status}`)
+    handlers.onError(await streamFailure(response, '审批请求失败'))
     handlers.onDone()
     return
   }
@@ -615,7 +626,7 @@ export async function regenerateChat(
     return
   }
   if (!response.ok || !response.body) {
-    handlers.onError(`重新生成失败：${response.status}`)
+    handlers.onError(await streamFailure(response, '重新生成失败'))
     handlers.onDone()
     return
   }

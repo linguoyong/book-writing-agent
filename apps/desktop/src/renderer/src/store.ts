@@ -128,6 +128,8 @@ interface AppState {
   steerMessage: (text: string) => Promise<void>
   stopStreaming: () => void
   regenerate: () => Promise<void>
+  /** 重试 = 把最后一条用户消息原样再发一次（保留原来的回答，不覆盖） */
+  retryLastTurn: () => Promise<void>
 
   refreshTree: () => Promise<void>
   openFileByPath: (path: string, force?: boolean, head?: number) => Promise<void>
@@ -958,6 +960,24 @@ export const useAppStore = create<AppState>((set, get) => {
     stopRunWatch()
     set({ streaming: false, streamStartedAt: null })
     if (sessionId) void api.stopRun(sessionId).catch(() => undefined)
+  },
+
+  retryLastTurn: async () => {
+    const state = get()
+    if (state.streaming) {
+      state.showToast('这一轮还在生成，等结束或先停止再重试')
+      return
+    }
+    if (state.approval) {
+      state.showToast('先处理待审批的写入，再重试')
+      return
+    }
+    const lastUser = [...state.timeline].reverse().find((item) => item.type === 'user')
+    if (!lastUser) {
+      state.showToast('没有可以重试的消息')
+      return
+    }
+    await get().sendMessage(lastUser.content)
   },
 
   regenerate: async () => {

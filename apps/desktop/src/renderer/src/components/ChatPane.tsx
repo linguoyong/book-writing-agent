@@ -424,6 +424,7 @@ function TurnBlock({
   startedAt: number | null
 }): React.JSX.Element {
   const regenerate = useAppStore((state) => state.regenerate)
+  const retryLastTurn = useAppStore((state) => state.retryLastTurn)
   const setPendingComposer = useAppStore((state) => state.setPendingComposer)
   const showToast = useAppStore((state) => state.showToast)
   const streaming = useAppStore((state) => state.streaming)
@@ -560,9 +561,9 @@ function TurnBlock({
                   </button>
                   {isLast && !live && (
                     <button
-                      onClick={() => void regenerate()}
+                      onClick={() => void retryLastTurn()}
                       disabled={streaming}
-                      title="重新生成这一轮"
+                      title="重试：把这条消息再发一次，原回答保留"
                     >
                       <RotateCcw size={11} />
                     </button>

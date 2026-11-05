@@ -595,16 +595,17 @@ class ApproveRequest(BaseModel):
 
 
 @router.post("/sessions/{session_id}/regenerate")
-def regenerate_session(session_id: str) -> StreamingResponse:
+async def regenerate_session(session_id: str) -> StreamingResponse:
     """删掉最后一轮回答，换一个 thread 重放历史消息后重新生成。"""
     session = db.get_session(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="会话不存在")
     if db.pending_approval(session_id):
         raise HTTPException(status_code=400, detail="当前有待审批的写操作，处理后再重新生成")
-    # 先拦一道：重新生成会先删掉上一轮回答，等流开始才拒绝就来不及了
-    if steering.is_running(session_id):
-        raise HTTPException(status_code=409, detail="当前会话正在生成，等这一轮结束或先停止")
+    # 先拦一道：重新生成会先删掉上一轮回答，等流开始才拒绝就来不及了。
+    # runs 里还有任务时同样不能动，否则会把正在用的历史删掉。
+    if steering.is_running(session_id) or runs.is_running(session_id):
+        raise HTTPException(status_code=409, detail="当前会话还在生成，等这一轮结束或先停止再重试")
 
     messages = db.list_messages(session_id)
     last_user_index = -1

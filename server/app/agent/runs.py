@@ -98,8 +98,11 @@ def start(session_id: str, factory: Callable[[], AsyncIterator[str]]) -> RunStat
     previous = _runs.get(session_id)
     if previous and previous.running and previous.task:
         previous.task.cancel()
-    _runs[session_id] = state
+    # 先建任务再登记：在没有事件循环的线程里调用时 create_task 会抛
+    # RuntimeError，如果先登记就会留下一个永远 running=True 的僵尸条目，
+    # 之后所有请求都只会拿到 409。
     state.task = asyncio.create_task(_drive(state, factory))
+    _runs[session_id] = state
     return state
 
 
