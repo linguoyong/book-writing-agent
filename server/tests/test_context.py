@@ -88,6 +88,25 @@ class AssembleTest(unittest.TestCase):
         self.assertTrue(item.included)
         self.assertIn("青云山弟子", bundle.system_prompt)
 
+    def test_two_long_references_are_both_kept(self) -> None:
+        # 单项从 4000 收到 1500 就是为了这个：@ 两个长文件时第二个不能被腰斩
+        save_text(self.project / "a.md", "甲" * 5000)
+        save_text(self.project / "b.md", "乙" * 5000)
+
+        bundle = context.assemble(
+            self.project,
+            references=[
+                {"type": "file", "path": "a.md", "name": "a"},
+                {"type": "file", "path": "b.md", "name": "b"},
+            ],
+        )
+
+        self.assertIn("甲", bundle.system_prompt)
+        self.assertIn("乙", bundle.system_prompt)
+        self.assertIn("引用内容过长", bundle.system_prompt)
+        item = next(entry for entry in bundle.items if entry.layer == "references")
+        self.assertLessEqual(item.chars, context.LIMITS["references"])
+
     def test_blocked_reference_is_not_inlined(self) -> None:
         # .env 在只读边界外：占位说明要给出来，但内容一个字都不能进上下文
         save_text(self.project / ".env", "SECRET=1\n")

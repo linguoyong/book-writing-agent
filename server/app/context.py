@@ -294,7 +294,12 @@ def _references_block(project: Path, references: list[dict[str, Any]]) -> str:
     return "\n\n".join(blocks) or "（引用为空）"
 
 
-def _clip_ref(text: str, limit: int = 4000) -> str:
+def _clip_ref(text: str, limit: int = 1500) -> str:
+    """单个引用块的字符上限。
+
+    整层预算只有 6000 字：如果单项给 4000，@ 两个长文件时第二个会被从中间腰斩。
+    1500 × 最多 4 项正好落在预算内，每个引用都能带上开头与关键段落。
+    """
     text = text.strip()
     if len(text) <= limit:
         return text
