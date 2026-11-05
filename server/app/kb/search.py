@@ -5,6 +5,7 @@ import json
 import re
 import sqlite3
 import struct
+import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -1035,6 +1036,12 @@ def _vec_table_exists(conn: sqlite3.Connection) -> bool:
     return bool(row)
 
 
+# 建 vec0 表要串行：Agent 会并行调多个 kb_write，两个线程可能同时看到
+# 「表不存在」然后都去 CREATE，第二个就抛 "table vec_chunks already exists"，
+# 直接把这一轮对话打断。
+_VEC_LOCK = threading.Lock()
+
+
 def _ensure_vec_table(conn: sqlite3.Connection, dim: int, model: str, provider: str) -> bool:
     """保证 vec0 表存在且维度匹配。
 
@@ -1043,23 +1050,30 @@ def _ensure_vec_table(conn: sqlite3.Connection, dim: int, model: str, provider: 
     """
     if not _load_sqlite_vec(conn):
         return False
-    current = _meta_int(conn, "vec_dim")
-    exists = _vec_table_exists(conn)
-    if exists and current == dim:
+    with _VEC_LOCK:
+        current = _meta_int(conn, "vec_dim")
+        exists = _vec_table_exists(conn)
+        if exists and current == dim:
+            return True
+        if exists:
+            conn.execute("DROP TABLE vec_chunks")
+        try:
+            conn.execute(
+                "CREATE VIRTUAL TABLE vec_chunks USING vec0("
+                "chunk_id TEXT PRIMARY KEY, "
+                "kind TEXT partition key, "
+                "chapter INTEGER, "
+                f"embedding FLOAT[{dim}] distance_metric=cosine)"
+            )
+        except sqlite3.OperationalError:
+            # 另一个进程/连接先建好了：当成成功，别让整轮生成因为建表失败而中断
+            if _vec_table_exists(conn) and _meta_int(conn, "vec_dim") == dim:
+                return True
+            raise
+        _meta_set(conn, "vec_dim", str(dim))
+        _meta_set(conn, "vec_model", f"{provider}:{model}")
+        conn.commit()
         return True
-    if exists:
-        conn.execute("DROP TABLE vec_chunks")
-    conn.execute(
-        "CREATE VIRTUAL TABLE vec_chunks USING vec0("
-        "chunk_id TEXT PRIMARY KEY, "
-        "kind TEXT partition key, "
-        "chapter INTEGER, "
-        f"embedding FLOAT[{dim}] distance_metric=cosine)"
-    )
-    _meta_set(conn, "vec_dim", str(dim))
-    _meta_set(conn, "vec_model", f"{provider}:{model}")
-    conn.commit()
-    return True
 
 
 def _delete_vector(conn: sqlite3.Connection, chunk_id: str) -> None:

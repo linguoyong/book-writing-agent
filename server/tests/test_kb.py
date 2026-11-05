@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import shutil
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from app.config import EmbeddingSettings
 from app.kb.repository import save_entity, state_at, trim_meta
-from app.kb.search import KbIndex, _chapter_number, _normalize
+from app.kb.search import KbIndex, _chapter_number, _ensure_vec_table, _normalize
 
 
 class IndexBaselineTest(unittest.TestCase):
@@ -209,6 +211,32 @@ class EntityRoutingTest(unittest.TestCase):
         hits = self.index.search("林昭", kinds=["outline"], top_k=5)
 
         self.assertTrue(all(hit["kind"] == "outline" for hit in hits))
+
+
+class VecTableRaceTest(unittest.TestCase):
+    """并行 kb_write 会同时建 vec0 表，第二个不能把整轮对话打断。"""
+
+    def test_already_exists_is_treated_as_success(self) -> None:
+        conn = mock.Mock()
+        conn.execute.side_effect = sqlite3.OperationalError("table vec_chunks already exists")
+        exists = [False, True]  # 第一次检查不存在，建表失败后再查已经存在
+
+        with mock.patch("app.kb.search._load_sqlite_vec", return_value=True):
+            with mock.patch(
+                "app.kb.search._vec_table_exists", side_effect=lambda _c: exists.pop(0)
+            ):
+                with mock.patch("app.kb.search._meta_int", return_value=512):
+                    self.assertTrue(_ensure_vec_table(conn, 512, "bge", "local"))
+
+    def test_other_create_errors_still_raise(self) -> None:
+        conn = mock.Mock()
+        conn.execute.side_effect = sqlite3.OperationalError("no such module: vec0")
+
+        with mock.patch("app.kb.search._load_sqlite_vec", return_value=True):
+            with mock.patch("app.kb.search._vec_table_exists", return_value=False):
+                with mock.patch("app.kb.search._meta_int", return_value=0):
+                    with self.assertRaises(sqlite3.OperationalError):
+                        _ensure_vec_table(conn, 512, "bge", "local")
 
 
 if __name__ == "__main__":

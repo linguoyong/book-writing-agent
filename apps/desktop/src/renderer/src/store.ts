@@ -312,9 +312,17 @@ export const useAppStore = create<AppState>((set, get) => {
   const makeHandlers = (sessionId: string): StreamHandlerSet => {
     const live = (): boolean => get().activeSessionId === sessionId
     let assistantId: string | null = null
+    // 完全访问模式下，被中断的操作不弹卡片，等这一轮结束后自动放行
+    let autoApproval: ApprovalBundle | null = null
     return {
       onContext: (bundle) => set({ context: bundle }),
-      onApproval: (approval) => set({ approval }),
+      onApproval: (approval) => {
+        if (get().permissionMode === 'auto') {
+          autoApproval = approval
+          return
+        }
+        set({ approval })
+      },
       onToken: (token) => {
         if (!live()) return
         set((state) => {
@@ -388,6 +396,11 @@ export const useAppStore = create<AppState>((set, get) => {
         void get().refreshSessions()
         void get().refreshOverview()
         void get().refreshDiff()
+        if (autoApproval) {
+          const bundle = autoApproval
+          autoApproval = null
+          void get().resolveApproval(bundle.requests.map(() => ({ type: 'approve' as const })))
+        }
       }
     }
   }
@@ -1415,6 +1428,12 @@ export const useAppStore = create<AppState>((set, get) => {
   setPermissionMode: (mode) => {
     set({ permissionMode: mode })
     const sessionId = get().activeSessionId
+    const pending = get().approval
+    if (mode === 'auto' && pending) {
+      // 已经弹出审批卡片：切到完全访问就直接放行，不用用户再点一次
+      get().showToast('已切换为完全访问：这次写入自动放行')
+      void get().resolveApproval(pending.requests.map(() => ({ type: 'approve' as const })))
+    }
     if (!sessionId) return
     void api
       .updateSession(sessionId, { permission_mode: mode })

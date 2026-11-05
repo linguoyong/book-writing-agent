@@ -161,6 +161,9 @@ export default function ChatPane(): React.JSX.Element {
   }
 
   const turns = useMemo(() => groupTurns(timeline), [timeline])
+  // 模型首字还没出来：先给一个「正在思考」，否则界面上什么都没有，像卡住了
+  const lastItem = timeline[timeline.length - 1]
+  const waitingFirstToken = !lastItem || lastItem.type === 'user'
   // 长会话只挂载最近 VISIBLE_TURNS 轮，更早的折叠起来
   const folded = showAllTurns ? 0 : Math.max(0, turns.length - VISIBLE_TURNS)
   const visibleTurns = folded > 0 ? turns.slice(folded) : turns
@@ -288,6 +291,7 @@ export default function ChatPane(): React.JSX.Element {
                   startedAt={streamStartedAt}
                 />
               ))}
+              {streaming && waitingFirstToken && <PendingBubble startedAt={streamStartedAt} />}
             </>
           )}
           </div>
@@ -570,6 +574,28 @@ function TurnBlock({
         </div>
       )}
 
+    </div>
+  )
+}
+
+/** 等待模型首字时的占位，带秒数，避免用户以为卡死。 */
+function PendingBubble({ startedAt }: { startedAt: number | null }): React.JSX.Element {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(timer)
+  }, [])
+  const seconds = startedAt ? Math.max(0, Math.floor((now - startedAt) / 1000)) : 0
+  return (
+    <div className="msg assistant pending-msg">
+      <div className="avatar">墨</div>
+      <div className="assistant-body">
+        <div className="turn-live-head">
+          <Loader2 size={12} className="spin" />
+          正在思考
+          {seconds > 0 && <span className="pending-seconds"> · {seconds} 秒</span>}
+        </div>
+      </div>
     </div>
   )
 }
