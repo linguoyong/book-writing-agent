@@ -62,7 +62,7 @@ export default function ContextPanel(): React.JSX.Element {
         </div>
       )}
       {context?.compaction && (
-        <div className="ctx-compact" title="接近触发点时旧消息会被摘要压缩。触发点取窗口的 60%，并封顶 24 万 token；原文另存为 conversation_history 可回读">
+        <div className="ctx-compact" title="接近触发点时旧消息会被摘要压缩。触发点 = 窗口的 60%（不设绝对上限）；原文另存为 conversation_history 可回读">
           <span>窗口 {formatTokens(context.compaction.window)}</span>
           <span className="ctx-compact-dot" />
           <span>{formatTokens(context.compaction.trigger)} 自动压缩</span>

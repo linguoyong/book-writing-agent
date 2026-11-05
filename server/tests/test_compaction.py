@@ -5,7 +5,6 @@ import unittest
 from app.agent.compaction import (
     KEEP_MESSAGES,
     SUMMARY_PROMPT,
-    TRIGGER_CAP,
     compaction_plan,
 )
 
@@ -13,10 +12,12 @@ from app.agent.compaction import (
 class CompactionPlanTest(unittest.TestCase):
     """压缩参数是「质量优先」的取舍，改动要能一眼看出影响。"""
 
-    def test_large_window_caps_at_240k(self) -> None:
-        plan = compaction_plan(500_000)
+    def test_large_window_follows_ratio(self) -> None:
+        # 不设绝对上限：窗口翻倍，触发点跟着翻倍
+        plan = compaction_plan(1_000_000)
 
-        self.assertEqual(plan["trigger"], TRIGGER_CAP)
+        self.assertEqual(plan["trigger"], 600_000)
+        self.assertEqual(compaction_plan(500_000)["trigger"], 300_000)
         self.assertEqual(plan["keep_messages"], KEEP_MESSAGES)
         # 截断一定早于压缩，否则第二道闸永远轮不到
         self.assertLess(plan["truncate"], plan["trigger"])

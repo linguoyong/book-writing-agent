@@ -8,15 +8,12 @@ from deepagents.middleware.summarization import SummarizationMiddleware
 from ..llm import normalize_window
 
 # 压缩策略（质量优先）：
-# - 触发点放到窗口的 60%，但硬顶 24 万 token。摘要一旦发生就会顶掉原文，
-#   对写小说来说「原文记忆」比省 token 值钱，所以宁可让上下文长一点；
-#   也不能真的等到 80%（50 万窗口就是 40 万）——那时候每轮重发几十万 token，
-#   延迟和注意力质量都会明显变差。
+# - 触发点 = 窗口的 60%，不设硬顶。模型窗口在涨，写死一个绝对上限反而会
+#   提前把原文换成摘要；倍数关系比绝对数字更耐用。
 # - 压缩后保留最近 30 条消息原文（约 8-10 轮），只把更早的部分摘要掉。
 # - 先在 35% 处裁剪旧消息里的大参数（write_file / manuscript_write 的正文），
 #   这一步只动旧工具参数、不动对话内容，属于无损的第一道闸。
 TRIGGER_RATIO = 0.6
-TRIGGER_CAP = 240_000
 TRUNCATE_RATIO = 0.35
 KEEP_MESSAGES = 30
 SUMMARY_INPUT_TOKENS = 60_000
@@ -73,7 +70,7 @@ SUMMARY_PROMPT = """<role>
 def compaction_plan(window: int) -> dict[str, int]:
     """给前端 / 日志用的压缩参数一览。"""
     size = normalize_window(window)
-    trigger = min(int(size * TRIGGER_RATIO), TRIGGER_CAP)
+    trigger = int(size * TRIGGER_RATIO)
     # 截断阈值必须早于触发阈值，否则永远轮不到它生效
     truncate = min(int(size * TRUNCATE_RATIO), int(trigger * 0.7))
     return {

@@ -585,11 +585,14 @@ function ModelSection({
             onChange={(event) => onChange({ context_window: Number(event.target.value) })}
           >
             <option value={500000}>500K</option>
-            <option value={1000000}>1M</option>
+            <option value={1000000}>1M（默认）</option>
+            <option value={2000000}>2M</option>
+            <option value={4000000}>4M</option>
           </select>
           <div className="field-hint">
-            当前默认 DeepSeek。到窗口 80% 时自动摘要压缩：旧消息交给摘要模型收成一段上下文，
-            原文另存到 /conversation_history 可回读；最后 12 条始终保留原文。
+            到窗口的 60% 时自动摘要压缩：旧消息交给摘要模型收成「续写交接单」，
+            原文另存到 /conversation_history 可回读；最近 30 条消息始终保留原文。
+            不设绝对上限——窗口换大，压缩点按比例往后推。
           </div>
         </div>
       )}
