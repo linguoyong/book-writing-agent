@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Check, RefreshCw, ShieldCheck, X } from 'lucide-react'
 import { api } from '../api'
+import { formatRelativeTime } from '../format'
 import { useAppStore } from '../store'
 import type { ApprovalRecord } from '../types'
 
@@ -85,7 +86,9 @@ export default function ApprovalsPage(): React.JSX.Element {
                 {(record.payload.requests ?? []).map((req) => req.target).filter(Boolean).join(' · ') ||
                   '—'}
               </span>
-              <span className="apr-time">{formatTime(record.created_at)}</span>
+              <span className="apr-time" title={formatTime(record.created_at)}>
+                {formatRelativeTime(record.created_at)}
+              </span>
               {editedCount(record) > 0 && (
                 <span className="apr-edited">已编辑 {editedCount(record)} 处</span>
               )}

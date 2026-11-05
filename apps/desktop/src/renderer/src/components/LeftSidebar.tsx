@@ -21,6 +21,7 @@ import {
   Trash2,
   Wand2
 } from 'lucide-react'
+import { formatRelativeTime } from '../format'
 import { useAppStore } from '../store'
 import ConfirmDialog, { type ConfirmRequest } from './ConfirmDialog'
 
@@ -325,7 +326,7 @@ export default function LeftSidebar(): React.JSX.Element {
                             {session.title}
                           </span>
                         )}
-                        <span className="session-time">{relativeTime(session.updated_at)}</span>
+                        <span className="session-time">{formatRelativeTime(session.updated_at)}</span>
                         <div className="session-actions">
                           <button
                             onClick={(event) => {
@@ -413,15 +414,3 @@ export default function LeftSidebar(): React.JSX.Element {
 }
 
 /** 会话时间：刚刚 / n分钟前 / n小时前 / 昨天 / 月日 */
-function relativeTime(value: string): string {
-  const time = new Date(value).getTime()
-  if (Number.isNaN(time)) return ''
-  const diff = Date.now() - time
-  const minute = 60_000
-  if (diff < minute) return '刚刚'
-  if (diff < 60 * minute) return `${Math.floor(diff / minute)}分钟前`
-  if (diff < 24 * 60 * minute) return `${Math.floor(diff / (60 * minute))}小时前`
-  if (diff < 48 * 60 * minute) return '昨天'
-  const date = new Date(time)
-  return `${date.getMonth() + 1}月${date.getDate()}日`
-}
