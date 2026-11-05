@@ -29,6 +29,7 @@ import type {
   Overview,
   Project,
   ReferenceItem,
+  RunSnapshot,
   SearchHit,
   Session,
   SessionPermission,
@@ -131,6 +132,9 @@ export const api = {
 
   listSessions: (projectId: string) => http<Session[]>(`/projects/${projectId}/sessions`),
   allSessions: () => http<Session[]>('/sessions'),
+  sessionRun: (sessionId: string) => http<RunSnapshot>(`/sessions/${sessionId}/run`),
+  stopRun: (sessionId: string) =>
+    http<{ ok: boolean }>(`/sessions/${sessionId}/run/stop`, { method: 'POST' }),
   createSession: (
     projectId: string,
     options: {

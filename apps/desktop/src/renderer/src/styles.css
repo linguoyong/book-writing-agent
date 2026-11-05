@@ -685,6 +685,12 @@ textarea:focus {
   text-overflow: ellipsis;
 }
 
+.session-running {
+  margin-right: 4px;
+  vertical-align: -1px;
+  color: var(--accent);
+}
+
 .session-time {
   flex-shrink: 0;
   font-size: 10.5px;
@@ -898,6 +904,18 @@ textarea:focus {
   min-height: 0;
   flex: 1;
   background: var(--bg-content);
+}
+
+.run-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--accent);
+  font-size: 10.5px;
 }
 
 .chat-header {

@@ -14,7 +14,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from .. import db, memory
-from ..agent import steering
+from ..agent import runs, steering
 from ..agent.checkpointer import drop_thread
 from ..agent.compaction import compaction_plan
 from ..agent.factory import resolve_expert
@@ -427,10 +427,16 @@ class SessionPatch(BaseModel):
     archived: bool | None = None
 
 
+def _with_running(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """给会话列表带上「是否正在生成」，左侧栏据此显示转圈。"""
+    live = runs.running_ids()
+    return [{**item, "running": item["id"] in live} for item in items]
+
+
 @router.get("/projects/{project_id}/sessions")
 def get_sessions(project_id: str) -> list[dict[str, Any]]:
     _require_project(project_id)
-    return db.list_sessions(project_id)
+    return _with_running(db.list_sessions(project_id))
 
 
 @router.post("/projects/{project_id}/sessions")
@@ -449,7 +455,29 @@ def post_session(project_id: str, req: CreateSessionRequest) -> dict[str, Any]:
 
 @router.get("/sessions")
 def list_all_sessions() -> list[dict[str, Any]]:
-    return db.list_all_sessions()
+    return _with_running(db.list_all_sessions())
+
+
+@router.post("/sessions/{session_id}/run/stop")
+def stop_session_run(session_id: str) -> dict[str, bool]:
+    """停止正在跑的这一轮（切走再回来时也能停）。"""
+    return {"ok": runs.cancel(session_id)}
+
+
+@router.get("/sessions/{session_id}/run")
+def session_run(session_id: str) -> dict[str, Any]:
+    """切回会话时取这一轮的进展：是否在跑、已生成的文本与工具步骤。"""
+    state = runs.get_run(session_id)
+    if state is None:
+        return {
+            "session_id": session_id,
+            "running": False,
+            "items": [],
+            "text": "",
+            "error": "",
+            "elapsed_ms": 0,
+        }
+    return state.snapshot()
 
 
 @router.patch("/sessions/{session_id}")
@@ -519,12 +547,31 @@ class ChatRequest(BaseModel):
     parent_session_id: str | None = None
 
 
+def _run_response(
+    session_id: str, factory: Any, *, conflict: str = "当前会话正在生成，请等这一轮结束或先停止。"
+) -> StreamingResponse:
+    """把一轮生成挂到后台任务上，响应体只是订阅。
+
+    这样客户端断开（切会话、切空间）只会取消订阅，生成继续跑完并照常落库；
+    切回来用 GET /sessions/{id}/run 拿快照继续看进展。
+    """
+    if runs.is_running(session_id):
+        raise HTTPException(status_code=409, detail=conflict)
+    state = runs.start(session_id, factory)
+    return StreamingResponse(
+        runs.tail(state),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.post("/chat")
 async def post_chat(req: ChatRequest) -> StreamingResponse:
     if not req.message.strip():
         raise HTTPException(status_code=400, detail="消息不能为空")
-    return StreamingResponse(
-        chat_stream(
+    return _run_response(
+        req.session_id,
+        lambda: chat_stream(
             req.session_id,
             req.message,
             req.mode,
@@ -532,8 +579,6 @@ async def post_chat(req: ChatRequest) -> StreamingResponse:
             req.references,
             req.parent_session_id,
         ),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
@@ -577,8 +622,9 @@ def regenerate_session(session_id: str) -> StreamingResponse:
     db.update_session(session_id, thread_id=f"{session_id}-r{int(time.time() * 1000)}")
     history = db.list_messages(session_id)
     mode = "side" if session.get("kind") == "side" else "main"
-    return StreamingResponse(
-        chat_stream(
+    return _run_response(
+        session_id,
+        lambda: chat_stream(
             session_id,
             str(messages[last_user_index]["content"]),
             mode,
@@ -588,19 +634,13 @@ def regenerate_session(session_id: str) -> StreamingResponse:
             history,
             False,
         ),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
 @router.post("/chat/approve")
 async def post_approve(req: ApproveRequest) -> StreamingResponse:
     decisions = [item.model_dump(exclude_none=True) for item in req.decisions]
-    return StreamingResponse(
-        approve_stream(req.session_id, decisions),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+    return _run_response(req.session_id, lambda: approve_stream(req.session_id, decisions))
 
 
 @router.get("/mcp/status")

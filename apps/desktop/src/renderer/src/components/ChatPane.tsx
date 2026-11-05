@@ -201,6 +201,12 @@ export default function ChatPane(): React.JSX.Element {
     <section className="chat-pane">
       <div className="chat-header">
         <span>{activeSessionId ? '对话' : project ? '新对话' : '未选择会话'}</span>
+        {streaming && (
+          <span className="run-badge" title="这一轮在服务端继续跑，切走不会中断">
+            <Loader2 size={11} className="spin" />
+            运行中
+          </span>
+        )}
         {builder && (
           <span className="builder-chip">
             <Sparkles size={11} />

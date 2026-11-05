@@ -25,8 +25,21 @@ export interface Session {
   permission_mode?: SessionPermission | null
   model_id?: string | null
   archived?: number | boolean
+  /** 服务端正在为这个会话生成（切走也继续跑） */
+  running?: boolean
   created_at: string
   updated_at: string
+}
+
+/** 一轮生成的实时快照：切回会话时用它恢复进展。 */
+export interface RunSnapshot {
+  session_id: string
+  running: boolean
+  items: Array<{ type: 'text'; content: string } | { type: 'tool'; name: string; input: string; output: string; status: string }>
+  text: string
+  error: string
+  started_at: number
+  elapsed_ms: number
 }
 
 export interface TurnChanges {

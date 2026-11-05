@@ -14,6 +14,7 @@ import type {
   Overview,
   Project,
   ReferenceItem,
+  RunSnapshot,
   SearchHit,
   Session,
   SessionPermission,
@@ -112,6 +113,8 @@ interface AppState {
   refreshOverview: () => Promise<void>
 
   refreshSessions: () => Promise<void>
+  /** 切回会话时接上仍在跑的那一轮（轮询快照直到结束） */
+  resumeRun: (sessionId: string) => void
   /** 进入草稿态：不建会话，左侧列表不动，发出第一条消息时才落库 */
   startDraft: () => void
   newSession: () => Promise<Session | null>
@@ -184,6 +187,76 @@ interface AppState {
 let seq = 0
 const uid = (): string => `t${Date.now()}-${seq++}`
 
+/** 一轮正在跑的生成：切走只停轮询，服务端任务继续；切回来接着看。 */
+let runTimer: number | null = null
+
+function stopRunWatch(): void {
+  if (runTimer !== null) {
+    window.clearInterval(runTimer)
+    runTimer = null
+  }
+}
+
+function timelineFromMessages(messages: Awaited<ReturnType<typeof api.messages>>): TimelineItem[] {
+  const items: TimelineItem[] = []
+  for (const message of messages) {
+    const meta = message.meta
+    if (meta?.tool_calls?.length) {
+      meta.tool_calls.forEach((call, index) => {
+        items.push({
+          id: `m${message.id}-t${index}`,
+          type: 'tool',
+          name: call.name,
+          input: call.input,
+          status: 'done'
+        })
+      })
+    }
+    if (message.content.trim()) {
+      items.push(
+        message.role === 'user'
+          ? {
+              id: `m${message.id}`,
+              type: 'user',
+              content: message.content,
+              steering: Boolean(meta?.steering),
+              references: meta?.references
+            }
+          : {
+              id: `m${message.id}`,
+              type: 'assistant',
+              content: message.content,
+              interrupted: Boolean(meta?.interrupted),
+              awaiting: Boolean(meta?.awaiting_approval)
+            }
+      )
+    }
+    if (message.role === 'assistant' && meta?.turn) {
+      items.push({ id: `t${message.id}`, type: 'turn_end', meta: meta.turn })
+    }
+  }
+  return items
+}
+
+function timelineFromRun(snapshot: RunSnapshot): TimelineItem[] {
+  const items: TimelineItem[] = []
+  snapshot.items.forEach((item, index) => {
+    if (item.type === 'tool') {
+      items.push({
+        id: `run-t${index}`,
+        type: 'tool',
+        name: item.name,
+        input: item.input,
+        output: item.output,
+        status: item.status === 'done' ? 'done' : 'running'
+      })
+    } else {
+      items.push({ id: `run-a${index}`, type: 'assistant', content: item.content })
+    }
+  })
+  return items
+}
+
 /** 当前主对话的流式请求；同一时间只允许一个（侧问有自己的 controller） */
 let streamAbort: AbortController | null = null
 let toastTimer: number | null = null
@@ -236,12 +309,14 @@ export const useAppStore = create<AppState>((set, get) => {
     )
   }
 
-  const makeHandlers = (): StreamHandlerSet => {
+  const makeHandlers = (sessionId: string): StreamHandlerSet => {
+    const live = (): boolean => get().activeSessionId === sessionId
     let assistantId: string | null = null
     return {
       onContext: (bundle) => set({ context: bundle }),
       onApproval: (approval) => set({ approval }),
       onToken: (token) => {
+        if (!live()) return
         set((state) => {
           const items = [...state.timeline]
           const last = items[items.length - 1]
@@ -255,6 +330,7 @@ export const useAppStore = create<AppState>((set, get) => {
         })
       },
       onToolStart: (name, input) => {
+        if (!live()) return
         assistantId = null
         set((state) => ({
           timeline: [
@@ -264,6 +340,7 @@ export const useAppStore = create<AppState>((set, get) => {
         }))
       },
       onToolEnd: (name, output) => {
+        if (!live()) return
         set((state) => {
           const items = [...state.timeline]
           for (let index = items.length - 1; index >= 0; index -= 1) {
@@ -489,6 +566,7 @@ export const useAppStore = create<AppState>((set, get) => {
     // 旧流不停就会把 token 继续追加到新空间的对话里，引导也会发错会话
     streamAbort?.abort()
     streamAbort = null
+    stopRunWatch()
     set({
       activeProject: project,
       streaming: false,
@@ -682,49 +760,60 @@ export const useAppStore = create<AppState>((set, get) => {
       const messages = await api.messages(sessionId)
       // 快速连点时，先发的请求可能后回来
       if (seq !== selectSeq) return
-      const items: TimelineItem[] = []
-      for (const message of messages) {
-        const meta = message.meta
-        if (meta?.tool_calls?.length) {
-          meta.tool_calls.forEach((call, index) => {
-            items.push({
-              id: `m${message.id}-t${index}`,
-              type: 'tool',
-              name: call.name,
-              input: call.input,
-              status: 'done'
-            })
-          })
-        }
-        if (message.content.trim()) {
-          items.push(
-            message.role === 'user'
-              ? {
-                  id: `m${message.id}`,
-                  type: 'user',
-                  content: message.content,
-                  steering: Boolean(meta?.steering),
-                  references: meta?.references
-                }
-              : {
-                  id: `m${message.id}`,
-                  type: 'assistant',
-                  content: message.content,
-                  interrupted: Boolean(meta?.interrupted),
-                  awaiting: Boolean(meta?.awaiting_approval)
-                }
-          )
-        }
-        if (message.role === 'assistant' && meta?.turn) {
-          items.push({ id: `t${message.id}`, type: 'turn_end', meta: meta.turn })
-        }
-      }
-      set({ timeline: items })
+      set({ timeline: timelineFromMessages(messages) })
     } catch (error) {
       set({ error: (error as Error).message })
     }
+    // 这一轮可能还在服务端跑（刚才是切走不是中断）：接上它继续看进展
+    get().resumeRun(sessionId)
     void get().refreshContext()
     void get().refreshPending()
+  },
+
+  resumeRun: (sessionId) => {
+    stopRunWatch()
+    const tick = async (): Promise<void> => {
+      if (get().activeSessionId !== sessionId) {
+        stopRunWatch()
+        return
+      }
+      let snapshot: RunSnapshot
+      try {
+        snapshot = await api.sessionRun(sessionId)
+      } catch {
+        stopRunWatch()
+        return
+      }
+      if (get().activeSessionId !== sessionId) {
+        stopRunWatch()
+        return
+      }
+      if (snapshot.running) {
+        set({
+          timeline: timelineFromRun(snapshot),
+          streaming: true,
+          streamStartedAt: snapshot.started_at * 1000
+        })
+        if (runTimer === null) {
+          runTimer = window.setInterval(() => void tick(), 800)
+        }
+        return
+      }
+      stopRunWatch()
+      set({ streaming: false, streamStartedAt: null })
+      if (!snapshot.items.length) return
+      // 刚跑完：以数据库为准重载这一轮（能拿到 turn_end 的耗时与变更）
+      try {
+        const messages = await api.messages(sessionId)
+        if (get().activeSessionId === sessionId) set({ timeline: timelineFromMessages(messages) })
+      } catch {
+        /* 数据库读失败就保留快照 */
+      }
+      void get().refreshSessions()
+      void get().refreshAllSessions()
+      void get().refreshDiff()
+    }
+    void tick()
   },
 
   removeSession: async (sessionId) => {
@@ -779,6 +868,7 @@ export const useAppStore = create<AppState>((set, get) => {
   sendMessage: async (text) => {
     const message = text.trim()
     if (!message || get().streaming) return
+    stopRunWatch()
     let sessionId = get().activeSessionId
     if (!sessionId) {
       // 先占住 streaming：newSession 是 await，双击会建出两个会话、两路流写同一份 timeline
@@ -808,6 +898,7 @@ export const useAppStore = create<AppState>((set, get) => {
       approval: null,
       references: []
     }))
+    void get().refreshAllSessions()
 
     const builder = get().builder
     const mode =
@@ -816,7 +907,14 @@ export const useAppStore = create<AppState>((set, get) => {
     const controller = new AbortController()
     streamAbort = controller
     try {
-      await streamChat(sessionId, message, mode, references, makeHandlers(), controller.signal)
+      await streamChat(
+        sessionId,
+        message,
+        mode,
+        references,
+        makeHandlers(sessionId),
+        controller.signal
+      )
     } finally {
       if (streamAbort === controller) streamAbort = null
     }
@@ -840,9 +938,13 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   stopStreaming: () => {
+    const sessionId = get().activeSessionId
+    // 后端现在是后台任务：只 abort 本地读取并不能停下它，得显式叫停
     streamAbort?.abort()
     streamAbort = null
+    stopRunWatch()
     set({ streaming: false, streamStartedAt: null })
+    if (sessionId) void api.stopRun(sessionId).catch(() => undefined)
   },
 
   regenerate: async () => {
@@ -861,7 +963,7 @@ export const useAppStore = create<AppState>((set, get) => {
     const controller = new AbortController()
     streamAbort = controller
     try {
-      await regenerateChat(sessionId, makeHandlers(), controller.signal)
+      await regenerateChat(sessionId, makeHandlers(sessionId), controller.signal)
     } finally {
       if (streamAbort === controller) streamAbort = null
     }
@@ -1142,7 +1244,7 @@ export const useAppStore = create<AppState>((set, get) => {
     const controller = new AbortController()
     streamAbort = controller
     try {
-      await approveChat(sessionId, decisions, makeHandlers(), controller.signal)
+      await approveChat(sessionId, decisions, makeHandlers(sessionId), controller.signal)
       // 提交失败（400/500）时后端仍保留 pending，重新拉一次把卡片找回来
       await get().refreshPending()
     } finally {

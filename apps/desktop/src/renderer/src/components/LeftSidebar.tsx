@@ -9,6 +9,7 @@ import {
   FolderPlus,
   History,
   Library,
+  Loader2,
   Maximize2,
   Minimize2,
   Pencil,
@@ -28,6 +29,7 @@ export default function LeftSidebar(): React.JSX.Element {
   const activeProject = useAppStore((state) => state.activeProject)
   const allSessions = useAppStore((state) => state.allSessions)
   const activeSessionId = useAppStore((state) => state.activeSessionId)
+  const refreshAllSessions = useAppStore((state) => state.refreshAllSessions)
   const view = useAppStore((state) => state.view)
   const leftWidth = useAppStore((state) => state.leftWidth)
   const setLeftWidth = useAppStore((state) => state.setLeftWidth)
@@ -102,6 +104,14 @@ export default function LeftSidebar(): React.JSX.Element {
       onConfirm: () => void deleteProject(project.id, true)
     })
   }
+
+  // 有会话在跑就周期性刷新列表，跑完自动停：转圈要能自己消失
+  const anyRunning = allSessions.some((session) => session.running)
+  useEffect(() => {
+    if (!anyRunning) return
+    const timer = window.setInterval(() => void refreshAllSessions(), 4000)
+    return () => window.clearInterval(timer)
+  }, [anyRunning, refreshAllSessions])
 
   // 发出第一条消息后新会话会挂到当前空间下；空间若是折叠的就把它摊开
   useEffect(() => {
@@ -308,7 +318,12 @@ export default function LeftSidebar(): React.JSX.Element {
                             }}
                           />
                         ) : (
-                          <span className="session-title">{session.title}</span>
+                          <span className="session-title">
+                            {session.running && (
+                              <Loader2 size={11} className="spin session-running" />
+                            )}
+                            {session.title}
+                          </span>
                         )}
                         <span className="session-time">{relativeTime(session.updated_at)}</span>
                         <div className="session-actions">
