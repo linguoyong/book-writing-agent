@@ -1203,6 +1203,60 @@ textarea:focus {
   padding-top: 6px;
 }
 
+/* 四个选择器（空间/专家/审批/模型）要能和发送键塞进一行：
+   标签允许收缩省略，发送键固定宽度——否则宽度一紧，发送键会被挤出输入框。
+   注意别在 .xxx-wrap 上加 overflow:hidden，弹层是它的绝对定位子元素。 */
+.composer-actions > * {
+  min-width: 0;
+}
+
+.composer-actions .workspace-wrap,
+.composer-actions .expert-wrap,
+.composer-actions .perm-wrap,
+.composer-actions .model-wrap {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.composer-actions .workspace-chip,
+.composer-actions .expert-selector,
+.composer-actions .perm-trigger,
+.composer-actions .model-trigger {
+  min-width: 0;
+}
+
+.composer-actions .send-btn,
+.composer-actions .stop-btn {
+  flex: 0 0 auto;
+}
+
+/* 中等宽度先收一收各标签的上限，别等到挤爆 */
+@container (max-width: 680px) {
+  .composer-actions .workspace-chip {
+    max-width: 118px;
+  }
+
+  .composer-actions .expert-selector {
+    max-width: 128px;
+  }
+
+  .composer-actions .model-trigger {
+    max-width: 136px;
+  }
+
+  .composer-actions .perm-trigger {
+    max-width: 104px;
+  }
+
+  .perm-trigger .perm-label,
+  .workspace-chip-name,
+  .expert-selector-label,
+  .model-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
 /* 输入框变窄时分两级让位：先只留图标，真放不下才整体隐藏。
    注意 @container 量的是 composer-box 的**内容盒**，比外框窄 24px（左右 padding）。
    阈值按「三个选择器都带文字」的实测宽度（约 440px）留了余量。 */
