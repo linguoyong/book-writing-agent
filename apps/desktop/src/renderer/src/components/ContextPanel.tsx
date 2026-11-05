@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Brain, Layers, RefreshCw, Sparkles } from 'lucide-react'
+import { Pencil } from 'lucide-react'
 import { useAppStore } from '../store'
 
 function formatTokens(value: number): string {
@@ -8,10 +9,15 @@ function formatTokens(value: number): string {
   return String(value)
 }
 
+// runtime / skills 由程序生成，其余都能在「提示词」页改
+const EDITABLE_LAYERS = new Set(['identity', 'persona', 'domain', 'user', 'long', 'project'])
+
 export default function ContextPanel(): React.JSX.Element {
   const context = useAppStore((state) => state.context)
   const memory = useAppStore((state) => state.memory)
   const activeSessionId = useAppStore((state) => state.activeSessionId)
+  const setView = useAppStore((state) => state.setView)
+  const setPromptFocus = useAppStore((state) => state.setPromptFocus)
   const refreshContext = useAppStore((state) => state.refreshContext)
   const refreshMemory = useAppStore((state) => state.refreshMemory)
   const distillMemory = useAppStore((state) => state.distillMemory)
@@ -56,7 +62,7 @@ export default function ContextPanel(): React.JSX.Element {
         </div>
       )}
       {context?.compaction && (
-        <div className="ctx-compact" title="接近窗口上限时，旧消息会被摘要压缩；原文另存为 conversation_history 可回读">
+        <div className="ctx-compact" title="接近触发点时旧消息会被摘要压缩。触发点取窗口的 60%，并封顶 24 万 token；原文另存为 conversation_history 可回读">
           <span>窗口 {formatTokens(context.compaction.window)}</span>
           <span className="ctx-compact-dot" />
           <span>{formatTokens(context.compaction.trigger)} 自动压缩</span>
@@ -72,6 +78,20 @@ export default function ContextPanel(): React.JSX.Element {
               <span className={`ctx-chars ${item.truncated ? 'warn' : ''}`}>
                 {item.chars}/{item.limit}
               </span>
+              {EDITABLE_LAYERS.has(item.layer) && (
+                <button
+                  className="ctx-edit"
+                  title="编辑这一层"
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    setPromptFocus(item.layer)
+                    setView('prompts')
+                  }}
+                >
+                  <Pencil size={11} />
+                </button>
+              )}
             </summary>
             <div className="ctx-body">
               <div className="ctx-src">{item.source || item.layer}</div>

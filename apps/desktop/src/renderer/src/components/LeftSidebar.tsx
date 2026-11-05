@@ -5,6 +5,7 @@ import {
   Brain,
   ChevronDown,
   ChevronRight,
+  FileText,
   Folder,
   FolderPlus,
   History,
@@ -207,6 +208,14 @@ export default function LeftSidebar(): React.JSX.Element {
         >
           <ShieldCheck size={14} />
           <span className="label">审批</span>
+        </button>
+        <button
+          className={`nav-item ${view === 'prompts' ? 'active' : ''}`}
+          onClick={() => setView('prompts')}
+          title="编辑系统提示词的各层内容"
+        >
+          <FileText size={14} />
+          <span className="label">提示词</span>
         </button>
         <button
           className={`nav-item ${view === 'diagnostics' ? 'active' : ''}`}

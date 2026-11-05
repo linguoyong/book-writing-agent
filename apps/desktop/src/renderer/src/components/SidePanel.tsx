@@ -222,47 +222,53 @@ export default function SidePanel(): React.JSX.Element {
           }
           if (item.type === 'user') {
             return (
-              <div key={item.id} className="side-msg user">
-                <span className="side-bubble">{item.content}</span>
+              <div key={item.id} className="msg user side-msg-row">
+                <div className="user-stack">
+                  <div className="bubble">{item.content}</div>
+                </div>
               </div>
             )
           }
           if (item.type !== 'assistant') return null
           return (
-            <div key={item.id} className="side-msg assistant">
-              <div>
-                <Markdown content={item.content} />
-                {streaming && index === items.length - 1 ? '▌' : ''}
+            <div key={item.id} className="msg assistant side-msg-row">
+              <div className="avatar">墨</div>
+              <div className="assistant-body">
+                <div className="content md-content">
+                  <Markdown content={item.content} />
+                  {streaming && index === items.length - 1 ? <span className="cursor">▌</span> : null}
+                </div>
+                {index === items.length - 1 && item.content.trim() && !streaming && (
+                  <button
+                    className="small-btn"
+                    style={{ marginTop: 6 }}
+                    onClick={() => setPendingComposer(item.content)}
+                  >
+                    <CornerUpLeft size={12} />
+                    带入主对话
+                  </button>
+                )}
               </div>
-              {index === items.length - 1 && item.content.trim() && !streaming && (
-                <button
-                  className="small-btn"
-                  style={{ marginTop: 6 }}
-                  onClick={() => setPendingComposer(item.content)}
-                >
-                  <CornerUpLeft size={12} />
-                  带入主对话
-                </button>
-              )}
             </div>
           )
         })}
       </div>
 
       <div className="side-composer">
-        <textarea
-          ref={textareaRef}
-          value={input}
-          placeholder="侧问：查设定、查伏笔、查原文…"
-          onChange={(event) => setInput(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-              event.preventDefault()
-              void send()
-            }
-          }}
-        />
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 6 }}>
+        <div className="side-composer-box">
+          <textarea
+            ref={textareaRef}
+            value={input}
+            placeholder="侧问：查设定、查伏笔、查原文…"
+            onChange={(event) => setInput(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault()
+                void send()
+              }
+            }}
+          />
+          <div className="side-composer-actions">
           {streaming && (
             <button
               className="stop-btn"
@@ -272,9 +278,15 @@ export default function SidePanel(): React.JSX.Element {
               <Square size={11} fill="currentColor" />
             </button>
           )}
-          <button className="send-btn" onClick={() => void send()} disabled={!input.trim() || streaming}>
-            <ArrowUp size={15} />
-          </button>
+            <button
+              className="send-btn"
+              onClick={() => void send()}
+              disabled={!input.trim() || streaming}
+              title="发送（Enter）"
+            >
+              <ArrowUp size={15} />
+            </button>
+          </div>
         </div>
       </div>
     </div>

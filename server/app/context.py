@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from . import memory
+from . import memory, prompts
 from .config import GLOBAL_SKILLS_DIR, load_settings
 from .domains import DomainPack, ToolContext, get_domain
 from .kb.repository import dump_note, get_entity, parse_note, trim_meta
@@ -155,15 +155,25 @@ def assemble(
         if included:
             blocks.append(clipped)
 
-    add("identity", LABELS["identity"], "kernel", IDENTITY)
+    add("identity", LABELS["identity"], "prompts/identity.md", prompts.read_layer("identity"))
 
     if expert:
         persona = _persona_block(expert)
         add("persona", f"专家 · {expert.get('name')}", expert.get("file", ""), persona)
     else:
-        add("persona", "域默认人格", f"domain:{domain.id}", domain.persona)
+        add(
+            "persona",
+            "默认人格",
+            "prompts/persona.md",
+            prompts.read_layer("persona", domain_id=domain.id),
+        )
 
-    add("domain", f"域包 · {domain.name}", f"domain:{domain.id}", domain.rules)
+    add(
+        "domain",
+        f"域包 · {domain.name}",
+        "prompts/domain.md",
+        prompts.read_layer("domain", project, domain.id),
+    )
     add("user", LABELS["user"], memory.memory_path("user").name, memory.read("user"))
     add("long", LABELS["long"], memory.memory_path("long").name, memory.read("long"))
     add(

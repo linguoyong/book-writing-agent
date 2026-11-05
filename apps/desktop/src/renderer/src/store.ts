@@ -77,6 +77,8 @@ interface AppState {
   leftWidth: number
   rightWidth: number
   view: AppView
+  /** 提示词页要聚焦的那一层（从上下文面板点进来时用） */
+  promptFocus: string | null
   experts: Expert[]
   builder: 'expert' | 'skill' | null
   settingsOpen: boolean
@@ -171,6 +173,7 @@ interface AppState {
   toggleLeft: () => void
   toggleRight: () => void
   setView: (view: AppView) => void
+  setPromptFocus: (layer: string | null) => void
   loadExperts: () => Promise<void>
   startBuilder: (kind: 'expert' | 'skill') => Promise<void>
   setBuilder: (kind: 'expert' | 'skill' | null) => void
@@ -447,6 +450,7 @@ export const useAppStore = create<AppState>((set, get) => {
   builder: null,
   settingsOpen: false,
   projectModalOpen: false,
+  promptFocus: null,
   expertModalOpen: false,
   skillsModalOpen: false,
   writingStyle: '',
@@ -1317,6 +1321,8 @@ export const useAppStore = create<AppState>((set, get) => {
     try {
       const saved = await api.saveConfig(config)
       set({ config: saved, settingsOpen: false })
+      // 改了模型窗口/输出上限后，右侧「上下文」面板要立刻反映新的预算
+      if (get().activeSessionId) void get().refreshContext()
       if ((saved as AppConfig & { embedding_changed?: boolean }).embedding_changed) {
         get().showToast('向量配置已变更，请到知识库页点「重建索引」，否则语义检索为空')
       }
@@ -1425,6 +1431,7 @@ export const useAppStore = create<AppState>((set, get) => {
   setLeftWidth: (width) => set({ leftWidth: Math.min(460, Math.max(200, width)) }),
   setRightWidth: (width) => set({ rightWidth: Math.min(960, Math.max(340, width)) }),
   setSettingsOpen: (open) => set({ settingsOpen: open }),
+  setPromptFocus: (layer) => set({ promptFocus: layer }),
   setProjectModalOpen: (open) => set({ projectModalOpen: open }),
   setExpertModalOpen: (open) => set({ expertModalOpen: open }),
   setSkillsModalOpen: (open) => set({ skillsModalOpen: open }),

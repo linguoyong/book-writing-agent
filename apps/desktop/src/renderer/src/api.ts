@@ -28,6 +28,8 @@ import type {
   Message,
   Overview,
   Project,
+  PromptDetail,
+  PromptLayerInfo,
   ReferenceItem,
   RunSnapshot,
   SearchHit,
@@ -133,6 +135,24 @@ export const api = {
   listSessions: (projectId: string) => http<Session[]>(`/projects/${projectId}/sessions`),
   allSessions: () => http<Session[]>('/sessions'),
   sessionRun: (sessionId: string) => http<RunSnapshot>(`/sessions/${sessionId}/run`),
+  prompts: (projectId?: string | null) =>
+    http<{ items: PromptLayerInfo[] }>(
+      `/prompts${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`
+    ),
+  prompt: (layer: string, projectId?: string | null) =>
+    http<PromptDetail>(
+      `/prompts/${layer}${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`
+    ),
+  savePrompt: (layer: string, content: string, projectId?: string | null) =>
+    http<{ ok: boolean; path: string }>(`/prompts/${layer}`, {
+      method: 'PUT',
+      body: JSON.stringify({ content, project_id: projectId ?? null })
+    }),
+  resetPrompt: (layer: string, projectId?: string | null) =>
+    http<{ ok: boolean }>(
+      `/prompts/${layer}/reset${projectId ? `?project_id=${encodeURIComponent(projectId)}` : ''}`,
+      { method: 'POST' }
+    ),
   stopRun: (sessionId: string) =>
     http<{ ok: boolean }>(`/sessions/${sessionId}/run/stop`, { method: 'POST' }),
   createSession: (

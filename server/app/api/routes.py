@@ -14,6 +14,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from .. import db, memory
+from .. import prompts as prompt_store
 from ..agent import runs, steering
 from ..agent.checkpointer import drop_thread
 from ..agent.compaction import compaction_plan
@@ -451,6 +452,61 @@ def post_session(project_id: str, req: CreateSessionRequest) -> dict[str, Any]:
         req.permission_mode,
         req.model_id,
     )
+
+
+class PromptWrite(BaseModel):
+    content: str
+    project_id: str | None = None
+
+
+def _prompt_project(project_id: str | None) -> Path | None:
+    if not project_id:
+        return None
+    project = db.get_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="空间不存在")
+    return Path(project["path"])
+
+
+@router.get("/prompts")
+def list_prompts(project_id: str | None = None) -> dict[str, Any]:
+    """系统提示词各层：体积、预算、是否改过。"""
+    return {"items": prompt_store.describe(_prompt_project(project_id))}
+
+
+@router.get("/prompts/{layer}")
+def get_prompt(layer: str, project_id: str | None = None) -> dict[str, Any]:
+    project = _prompt_project(project_id)
+    try:
+        return {
+            "layer": layer,
+            "content": prompt_store.read_layer(layer, project),
+            "default": prompt_store.default_content(layer),
+            "path": str(prompt_store.layer_path(layer, project)),
+            "overridable": prompt_store.LAYERS[layer][2],
+        }
+    except prompt_store.PromptError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.put("/prompts/{layer}")
+def put_prompt(layer: str, req: PromptWrite) -> dict[str, Any]:
+    project = _prompt_project(req.project_id)
+    try:
+        file = prompt_store.write_layer(layer, req.content, project)
+    except prompt_store.PromptError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True, "path": str(file), "chars": len(req.content)}
+
+
+@router.post("/prompts/{layer}/reset")
+def reset_prompt(layer: str, project_id: str | None = None) -> dict[str, bool]:
+    project = _prompt_project(project_id)
+    try:
+        prompt_store.reset_layer(layer, project)
+    except prompt_store.PromptError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"ok": True}
 
 
 @router.get("/sessions")

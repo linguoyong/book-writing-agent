@@ -13,6 +13,7 @@ import ExpertsPage from './views/ExpertsPage'
 import SkillsPage from './views/SkillsPage'
 import KnowledgePage from './views/KnowledgePage'
 import MemoryPage from './views/MemoryPage'
+import PromptsPage from './views/PromptsPage'
 import ApprovalsPage from './views/ApprovalsPage'
 import DiagnosticsPage from './views/DiagnosticsPage'
 import HistoryPage from './views/HistoryPage'
@@ -96,6 +97,7 @@ export default function App(): React.JSX.Element {
           {view === 'skills' && <SkillsPage />}
           {view === 'knowledge' && <KnowledgePage />}
           {view === 'memory' && <MemoryPage />}
+          {view === 'prompts' && <PromptsPage />}
           {view === 'approvals' && <ApprovalsPage />}
           {view === 'diagnostics' && <DiagnosticsPage />}
           {view === 'history' && <HistoryPage />}

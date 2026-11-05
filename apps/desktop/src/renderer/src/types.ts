@@ -324,6 +324,7 @@ export type AppView =
   | 'memory'
   | 'approvals'
   | 'diagnostics'
+  | 'prompts'
   | 'history'
   | 'usage'
 
@@ -662,4 +663,25 @@ export interface MaterialResult {
   body: string
   file: string
   duplicate: boolean
+}
+
+/** 系统提示词的一层：体积、预算、是否改过。 */
+export interface PromptLayerInfo {
+  layer: string
+  label: string
+  scope: 'global' | 'project'
+  path: string
+  chars: number
+  limit: number
+  customized: boolean
+  overridable: boolean
+  exists: boolean
+}
+
+export interface PromptDetail {
+  layer: string
+  content: string
+  default: string
+  path: string
+  overridable: boolean
 }

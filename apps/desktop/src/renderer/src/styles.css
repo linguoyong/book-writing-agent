@@ -4628,6 +4628,232 @@ textarea:focus {
   resize: vertical;
 }
 
+
+/* ---------------------------------------------------------- 提示词页 */
+.prompts-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+}
+
+.prompts-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.prompts-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text);
+}
+
+.prompts-sub {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.prompts-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.prompts-list {
+  width: 216px;
+  flex-shrink: 0;
+  padding: 8px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+}
+
+.prompts-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  color: var(--text);
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.prompts-item:hover {
+  background: var(--bg-elev);
+}
+
+.prompts-item.active {
+  background: var(--bg-elev);
+  color: var(--accent);
+}
+
+.prompts-item-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prompts-badge {
+  padding: 0 5px;
+  border-radius: 999px;
+  background: rgba(24, 95, 165, 0.12);
+  color: var(--accent);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.prompts-item-size {
+  color: var(--faint);
+  font-size: 10.5px;
+  flex-shrink: 0;
+}
+
+.prompts-item-size.over {
+  color: #b45309;
+}
+
+.prompts-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px 16px;
+}
+
+.prompts-editor-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--faint);
+}
+
+.prompts-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.prompts-count {
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.prompts-count.over {
+  color: #b45309;
+}
+
+.prompts-textarea {
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-input);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.85;
+  resize: none;
+}
+
+.prompts-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.prompts-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.prompts-hint {
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.ctx-edit {
+  margin-left: 6px;
+  padding: 2px;
+  border-radius: 4px;
+  color: var(--faint);
+  opacity: 0;
+  cursor: pointer;
+}
+
+.ctx-item:hover .ctx-edit {
+  opacity: 1;
+}
+
+.ctx-edit:hover {
+  color: var(--accent);
+}
+
+/* ---------------------------------------------------------- 侧问与主面板对齐 */
+.side-msg-row {
+  margin: 0 0 14px;
+}
+
+.side-composer-box {
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-input);
+}
+
+.side-composer-box:focus-within {
+  border-color: var(--accent);
+}
+
+.side-composer textarea {
+  width: 100%;
+  min-height: 52px;
+  max-height: 140px;
+  padding: 4px 4px 0;
+  border: none;
+  background: transparent;
+  font-size: 12.5px;
+  line-height: 1.7;
+  resize: none;
+}
+
+.side-composer textarea:focus {
+  outline: none;
+}
+
+.side-composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 4px 0 0;
+}
+
+.cursor {
+  color: var(--accent);
+}
+
 /* ---------------------------------------------------------- 空间选择（输入区） */
 
 .workspace-wrap {

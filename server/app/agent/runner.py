@@ -49,6 +49,22 @@ def _history_messages(records: list[dict[str, Any]]) -> list[Any]:
     return messages
 
 
+# LangGraph 默认 25 步就要停；写作场景一轮里连续十几次工具调用很正常
+# （截图里就出现过 project_overview → chapter_list → ls ×3 → kb_list → kb_get ×4）。
+# 120 步约等于 60 次工具调用，够用且仍能挡住真死循环。
+RECURSION_LIMIT = 120
+
+
+def _error_text(exc: BaseException) -> str:
+    """把框架异常翻译成用户能看懂的话。"""
+    if type(exc).__name__ == "GraphRecursionError":
+        return (
+            f"这一轮工具调用步数到上限了（{RECURSION_LIMIT} 步），先停下。"
+            "可以说「继续」让我接着做，或者把任务拆小一点。"
+        )
+    return _error_text(exc)
+
+
 def _sse(event: str, data: dict[str, Any]) -> str:
     payload = json.dumps(data, ensure_ascii=False)
     return f"event: {event}\ndata: {payload}\n\n"
@@ -116,7 +132,7 @@ async def chat_stream(
     write_paths: set[str] = set()
     meter = usage.UsageMeter()
     thread_id = session.get("thread_id") or session_id
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": RECURSION_LIMIT}
     started = time.monotonic()
     request_started = started
     # 已落库的字符数：正常路径每段落库后更新；finally 据此判断是否还有未落库内容
@@ -193,7 +209,7 @@ async def chat_stream(
             ):
                 yield chunk
         except Exception as exc:  # noqa: BLE001
-            yield _sse("error", {"message": f"{type(exc).__name__}: {exc}"})
+            yield _sse("error", {"message": _error_text(exc)})
             return
 
         # 引导消息可能晚于最后一次模型调用到达：当轮补一段跟进，避免留到无关的下一轮
@@ -237,7 +253,7 @@ async def chat_stream(
                     ):
                         yield chunk
                 except Exception as exc:  # noqa: BLE001
-                    yield _sse("error", {"message": f"{type(exc).__name__}: {exc}"})
+                    yield _sse("error", {"message": _error_text(exc)})
                 approval = await _approval_event(agent, config, session_id, project)
                 elapsed_ms = int((time.monotonic() - started) * 1000)
                 changes = await asyncio.to_thread(turn_changes, project, sorted(write_paths))
@@ -317,7 +333,7 @@ async def approve_stream(session_id: str, decisions: list[dict[str, Any]]) -> As
     write_paths: set[str] = set()
     meter = usage.UsageMeter()
     thread_id = session.get("thread_id") or session_id
-    config = {"configurable": {"thread_id": thread_id}}
+    config = {"configurable": {"thread_id": thread_id}, "recursion_limit": RECURSION_LIMIT}
     started = time.monotonic()
     request_started = started
     committed = 0
@@ -417,7 +433,7 @@ async def approve_stream(session_id: str, decisions: list[dict[str, Any]]) -> As
         except Exception as exc:  # noqa: BLE001
             # resume 失败时审批必须留在 pending：否则界面显示「已通过」，
             # 实际一次都没执行，而会话已经不再拦截下一条消息。
-            yield _sse("error", {"message": f"{type(exc).__name__}: {exc}"})
+            yield _sse("error", {"message": _error_text(exc)})
             return
 
         # 恢复成功之后才记账
