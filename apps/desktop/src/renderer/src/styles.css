@@ -4208,10 +4208,21 @@ textarea:focus {
   align-items: flex-end;
   gap: 4px;
   max-width: 72%;
+  /* 不能只靠 max-width：下面那排 22px 的操作按钮会把栈宽撑到 46px，
+     气泡的 max-width:100% 跟着变成 46px，两个汉字（28px + 26px 内边距）
+     就放不下、逐字换行。宽度按内容撑开，短消息才不会被按钮反向挤窄。 */
+  width: fit-content;
+  min-width: 0;
 }
 
-.user-stack .bubble {
-  max-width: 100%;
+/* 选择器必须写到 0,3,0 才能压过上面的 .msg.user .bubble{max-width:72%}；
+   2 个类的 .user-stack .bubble 特异性不够，会被 72% 反压回去。 */
+.msg.user .user-stack .bubble {
+  /* 不能用百分比：max-width 的相对基准是 .user-stack 自身宽度，而栈宽又由
+     内容决定，形成循环依赖。Chrome 在 intrinsic 计算时会把气泡压到 min-content
+     （一个汉字宽），「确认」这种两字消息就会竖排。改 none 后，宽度由栈的
+     max-width: 72% 兜住，长文本照常换行。 */
+  max-width: none;
 }
 
 .msg-refs {
@@ -7387,4 +7398,46 @@ mark.diffv-word.del {
   align-items: center;
   gap: 4px;
   white-space: nowrap;
+}
+
+/* 执行中的步骤默认折叠：一行显示「处理中 · 用时 · N 步 · 当前工具」，
+   点开才铺开每一步。之前平铺十几行 kb_write，正文被推到很下面。 */
+details.turn-live {
+  display: block;
+}
+
+details.turn-live > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
+  cursor: pointer;
+  list-style: none;
+  font-size: 11.5px;
+  color: var(--accent);
+}
+
+details.turn-live > summary::-webkit-details-marker {
+  display: none;
+}
+
+details.turn-live > summary:hover {
+  color: var(--accent-hover);
+}
+
+details.turn-live[open] > summary .turn-chev {
+  transform: rotate(90deg);
+}
+
+.turn-now {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+  color: var(--muted);
+}
+
+.turn-live-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
 }

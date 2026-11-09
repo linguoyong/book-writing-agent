@@ -446,6 +446,8 @@ function TurnBlock({
   const running = live && !turn.meta
   const elapsed = turn.meta?.elapsed_ms ?? (running && startedAt ? now - startedAt : 0)
   const steps = turn.process.filter((item) => item.type === 'tool')
+  // 折叠时也要能看出「现在在干什么」，否则只剩一个计时器像卡住了
+  const lastStep = steps[steps.length - 1]
 
   return (
     <div className="turn" data-turn-id={turn.id} id={`turn-${turn.id}`}>
@@ -467,20 +469,22 @@ function TurnBlock({
               </div>
             )}
             <div className="bubble">{turn.user.content}</div>
-            <div className="msg-actions">
-              <button onClick={() => copy(turn.user?.content ?? '')} title="复制">
-                <Copy size={11} />
-              </button>
-              <button
-                onClick={() => {
-                  setPendingComposer(turn.user?.content ?? '')
-                  showToast('已填入输入框，修改后可直接发送')
-                }}
-                title="编辑后重发"
-              >
-                <Pencil size={11} />
-              </button>
-            </div>
+            {!running && (
+              <div className="msg-actions">
+                <button onClick={() => copy(turn.user?.content ?? '')} title="复制">
+                  <Copy size={11} />
+                </button>
+                <button
+                  onClick={() => {
+                    setPendingComposer(turn.user?.content ?? '')
+                    showToast('已填入输入框，修改后可直接发送')
+                  }}
+                  title="编辑后重发"
+                >
+                  <Pencil size={11} />
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -491,15 +495,32 @@ function TurnBlock({
           <div className="assistant-body">
             {turn.process.length > 0 &&
               (running ? (
-                <div className="turn-live">
-                  <div className="turn-live-head">
+                <details className="turn-live turn-live-running">
+                  <summary>
                     <Loader2 size={12} className="spin" />
-                    处理中 · {formatDuration(elapsed)}
+                    <span>处理中 · {formatDuration(elapsed)}</span>
+                    {steps.length > 0 && (
+                      <>
+                        <span className="turn-dot">·</span>
+                        <span>{steps.length} 步</span>
+                      </>
+                    )}
+                    {lastStep && (
+                      <>
+                        <span className="turn-dot">·</span>
+                        <span className="turn-now">
+                          {lastStep.status === 'running' ? `${lastStep.name} 执行中` : lastStep.name}
+                        </span>
+                      </>
+                    )}
+                    <ChevronRight size={12} className="turn-chev" />
+                  </summary>
+                  <div className="turn-live-steps">
+                    {turn.process.map((item) => (
+                      <StepRow key={item.id} item={item} />
+                    ))}
                   </div>
-                  {turn.process.map((item) => (
-                    <StepRow key={item.id} item={item} />
-                  ))}
-                </div>
+                </details>
               ) : (
                 <details className="turn-fold">
                   <summary>
@@ -555,20 +576,22 @@ function TurnBlock({
                     </button>
                   </div>
                 )}
-                <div className="msg-actions">
-                  <button onClick={() => copy(turn.conclusion?.content ?? '')} title="复制">
-                    <Copy size={11} />
-                  </button>
-                  {isLast && !live && (
-                    <button
-                      onClick={() => void retryLastTurn()}
-                      disabled={streaming}
-                      title="重试：把这条消息再发一次，原回答保留"
-                    >
-                      <RotateCcw size={11} />
+                {!running && (
+                  <div className="msg-actions">
+                    <button onClick={() => copy(turn.conclusion?.content ?? '')} title="复制">
+                      <Copy size={11} />
                     </button>
-                  )}
-                </div>
+                    {isLast && !live && (
+                      <button
+                        onClick={() => void retryLastTurn()}
+                        disabled={streaming}
+                        title="重试：把这条消息再发一次，原回答保留"
+                      >
+                        <RotateCcw size={11} />
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -589,7 +612,7 @@ function PendingBubble({ startedAt }: { startedAt: number | null }): React.JSX.E
   const seconds = startedAt ? Math.max(0, Math.floor((now - startedAt) / 1000)) : 0
   return (
     <div className="msg assistant pending-msg">
-      <div className="avatar">墨</div>
+      <div className="avatar">文</div>
       <div className="assistant-body">
         <div className="turn-live-head">
           <Loader2 size={12} className="spin" />
