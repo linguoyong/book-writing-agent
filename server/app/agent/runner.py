@@ -145,6 +145,17 @@ async def chat_stream(
     await lock.acquire()
     try:
         steering.begin(session_id)
+        # 用户消息先落库，初始化模型或 MCP 期间切走也能恢复这一轮的请求。
+        if persist_user:
+            await asyncio.to_thread(
+                db.add_message,
+                session_id,
+                "user",
+                user_message,
+                meta={"references": references} if references else None,
+            )
+            if session["title"] == "新会话":
+                db.update_session_title(session_id, user_message.strip()[:24] or "新会话")
         try:
             # MCP 工具在只读侧问里不注入：它们不经路径沙箱
             if readonly:
@@ -180,17 +191,6 @@ async def chat_stream(
                 "total_chars": bundle.total_chars,
             },
         )
-
-        if persist_user:
-            await asyncio.to_thread(
-                db.add_message,
-                session_id,
-                "user",
-                user_message,
-                meta={"references": references} if references else None,
-            )
-            if session["title"] == "新会话":
-                db.update_session_title(session_id, user_message.strip()[:24] or "新会话")
 
         graph_input = (
             {"messages": _history_messages(history)}

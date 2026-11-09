@@ -64,6 +64,11 @@ class RunRegistryTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(items[0]["output"], "内容")
         self.assertEqual(state.snapshot()["text"], "写好了")
 
+    async def test_snapshot_identifies_the_history_boundary_for_approval_resume(self) -> None:
+        state = runs.start("resume", lambda: slow_stream(1, delay=0), after_message_id=42)
+        await state.task
+        self.assertEqual(state.snapshot()["after_message_id"], 42)
+
     async def test_error_is_recorded(self) -> None:
         async def boom():
             yield sse("token", {"text": "开头"})

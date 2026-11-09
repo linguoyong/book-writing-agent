@@ -1,4 +1,4 @@
-import type { Message, TimelineItem, TurnMeta } from '../types'
+import type { Message, RunSnapshot, TimelineItem, TurnMeta } from '../types'
 
 type UserItem = Extract<TimelineItem, { type: 'user' }>
 type AssistantItem = Extract<TimelineItem, { type: 'assistant' }>
@@ -68,4 +68,15 @@ export function timelineFromMessages(messages: Message[]): TimelineItem[] {
     }
   }
   return items
+}
+
+/** 快照只含当前任务的输出，必须接在已有对话和用户请求后，不能替换整段历史。 */
+export function timelineWithRun(messages: Message[], snapshot: RunSnapshot): TimelineItem[] {
+  const boundary = snapshot.after_message_id
+  const history = boundary === undefined
+    ? messages.filter((message) => message.role === 'user' || Date.parse(message.created_at) < snapshot.started_at * 1000)
+    : messages.filter((message) => message.id <= boundary || message.role === 'user')
+  return [...timelineFromMessages(history), ...snapshot.items.map((item, index): TimelineItem => item.type === 'tool'
+    ? { ...item, id: `run-t${index}`, status: item.status === 'done' ? 'done' : snapshot.running ? 'running' : 'cancelled' }
+    : { id: `run-a${index}`, type: 'assistant', content: item.content })]
 }

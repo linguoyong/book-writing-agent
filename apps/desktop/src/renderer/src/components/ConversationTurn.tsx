@@ -5,6 +5,7 @@ import { useAppStore } from '../store'
 import type { TimelineItem } from '../types'
 import type { TurnView } from './conversation'
 import Markdown from './Markdown'
+import { executionProgress, toolProgress } from './progress'
 
 function TurnBlock({
   turn,
@@ -50,6 +51,7 @@ function TurnBlock({
   const steps = turn.process.filter((item) => item.type === 'tool')
   // 折叠时也要能看出「现在在干什么」，否则只剩一个计时器像卡住了
   const lastStep = steps[steps.length - 1]
+  const progress = executionProgress(turn.process, Boolean(turn.conclusion))
 
   return (
     <div className="turn" data-turn-id={turn.id} id={`${side ? "side-" : ""}turn-${turn.id}`}>
@@ -95,6 +97,12 @@ function TurnBlock({
         <div className="msg assistant">
           <div className="avatar">文</div>
           <div className="assistant-body">
+            {running && (
+              <div className="turn-progress" role="status">
+                <div className="turn-progress-current">{progress.current}</div>
+                {progress.recent && <div className="turn-progress-recent">{progress.recent}</div>}
+              </div>
+            )}
             {turn.process.length > 0 &&
               (running ? (
                 <details className="turn-live turn-live-running">
@@ -110,8 +118,8 @@ function TurnBlock({
                     {lastStep && (
                       <>
                         <span className="turn-dot">·</span>
-                        <span className="turn-now">
-                          {lastStep.status === 'running' ? `${lastStep.name} 执行中` : lastStep.name}
+                        <span className="turn-now" title={lastStep.name}>
+                          {lastStep.status === 'running' ? toolProgress(lastStep) : '继续处理中'}
                         </span>
                       </>
                     )}

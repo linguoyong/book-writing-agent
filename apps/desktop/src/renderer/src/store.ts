@@ -1,4 +1,4 @@
-import { timelineFromMessages } from './components/conversation'
+import { timelineFromMessages, timelineWithRun } from './components/conversation'
 import { create } from 'zustand'
 import { ApiError, api, approveChat, regenerateChat, streamChat } from './api'
 import type { StreamHandlerSet } from './api'
@@ -12,10 +12,10 @@ import type {
   Expert,
   KbKind,
   MemoryState,
+  Message,
   Overview,
   Project,
   ReferenceItem,
-  RunSnapshot,
   SearchHit,
   Session,
   SessionPermission,
@@ -195,31 +195,14 @@ const uid = (): string => `t${Date.now()}-${seq++}`
 
 /** 一轮正在跑的生成：切走只停轮询，服务端任务继续；切回来接着看。 */
 let runTimer: number | null = null
+let runWatchSeq = 0
 
 function stopRunWatch(): void {
+  runWatchSeq += 1
   if (runTimer !== null) {
     window.clearInterval(runTimer)
     runTimer = null
   }
-}
-
-function timelineFromRun(snapshot: RunSnapshot): TimelineItem[] {
-  const items: TimelineItem[] = []
-  snapshot.items.forEach((item, index) => {
-    if (item.type === 'tool') {
-      items.push({
-        id: `run-t${index}`,
-        type: 'tool',
-        name: item.name,
-        input: item.input,
-        output: item.output,
-        status: item.status === 'done' ? 'done' : 'running'
-      })
-    } else {
-      items.push({ id: `run-a${index}`, type: 'assistant', content: item.content })
-    }
-  })
-  return items
 }
 
 /** 当前主对话的流式请求；同一时间只允许一个（侧问有自己的 controller） */
@@ -274,8 +257,8 @@ export const useAppStore = create<AppState>((set, get) => {
     )
   }
 
-  const makeHandlers = (sessionId: string): StreamHandlerSet => {
-    const live = (): boolean => get().activeSessionId === sessionId
+  const makeHandlers = (sessionId: string, signal: AbortSignal): StreamHandlerSet => {
+    const live = (): boolean => get().activeSessionId === sessionId && !signal.aborted
     let assistantId: string | null = null
     // 完全访问模式下，被中断的操作不弹卡片，等这一轮结束后自动放行
     let autoApproval: ApprovalBundle | null = null
@@ -723,6 +706,7 @@ export const useAppStore = create<AppState>((set, get) => {
   },
 
   selectSession: async (sessionId) => {
+    stopRunWatch()
     const session = get().sessions.find((item) => item.id === sessionId)
     // 旧流不停，token 会继续追加到新会话的 timeline，steer 也会发错会话
     streamAbort?.abort()
@@ -745,9 +729,10 @@ export const useAppStore = create<AppState>((set, get) => {
       if (seq !== selectSeq) return
       set({ timeline: timelineFromMessages(messages) })
     } catch (error) {
-      set({ error: (error as Error).message })
+      if (seq === selectSeq) set({ error: (error as Error).message })
     }
     // 这一轮可能还在服务端跑（刚才是切走不是中断）：接上它继续看进展
+    if (seq !== selectSeq || get().activeSessionId !== sessionId) return
     get().resumeRun(sessionId)
     void get().refreshContext()
     void get().refreshPending()
@@ -755,46 +740,45 @@ export const useAppStore = create<AppState>((set, get) => {
 
   resumeRun: (sessionId) => {
     stopRunWatch()
+    const seq = runWatchSeq
+    const live = (): boolean => seq === runWatchSeq && get().activeSessionId === sessionId
+    let history: Message[] | null = null
+    let pending = false
     const tick = async (): Promise<void> => {
-      if (get().activeSessionId !== sessionId) {
-        stopRunWatch()
-        return
-      }
-      let snapshot: RunSnapshot
+      if (!live() || pending) return
+      pending = true
       try {
-        snapshot = await api.sessionRun(sessionId)
-      } catch {
-        stopRunWatch()
-        return
-      }
-      if (get().activeSessionId !== sessionId) {
-        stopRunWatch()
-        return
-      }
-      if (snapshot.running) {
-        set({
-          timeline: timelineFromRun(snapshot),
-          streaming: true,
-          streamStartedAt: snapshot.started_at * 1000
-        })
-        if (runTimer === null) {
-          runTimer = window.setInterval(() => void tick(), 800)
+        const snapshot = await api.sessionRun(sessionId)
+        if (!live()) return
+        if (snapshot.running) {
+          const messages = history ?? await api.messages(sessionId)
+          if (!live()) return
+          // Before the first output the user message may still be committing.
+          // Reload once output appears, then keep the stable history as our base.
+          if (snapshot.items.length) history = messages
+          set({
+            timeline: timelineWithRun(messages, snapshot),
+            streaming: true,
+            streamStartedAt: snapshot.started_at * 1000
+          })
+          if (runTimer === null) runTimer = window.setInterval(() => void tick(), 800)
+          return
         }
-        return
-      }
-      stopRunWatch()
-      set({ streaming: false, streamStartedAt: null })
-      if (!snapshot.items.length) return
-      // 刚跑完：以数据库为准重载这一轮（能拿到 turn_end 的耗时与变更）
-      try {
+        // Keep the running state until the authoritative final history arrives.
         const messages = await api.messages(sessionId)
-        if (get().activeSessionId === sessionId) set({ timeline: timelineFromMessages(messages) })
+        if (!live()) return
+        set({ timeline: timelineFromMessages(messages), streaming: false, streamStartedAt: null })
+        stopRunWatch()
+        void get().refreshSessions()
+        void get().refreshAllSessions()
+        void get().refreshDiff()
+        void get().refreshPending()
       } catch {
-        /* 数据库读失败就保留快照 */
+        // A transient polling failure must not erase messages or strand a live run.
+        if (live() && runTimer === null) runTimer = window.setInterval(() => void tick(), 800)
+      } finally {
+        pending = false
       }
-      void get().refreshSessions()
-      void get().refreshAllSessions()
-      void get().refreshDiff()
     }
     void tick()
   },
@@ -895,7 +879,7 @@ export const useAppStore = create<AppState>((set, get) => {
         message,
         mode,
         references,
-        makeHandlers(sessionId),
+        makeHandlers(sessionId, controller.signal),
         controller.signal
       )
     } finally {
@@ -964,7 +948,7 @@ export const useAppStore = create<AppState>((set, get) => {
     const controller = new AbortController()
     streamAbort = controller
     try {
-      await regenerateChat(sessionId, makeHandlers(sessionId), controller.signal)
+      await regenerateChat(sessionId, makeHandlers(sessionId, controller.signal), controller.signal)
     } finally {
       if (streamAbort === controller) streamAbort = null
     }
@@ -1245,7 +1229,7 @@ export const useAppStore = create<AppState>((set, get) => {
     const controller = new AbortController()
     streamAbort = controller
     try {
-      await approveChat(sessionId, decisions, makeHandlers(sessionId), controller.signal)
+      await approveChat(sessionId, decisions, makeHandlers(sessionId, controller.signal), controller.signal)
       // 提交失败（400/500）时后端仍保留 pending，重新拉一次把卡片找回来
       await get().refreshPending()
     } finally {

@@ -38,6 +38,7 @@ class RunState:
     finished_at: float = 0.0
     task: asyncio.Task[None] | None = None
     subscribers: set[asyncio.Queue[str | None]] = field(default_factory=set)
+    after_message_id: int = 0
 
     @property
     def text(self) -> str:
@@ -53,6 +54,7 @@ class RunState:
             "error": self.error,
             "started_at": self.started_at,
             "elapsed_ms": int(((self.finished_at or time.time()) - self.started_at) * 1000),
+            "after_message_id": self.after_message_id,
         }
 
     def _append_text(self, text: str) -> None:
@@ -92,9 +94,11 @@ def running_ids() -> set[str]:
     return {session_id for session_id, state in _runs.items() if state.running}
 
 
-def start(session_id: str, factory: Callable[[], AsyncIterator[str]]) -> RunState:
+def start(
+    session_id: str, factory: Callable[[], AsyncIterator[str]], *, after_message_id: int = 0
+) -> RunState:
     """启动（或接管）一轮生成。调用方负责先确认没有在跑的轮次。"""
-    state = RunState(session_id=session_id)
+    state = RunState(session_id=session_id, after_message_id=after_message_id)
     previous = _runs.get(session_id)
     if previous and previous.running and previous.task:
         previous.task.cancel()

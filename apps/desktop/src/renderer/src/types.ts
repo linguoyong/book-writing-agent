@@ -34,6 +34,7 @@ export interface Session {
 /** 一轮生成的实时快照：切回会话时用它恢复进展。 */
 export interface RunSnapshot {
   session_id: string
+  after_message_id?: number
   running: boolean
   items: Array<{ type: 'text'; content: string } | { type: 'tool'; name: string; input: string; output: string; status: string }>
   text: string

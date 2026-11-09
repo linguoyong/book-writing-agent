@@ -234,7 +234,8 @@ def _run_response(
     """
     if runs.is_running(session_id):
         raise HTTPException(status_code=409, detail=conflict)
-    state = runs.start(session_id, factory)
+    previous = db.list_messages(session_id, limit=1)
+    state = runs.start(session_id, factory, after_message_id=previous[-1]["id"] if previous else 0)
     return StreamingResponse(
         runs.tail(state),
         media_type="text/event-stream",

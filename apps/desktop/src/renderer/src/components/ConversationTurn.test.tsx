@@ -21,7 +21,7 @@ describe.each([false, true])('shared conversation presentation side=%s', (side) 
     for (const meta of [undefined, { elapsed_ms: 1000, changes: { files: [], diff: '' } }]) {
       const html = renderToStaticMarkup(<ConversationTurn turn={{ ...turn, meta }} side={side} live isLast startedAt={Date.now()} />)
       expect(html).toContain('turn-live-running')
-      expect(html).toContain('chapter_review 执行中')
+      expect(html).toContain('正在审阅章节')
       expect(html).not.toContain('<details open')
       expect(html).not.toContain('title="复制"')
       expect(html).not.toContain('title="编辑后重发"')

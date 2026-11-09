@@ -2,9 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowUp, Eraser, Square } from 'lucide-react'
 import { api, streamChat } from '../api'
 import { useAppStore } from '../store'
-import type { TimelineItem } from '../types'
+import type { Message, TimelineItem } from '../types'
 import { ConversationTurn, PendingBubble } from './ConversationTurn'
-import { groupTurns, timelineFromMessages } from './conversation'
+import { groupTurns, timelineFromMessages, timelineWithRun } from './conversation'
 
 let counter = 0
 const nextId = (): string => `s${Date.now()}-${counter++}`
@@ -40,13 +40,40 @@ export default function SidePanel(): React.JSX.Element {
     setExpanded(false)
     stick.current = true
     const sid = useAppStore.getState().sideSessionId
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let history: Message[] | null = null
+    const live = (): boolean => seq === generation.current && initialActivity === activity.current
     if (sid) {
-      void api.messages(sid).then((messages) => {
-        if (seq === generation.current && initialActivity === activity.current) setItems(timelineFromMessages(messages))
-      }).catch(() => undefined)
+      const restore = async (): Promise<void> => {
+        try {
+          const snapshot = await api.sessionRun(sid)
+          if (!live()) return
+          if (snapshot.running) {
+            const messages = history ?? await api.messages(sid)
+            if (!live()) return
+            if (snapshot.items.length) history = messages
+            busy.current = true
+            setItems(timelineWithRun(messages, snapshot))
+            setStreaming(true)
+            setStartedAt(snapshot.started_at * 1000)
+            timer = setTimeout(() => void restore(), 800)
+          } else {
+            const messages = await api.messages(sid)
+            if (!live()) return
+            busy.current = false
+            setItems(timelineFromMessages(messages))
+            setStreaming(false)
+            setStartedAt(null)
+          }
+        } catch {
+          if (live()) timer = setTimeout(() => void restore(), 800)
+        }
+      }
+      void restore()
     }
     return () => {
       generation.current += 1
+      clearTimeout(timer)
       abortRef.current?.abort()
       abortRef.current = null
     }

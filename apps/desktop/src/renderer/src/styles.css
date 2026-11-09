@@ -7430,9 +7430,25 @@ details.turn-live[open] > summary .turn-chev {
 }
 
 .turn-now {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 10.5px;
   color: var(--muted);
+}
+
+.turn-progress {
+  margin: 0 0 8px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.turn-progress-current {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.turn-progress-recent {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11.5px;
 }
 
 .turn-live-steps {
