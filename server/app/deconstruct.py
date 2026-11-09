@@ -29,10 +29,10 @@ from typing import Any
 from . import usage
 from .context import assemble_deconstruct
 from .extract import ExtractStats, apply_result, build_entity_map, normalize
+from .fileops import write_policy, write_project_text
 from .import_book import chapter_number_from_title, parse_book
 from .kb.repository import dump_note, list_entities, save_entity
 from .llm import build_chat_model
-from .text import save_text
 
 GROUP_SIZE = 3
 MAX_GROUPS = 200
@@ -252,8 +252,8 @@ def _create_expert(
     if skill.get("name") and skill.get("body"):
         skill_id = _slug(str(skill.get("id") or skill.get("name")))
         directory = project / "skills" / skill_id
-        directory.mkdir(parents=True, exist_ok=True)
-        save_text(
+        write_project_text(
+            project,
             directory / "SKILL.md",
             dump_note(
                 {
@@ -285,8 +285,53 @@ def run(
     project_id: str = "",
     progress: Callable[[dict[str, Any]], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
+    sandbox: Any = None,
+    allow_external: bool = False,
 ) -> dict[str, Any]:
     """拆一本书。返回统计与可选的专家信息。"""
+    from .config import load_settings
+    from .sandbox import check_path
+
+    sandbox = sandbox if sandbox is not None else load_settings().sandbox
+    source = source.expanduser().resolve()
+    try:
+        relative = source.relative_to(project.resolve()).as_posix()
+        paths = [relative]
+    except ValueError:
+        if not allow_external:
+            raise DeconstructError(
+                "源文件超出项目目录，请先在拆解窗口选择外部文件，或将文件放入项目"
+            ) from None
+        # 外部文件由用户在界面明确选择，仍不能绕开 .env / secrets 等硬性拒绝规则。
+        paths = [Path(*source.parts[index:]).as_posix() for index in range(1, len(source.parts))]
+    if any(check_path(sandbox, path, "read") == "deny" for path in paths):
+        raise DeconstructError("路径规则禁止读取该源文件")
+    if source.suffix.lower() not in {".txt", ".md"}:
+        raise DeconstructError("拆解源文件只支持 TXT 或 Markdown")
+    with write_policy(sandbox):
+        return _run(
+            project,
+            source,
+            group_size=group_size,
+            max_groups=max_groups,
+            create_expert=create_expert,
+            project_id=project_id,
+            progress=progress,
+            should_stop=should_stop,
+        )
+
+
+def _run(
+    project: Path,
+    source: Path,
+    *,
+    group_size: int,
+    max_groups: int,
+    create_expert: bool,
+    project_id: str,
+    progress: Callable[[dict[str, Any]], None] | None,
+    should_stop: Callable[[], bool] | None,
+) -> dict[str, Any]:
     if not source.exists() or not source.is_file():
         raise DeconstructError(f"源文件不存在：{source}")
     parsed = parse_book(source)
@@ -319,7 +364,9 @@ def run(
                 schema=SCHEMA,
                 note=f"这是第 {index + 1} 组，共 {len(groups)} 组；源文件：{source_name}",
             )
-            message = model.invoke(context.system_prompt)
+            message = model.invoke(
+                context.system_prompt, config={"tags": ["book:internal", "book:metered"]}
+            )
             if project_id:
                 parsed_usage = usage.parse_message(message)
                 usage.record(

@@ -5,7 +5,9 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .fileops import write_project_text
 from .proc import run_hidden
+from .text import decode_bytes
 
 HASH_RE = re.compile(r"^[0-9a-f]{7,40}$")
 
@@ -39,7 +41,7 @@ def _safe_path(project: Path, path: str) -> Path:
         raise VersionError(f"路径不合法：{path}")
     target = (project / relative).resolve()
     root = project.resolve()
-    if not str(target).startswith(str(root)):
+    if not target.is_relative_to(root):
         raise VersionError(f"路径越界：{path}")
     return target
 
@@ -125,7 +127,10 @@ def restore(project: Path, commit: str, path: str) -> dict[str, Any]:
 
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+        if target.suffix.lower() in {".md", ".txt", ".json"}:
+            write_project_text(project, target, decode_bytes(data)[0])
+        else:
+            target.write_bytes(data)
     except OSError as exc:
         raise VersionError(f"写入失败：{exc}") from exc
 

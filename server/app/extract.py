@@ -311,17 +311,23 @@ def build_entity_map(project: Path) -> dict[str, dict[str, Any]]:
 def _append_line(project: Path, line: str) -> None:
     """时间线与伏笔都往同一个自动文件里追加，不回头重写整本。"""
     path = project / "kb" / "outline" / "auto-timeline.md"
-    if not path.exists():
-        meta = {
-            "id": "auto-timeline",
-            "name": "自动抽取时间线",
-            "type": "outline",
-            "tags": ["自动", "事件"],
-        }
-        path.parent.mkdir(parents=True, exist_ok=True)
-        save_text(path, dump_note(meta, "\n"))
-    with path.open("a", encoding="utf-8", newline="\n") as handle:
-        handle.write(line.rstrip() + "\n")
+    from .fileops import project_lock, write_project_text
+
+    with project_lock(project):
+        content = (
+            read_text(path)
+            if path.exists()
+            else dump_note(
+                {
+                    "id": "auto-timeline",
+                    "name": "自动抽取时间线",
+                    "type": "outline",
+                    "tags": ["自动", "事件"],
+                },
+                "\n",
+            )
+        )
+        write_project_text(project, path, content + line.rstrip() + "\n")
 
 
 def _merge_aliases(project: Path, snapshot: dict[str, Any], aliases: list[str]) -> int:

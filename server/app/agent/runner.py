@@ -62,7 +62,7 @@ def _error_text(exc: BaseException) -> str:
             f"这一轮工具调用步数到上限了（{RECURSION_LIMIT} 步），先停下。"
             "可以说「继续」让我接着做，或者把任务拆小一点。"
         )
-    return _error_text(exc)
+    return f"{type(exc).__name__}: {exc}"
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -503,51 +503,68 @@ async def _run_events(
     write_paths: set[str],
     meter: usage.UsageMeter,
 ) -> AsyncIterator[str]:
-    # deepagents 默认挂一个 general-purpose 子代理，模型调 `task` 时
-    # 子代理的模型流也会出现在 astream_events 里。不过滤的话，
-    # 子代理的过程文本会拼进主回答、并写进消息历史。
-    task_runs: set[str] = set()
+    # 工具内部的审稿/拆解/记忆模型同样会产生模型流事件。
+    # 只把主 Agent 的模型文本交给对话，工具和子代理的内部输出留在工具结果里。
+    tool_runs: set[str] = set()
 
     async for event in agent.astream_events(graph_input, config, version="v2"):
         kind = event.get("event")
         name = event.get("name", "tool")
         run_id = str(event.get("run_id") or "")
         parents = {str(item) for item in (event.get("parent_ids") or [])}
-        # 只按「父链里含 task 工具 run」判定，判不出来时宁可不过滤，避免丢主回答
-        in_subagent = bool(task_runs & parents)
+        metadata = event.get("metadata") or {}
+        internal = (
+            bool(tool_runs & parents)
+            or "book:internal" in (event.get("tags") or [])
+            or bool(metadata.get("lc_internal_call"))
+            or metadata.get("lc_source") == "summarization"
+        )
 
         if kind == "on_chat_model_stream":
-            if in_subagent:
+            if internal:
                 continue
             text = _as_text(event.get("data", {}).get("chunk", {}).content)
             if text:
                 buffer.append(text)
                 yield _sse("token", {"text": text})
         elif kind == "on_chat_model_end":
-            # 子代理的调用同样计费，这里不做 in_subagent 过滤
+            # 内部模型调用同样计费，单独记账的审稿/拆解在各业务函数中记录。
+            if internal and "book:metered" in (event.get("tags") or []):
+                continue
             meter.add(event.get("data", {}).get("output"))
         elif kind == "on_tool_start":
-            if name == "task" and run_id and not in_subagent:
-                task_runs.add(run_id)
+            if run_id:
+                tool_runs.add(run_id)
             raw_input = event.get("data", {}).get("input", {})
             # 子代理的写入同样落到磁盘，本轮 diff 仍要统计
             if name in WRITE_TOOLS and isinstance(raw_input, dict):
                 path = _write_path(name, raw_input)
                 if path:
                     write_paths.add(path)
-            if in_subagent or name in {"write_todos"}:
+            if internal or name in {"write_todos"}:
                 continue
             payload = {"name": name, "input": _truncate(raw_input)}
-            tool_calls.append({"name": name, "input": payload["input"]})
+            tool_calls.append(
+                {
+                    "name": name,
+                    "input": payload["input"],
+                    "run_id": run_id,
+                    "offset": sum(len(part) for part in buffer),
+                    "status": "running",
+                }
+            )
             yield _sse("tool_start", payload)
         elif kind == "on_tool_end":
-            if name == "task" and run_id:
-                task_runs.discard(run_id)
-            if in_subagent or name in {"write_todos"}:
+            if internal or name in {"write_todos"}:
                 continue
             output = event.get("data", {}).get("output")
             content = getattr(output, "content", output)
-            yield _sse("tool_end", {"name": name, "output": _truncate(content)})
+            output_text = _truncate(content)
+            for call in reversed(tool_calls):
+                if call.get("run_id") == run_id:
+                    call.update(output=output_text, status="done")
+                    break
+            yield _sse("tool_end", {"name": name, "output": output_text})
 
 
 async def _approval_event(
@@ -611,11 +628,32 @@ def _persist_assistant(
     usage_snapshot: dict[str, Any] | None = None,
 ) -> None:
     text = "".join(buffer)
-    if not text.strip():
+    if not text.strip() and not tool_calls:
         return
     meta: dict[str, Any] = {}
     if tool_calls:
         meta["tool_calls"] = tool_calls
+        trace: list[dict[str, Any]] = []
+        cursor = 0
+        for call in tool_calls:
+            offset = max(cursor, min(len(text), int(call.get("offset", cursor))))
+            if text[cursor:offset].strip():
+                trace.append({"type": "text", "content": text[cursor:offset]})
+            trace.append(
+                {
+                    "type": "tool",
+                    "name": call["name"],
+                    "input": call["input"],
+                    "output": call.get("output", ""),
+                    "status": call.get("status", "cancelled"),
+                }
+            )
+            cursor = offset
+        if text[cursor:].strip():
+            trace.append({"type": "text", "content": text[cursor:]})
+        meta["timeline"] = trace
+        # 过程文本留在折叠轨迹中，供普通历史/回忆读取的 content 只存最终回答。
+        text = text[cursor:]
     if awaiting:
         meta["awaiting_approval"] = True
     if interrupted:

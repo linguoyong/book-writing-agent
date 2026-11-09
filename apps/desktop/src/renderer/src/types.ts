@@ -71,6 +71,7 @@ export interface Message {
   content: string
   meta?: {
     tool_calls?: { name: string; input: string }[]
+    timeline?: RunSnapshot['items']
     turn?: TurnMeta
     awaiting_approval?: boolean
     interrupted?: boolean
@@ -724,7 +725,7 @@ export interface ReviewDetail {
 }
 
 export interface DeconstructStatus {
-  status: 'idle' | 'running' | 'done' | 'error'
+  status: 'idle' | 'running' | 'done' | 'stopped' | 'error'
   source?: string
   error?: string
   progress?: Record<string, number>

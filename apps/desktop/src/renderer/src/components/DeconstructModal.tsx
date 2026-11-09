@@ -55,12 +55,12 @@ export default function DeconstructModal({ onClose }: { onClose: () => void }): 
         .then((data) => {
           if (!alive) return
           setStatus(data)
-          if (data.status === 'done' || data.status === 'error') {
+          if (data.status === 'done' || data.status === 'stopped' || data.status === 'error') {
             setBusy(false)
-            if (data.status === 'done') {
+            if (data.status === 'done' || data.status === 'stopped') {
               const result = data.result ?? {}
               showToast(
-                `拆解完成：${result.groups ?? 0} 组 / ${result.chapters ?? 0} 章，新增实体 ${result.entities ?? 0} 个`
+                `${data.status === 'stopped' ? '拆解已停止' : '拆解完成'}：${result.groups ?? 0} 组 / ${result.chapters ?? 0} 章，新增实体 ${result.entities ?? 0} 个`
               )
               void refreshOverview?.()
             } else if (data.error) {
@@ -140,6 +140,7 @@ export default function DeconstructModal({ onClose }: { onClose: () => void }): 
                 {busy && <Loader2 size={12} className="spin" />}
                 {status.status === 'running' && '拆解中…'}
                 {status.status === 'done' && '拆解完成'}
+                {status.status === 'stopped' && '拆解已停止，已完成的结果已保留'}
                 {status.status === 'error' && `拆解失败：${status.error ?? ''}`}
               </div>
               <div className="dc-progress-line">

@@ -6,8 +6,9 @@ from typing import Any
 
 from .config import load_settings
 from .export_book import chapter_files
+from .fileops import project_lock, write_project_text
 from .sandbox import check_path
-from .text import read_text, save_text
+from .text import read_text
 from .workspace import safe_join
 
 _FRONT_MATTER = re.compile(r"^---\r?\n[\s\S]*?\r?\n---\r?\n?")
@@ -160,27 +161,30 @@ def replace(
     samples: list[dict[str, Any]] = []
 
     for file in files:
-        try:
-            text = read_text(file)
-        except OSError:
-            continue
-        header, body, offset = _split_front_matter(text)
-        matches = list(pattern.finditer(body))
-        if not matches:
-            continue
-        count = len(matches)
-        total += count
-        changed.append({"path": _relative(project, file), "count": count})
-        for match in matches[:3]:
-            snippet, line = _snippet(body, match.start(), match.end())
-            samples.append(
-                {"path": _relative(project, file), "line": line + offset, "snippet": snippet}
-            )
-        if not dry_run:
+        with project_lock(project):
             try:
-                save_text(file, header + pattern.sub(replacement, body))
+                text = read_text(file)
             except OSError as exc:
-                raise SearchError(f"写入失败：{file}（{exc}）") from exc
+                if file.exists():
+                    raise SearchError(f"读取失败：{file.name}（{exc}）") from exc
+                continue
+            header, body, offset = _split_front_matter(text)
+            matches = list(pattern.finditer(body))
+            if not matches:
+                continue
+            count = len(matches)
+            total += count
+            changed.append({"path": _relative(project, file), "count": count})
+            for match in matches[:3]:
+                snippet, line = _snippet(body, match.start(), match.end())
+                samples.append(
+                    {"path": _relative(project, file), "line": line + offset, "snippet": snippet}
+                )
+            if not dry_run:
+                try:
+                    write_project_text(project, file, header + pattern.sub(replacement, body))
+                except OSError as exc:
+                    raise SearchError(f"写入失败：{file.name}（{exc}）") from exc
 
     return {
         "dry_run": dry_run,

@@ -10,6 +10,7 @@ from .agent.checkpointer import close_checkpointer, init_checkpointer
 from .api.routes import router
 from .config import load_settings
 from .db import init_db
+from .kb.updates import enable_updates
 from .security import AuthMiddleware
 
 
@@ -18,9 +19,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     init_db()
     load_settings()
     await init_checkpointer()
+    enable_updates(True)
     try:
         yield
     finally:
+        enable_updates(False)
         await close_checkpointer()
 
 

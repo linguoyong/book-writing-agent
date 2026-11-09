@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ...fileops import FileConflictError, project_lock, refresh_source, write_project_text
 from .common import (
     BINARY_EXT,
     HIDDEN_PARTS,
@@ -15,22 +16,15 @@ from .common import (
     HTTPException,
     Path,
     WriteFileRequest,
-    _drop_index_source,
-    _drop_kb_index,
     _guard_visible,
-    _kb_path_parts,
-    _rename_index_source,
     _require_project,
     _resolve_workspace_file,
-    _sync_kb_index,
     _tree_node,
     base64,
     git_status_map,
     read_text,
     router,
-    save_text,
     shutil,
-    snapshot_file,
 )
 
 # ---------------------------------------------------------------- 文件
@@ -97,14 +91,13 @@ def write_file(project_id: str, req: WriteFileRequest) -> dict[str, Any]:
     target = _resolve_workspace_file(root, req.path, "write")
     if any(part in HIDDEN_PARTS for part in target.relative_to(root.resolve()).parts):
         raise HTTPException(status_code=400, detail="该路径不允许写入")
-    if req.expected_mtime is not None and target.exists():
-        current = int(target.stat().st_mtime * 1000)
-        if abs(current - req.expected_mtime) > 2:
-            raise HTTPException(status_code=409, detail="文件已被其他操作修改，请重新加载后再保存")
-    target.parent.mkdir(parents=True, exist_ok=True)
-    snapshot_file(root, target)
-    save_text(target, req.content)
-    return {"ok": True, "mtime": int(target.stat().st_mtime * 1000)}
+    try:
+        mtime = write_project_text(root, target, req.content, expected_mtime=req.expected_mtime)
+    except FileConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return {"ok": True, "mtime": mtime}
 
 
 @router.post("/projects/{project_id}/fs/create")
@@ -113,13 +106,14 @@ def fs_create(project_id: str, req: FsCreateRequest) -> dict[str, bool]:
     root = Path(project["path"])
     target = _resolve_workspace_file(root, req.path, "write")
     _guard_visible(root, target)
-    if target.exists():
-        raise HTTPException(status_code=409, detail="目标已存在")
-    if req.kind == "dir":
-        target.mkdir(parents=True)
-    else:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        save_text(target, "")
+    with project_lock(root):
+        if target.exists():
+            raise HTTPException(status_code=409, detail="目标已存在")
+        if req.kind == "dir":
+            target.mkdir(parents=True)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            write_project_text(root, target, "")
     return {"ok": True}
 
 
@@ -131,22 +125,22 @@ def fs_rename(project_id: str, req: FsRenameRequest) -> dict[str, bool]:
     target = _resolve_workspace_file(root, req.new_path, "write")
     _guard_visible(root, source)
     _guard_visible(root, target)
-    if not source.exists():
-        raise HTTPException(status_code=404, detail="源文件不存在")
-    if target.exists():
-        raise HTTPException(status_code=409, detail="目标已存在")
-    old_relative = source.relative_to(root.resolve()).as_posix()
-    new_relative = target.relative_to(root.resolve()).as_posix()
-    old_kb = _kb_path_parts(old_relative)
-    new_kb = _kb_path_parts(new_relative)
-    target.parent.mkdir(parents=True, exist_ok=True)
-    source.rename(target)
-    if old_kb:
-        _drop_kb_index(root, old_kb[0], old_kb[1])
-        if new_kb:
-            _sync_kb_index(root, new_kb[0], new_kb[1])
-    elif source.suffix.lower() == ".md":
-        _rename_index_source(root, old_relative, new_relative)
+    with project_lock(root):
+        if not source.exists():
+            raise HTTPException(status_code=404, detail="源文件不存在")
+        if target.exists():
+            raise HTTPException(status_code=409, detail="目标已存在")
+        sources = list(source.rglob("*.md")) if source.is_dir() else [source]
+        moved = (
+            [(file, target / file.relative_to(source)) for file in sources]
+            if source.is_dir()
+            else [(source, target)]
+        )
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source.rename(target)
+        for old_file, new_file in moved:
+            refresh_source(root, old_file)
+            refresh_source(root, new_file)
     return {"ok": True}
 
 
@@ -158,17 +152,14 @@ def fs_delete(project_id: str, path: str) -> dict[str, bool]:
     if target == root.resolve():
         raise HTTPException(status_code=400, detail="不能删除工作区根目录")
     _guard_visible(root, target)
-    relative = target.relative_to(root.resolve()).as_posix()
-    kb_parts = _kb_path_parts(relative)
-    if target.is_dir():
-        shutil.rmtree(target)
-    elif target.exists():
-        target.unlink()
-    else:
-        raise HTTPException(status_code=404, detail="文件不存在")
-    if kb_parts:
-        _drop_kb_index(root, kb_parts[0], kb_parts[1])
-    else:
-        # 删掉的章节也要退出索引，否则检索还在返回已经不存在的原文
-        _drop_index_source(root, relative)
+    with project_lock(root):
+        sources = list(target.rglob("*.md")) if target.is_dir() else [target]
+        if target.is_dir():
+            shutil.rmtree(target)
+        elif target.exists():
+            target.unlink()
+        else:
+            raise HTTPException(status_code=404, detail="文件不存在")
+        for source in sources:
+            refresh_source(root, source)
     return {"ok": True}

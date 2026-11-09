@@ -690,16 +690,17 @@ class DeconstructRequest(BaseModel):
 
 
 _deconstruct_jobs: dict[str, dict[str, Any]] = {}
+_deconstruct_lock = threading.Lock()
 
 
 _deconstruct_stop: set[str] = set()
 
 
 def _deconstruct_worker(project_id: str, root: Path, source: Path, req: DeconstructRequest) -> None:
-    from .. import deconstruct
-
     job = _deconstruct_jobs[project_id]
     try:
+        from ... import deconstruct
+
         result = deconstruct.run(
             root,
             source,
@@ -709,8 +710,15 @@ def _deconstruct_worker(project_id: str, root: Path, source: Path, req: Deconstr
             project_id=project_id,
             progress=lambda data: job.update({"status": "running", "progress": data}),
             should_stop=lambda: project_id in _deconstruct_stop,
+            allow_external=True,
         )
-        job.update({"status": "done", "result": result, "finished_at": time.time()})
+        job.update(
+            {
+                "status": "stopped" if project_id in _deconstruct_stop else "done",
+                "result": result,
+                "finished_at": time.time(),
+            }
+        )
     except Exception as exc:  # noqa: BLE001 - 任务失败要把原因带回前端
         job.update(
             {"status": "error", "error": f"{type(exc).__name__}: {exc}", "finished_at": time.time()}

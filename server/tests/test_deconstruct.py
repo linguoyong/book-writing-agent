@@ -87,7 +87,7 @@ class FakeModel:
     def __init__(self) -> None:
         self.calls = 0
 
-    def invoke(self, prompt: str) -> SimpleNamespace:
+    def invoke(self, prompt: str, **kwargs) -> SimpleNamespace:
         self.calls += 1
         data = EXPERT_PAYLOAD if "拆解结果" in prompt else GROUP_PAYLOAD
         return SimpleNamespace(

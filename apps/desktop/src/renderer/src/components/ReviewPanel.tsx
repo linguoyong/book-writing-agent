@@ -101,6 +101,8 @@ export default function ReviewPanel({ onClose }: { onClose: () => void }): React
       showToast(
         result.status === 'pass'
           ? `审稿通过（${result.score ?? '-'} 分）`
+          : result.status === 'stale'
+            ? '审稿期间正文已变更，本轮结果已过期，请重新审稿'
           : `审稿未通过：P0 ${p0} 条，共 ${result.issues?.length ?? 0} 条`
       )
     } catch (error) {

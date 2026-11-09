@@ -1,3 +1,4 @@
+import { timelineFromMessages } from './components/conversation'
 import { create } from 'zustand'
 import { ApiError, api, approveChat, regenerateChat, streamChat } from './api'
 import type { StreamHandlerSet } from './api'
@@ -202,47 +203,6 @@ function stopRunWatch(): void {
   }
 }
 
-function timelineFromMessages(messages: Awaited<ReturnType<typeof api.messages>>): TimelineItem[] {
-  const items: TimelineItem[] = []
-  for (const message of messages) {
-    const meta = message.meta
-    if (meta?.tool_calls?.length) {
-      meta.tool_calls.forEach((call, index) => {
-        items.push({
-          id: `m${message.id}-t${index}`,
-          type: 'tool',
-          name: call.name,
-          input: call.input,
-          status: 'done'
-        })
-      })
-    }
-    if (message.content.trim()) {
-      items.push(
-        message.role === 'user'
-          ? {
-              id: `m${message.id}`,
-              type: 'user',
-              content: message.content,
-              steering: Boolean(meta?.steering),
-              references: meta?.references
-            }
-          : {
-              id: `m${message.id}`,
-              type: 'assistant',
-              content: message.content,
-              interrupted: Boolean(meta?.interrupted),
-              awaiting: Boolean(meta?.awaiting_approval)
-            }
-      )
-    }
-    if (message.role === 'assistant' && meta?.turn) {
-      items.push({ id: `t${message.id}`, type: 'turn_end', meta: meta.turn })
-    }
-  }
-  return items
-}
-
 function timelineFromRun(snapshot: RunSnapshot): TimelineItem[] {
   const items: TimelineItem[] = []
   snapshot.items.forEach((item, index) => {
@@ -320,8 +280,9 @@ export const useAppStore = create<AppState>((set, get) => {
     // 完全访问模式下，被中断的操作不弹卡片，等这一轮结束后自动放行
     let autoApproval: ApprovalBundle | null = null
     return {
-      onContext: (bundle) => set({ context: bundle }),
+      onContext: (bundle) => { if (live()) set({ context: bundle }) },
       onApproval: (approval) => {
+        if (!live()) return
         if (get().permissionMode === 'auto') {
           autoApproval = approval
           return
@@ -367,11 +328,13 @@ export const useAppStore = create<AppState>((set, get) => {
         })
       },
       onError: (message) => {
+        if (!live()) return
         set((state) => ({
           timeline: [...state.timeline, { id: uid(), type: 'error', content: message }]
         }))
       },
       onAborted: () => {
+        if (!live()) return
         // 用户主动中止：保留已生成内容，只把运行态收回来，不当作错误
         set((state) => ({
           streaming: false,
@@ -380,6 +343,7 @@ export const useAppStore = create<AppState>((set, get) => {
         }))
       },
       onDone: (payload) => {
+        if (!live()) return
         const turn =
           payload && (payload.elapsed_ms !== undefined || payload.changes)
             ? {

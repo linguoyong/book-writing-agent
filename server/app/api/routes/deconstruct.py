@@ -8,6 +8,7 @@ from .common import (
     HTTPException,
     Path,
     _deconstruct_jobs,
+    _deconstruct_lock,
     _deconstruct_stop,
     _deconstruct_worker,
     _import_source,
@@ -26,10 +27,6 @@ def start_deconstruct(project_id: str, req: DeconstructRequest) -> dict[str, Any
     if not root.exists():
         raise HTTPException(status_code=404, detail="项目目录不存在")
 
-    current = _deconstruct_jobs.get(project_id)
-    if current and current.get("status") == "running":
-        raise HTTPException(status_code=409, detail="这本书正在拆解，等它跑完或先停止")
-
     if req.source.strip():
         source = _import_source(req.source.strip())
     else:
@@ -40,19 +37,27 @@ def start_deconstruct(project_id: str, req: DeconstructRequest) -> dict[str, Any
             raise HTTPException(status_code=400, detail="请指定源文件，或先把原书导入到 chapters/")
         source = candidates[0]
 
-    _deconstruct_stop.discard(project_id)
-    _deconstruct_jobs[project_id] = {
-        "status": "running",
-        "source": source.name,
-        "started_at": time.time(),
-        "progress": {},
-    }
-    threading.Thread(
-        target=_deconstruct_worker,
-        args=(project_id, root, source, req),
-        daemon=True,
-        name=f"deconstruct-{project_id}",
-    ).start()
+    with _deconstruct_lock:
+        current = _deconstruct_jobs.get(project_id)
+        if current and current.get("status") == "running":
+            raise HTTPException(status_code=409, detail="这本书正在拆解，等它跑完或先停止")
+        _deconstruct_stop.discard(project_id)
+        _deconstruct_jobs[project_id] = {
+            "status": "running",
+            "source": source.name,
+            "started_at": time.time(),
+            "progress": {},
+        }
+    try:
+        threading.Thread(
+            target=_deconstruct_worker,
+            args=(project_id, root, source, req),
+            daemon=True,
+            name=f"deconstruct-{project_id}",
+        ).start()
+    except RuntimeError as exc:
+        _deconstruct_jobs[project_id].update(status="error", error=str(exc))
+        raise HTTPException(status_code=500, detail="拆解任务启动失败，请重试") from exc
     return {"started": True, "source": source.name}
 
 

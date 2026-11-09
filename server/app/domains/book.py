@@ -11,6 +11,7 @@ from langchain_core.tools import tool
 
 from .. import db, memory
 from ..experts import save_expert
+from ..fileops import project_lock, write_policy, write_project_text
 from ..kb.repository import (
     KINDS,
     dump_note,
@@ -24,7 +25,7 @@ from ..kb.repository import (
 from ..kb.search import KbIndex, load_kb_config
 from ..sandbox import check_path
 from ..text import read_text, save_text
-from ..workspace import git_diff, read_book_meta, safe_join, snapshot_file
+from ..workspace import git_diff, read_book_meta, safe_join
 from .base import ToolContext
 
 RULES = """你工作在用户的书稿项目里，当前域是「长篇小说写作」。
@@ -223,16 +224,10 @@ def build_tools(ctx: ToolContext) -> list[Any]:
             target = safe_join(project / "manuscript", path)
         except ValueError:
             return "路径越界"
-        target.parent.mkdir(parents=True, exist_ok=True)
-        # 覆盖前留一份旧内容到 .index/history：进程被杀、误覆盖时还能捞回来
-        snapshot_file(project, target)
-        if mode == "append" and target.exists():
-            existing = read_text(target)
-            save_text(target, existing + "\n\n" + content)
-        else:
-            save_text(target, content)
-        # 正文变了，旧审稿结论就失效了：保留分数供参考，状态降为 stale
-        _mark_stale(target)
+        with project_lock(project), write_policy(ctx.sandbox):
+            if mode == "append" and target.exists():
+                content = read_text(target) + "\n\n" + content
+            write_project_text(project, target, content)
         return f"已写入 {target.relative_to(project)}"
 
     @tool
@@ -309,7 +304,7 @@ def build_tools(ctx: ToolContext) -> list[Any]:
     @tool
     def deconstruct_source(path: str, groups: int = 3, create_expert: bool = False) -> str:
         """拆解一部成品小说（.txt / .md），把设定写进知识库、把技法写成素材卡。
-        path 为源文件路径（绝对路径或项目内相对路径）；groups 是拆几组，每组 3 章，
+        path 为项目内的源文件路径；外部文件请由用户通过拆解窗口选择。groups 是拆几组，每组 3 章，
         默认只拆 3 组先看效果。create_expert=True 会额外生成一个拆解专家和技能。
         只在用户明确要求「拆书 / 对标某本作品」时调用，不要自动拆正在写的书。"""
         from pathlib import Path as SourcePath
@@ -327,8 +322,9 @@ def build_tools(ctx: ToolContext) -> list[Any]:
                 max_groups=max(0, int(groups)),
                 create_expert=create_expert,
                 project_id=ctx.project_id,
+                sandbox=ctx.sandbox,
             )
-        except DeconstructError as exc:
+        except (DeconstructError, PermissionError) as exc:
             return f"拆解失败：{exc}"
         lines = [
             f"拆解完成：{result['groups']} 组 / {result['chapters']} 章，"
@@ -419,7 +415,7 @@ def build_tools(ctx: ToolContext) -> list[Any]:
             "description": description.strip(),
             "enabled": True,
         }
-        save_text(file, dump_note(meta, instructions))
+        write_project_text(project, file, dump_note(meta, instructions))
         return f"已创建技能 {name}：{file.relative_to(project)}"
 
     readonly_tools = [

@@ -12,6 +12,7 @@ from ..domains import get_domain
 from ..llm import build_chat_model, normalize_window
 from ..sandbox import compile_permissions
 from .approvals import GATED_TOOLS
+from .backend import ProjectFilesystemBackend
 from .checkpointer import get_checkpointer
 from .compaction import build_compaction
 from .steering import SteeringMiddleware
@@ -103,7 +104,7 @@ def build_agent(
 
 def _backend(project: Path) -> CompositeBackend:
     """项目根目录为主，全局技能挂 /global-skills，压缩产物挂 /artifacts。"""
-    default = FilesystemBackend(root_dir=str(project), virtual_mode=True)
+    default = ProjectFilesystemBackend(root_dir=str(project), virtual_mode=True)
     routes: dict[str, FilesystemBackend] = {}
     if GLOBAL_SKILLS_DIR.exists():
         routes["/global-skills/"] = FilesystemBackend(

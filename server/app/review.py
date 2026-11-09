@@ -23,15 +23,16 @@ from typing import Any
 
 from . import usage
 from .config import load_settings
-from .context import assemble_review
+from .context import LIMITS, assemble_review
 from .export_book import chapter_files
+from .fileops import body_hash, project_lock, write_project_text
 from .kb.repository import dump_note, parse_note
 from .llm import build_chat_model
 from .text import read_text, save_text
 from .workspace import read_book_meta, write_book_meta
 
 REVIEW_DIR = ".index/reviews"
-MAX_CHAPTER_CHARS = 40_000
+MAX_CHAPTER_CHARS = LIMITS["chapter"]
 PASS_SCORE = 3.5
 SEVERITIES = ("P0", "P1", "P2")
 DIMENSIONS = ("consistency", "structure", "pacing", "voice", "hook", "redundancy")
@@ -114,6 +115,8 @@ class ReviewResult:
     dropped: int = 0
     chapter: str = ""
     title: str = ""
+    body_hash: str = ""
+    reviewed_chars: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -125,6 +128,8 @@ class ReviewResult:
         return [item for item in self.issues if item.severity == "P0"]
 
     def brief(self) -> str:
+        if self.status == "stale":
+            return "审稿期间正文已修改，本次结果已保存为历史报告，请对当前正文重新审稿。"
         head = (
             f"审稿未通过（第 {self.round} 轮，{self.score:.1f} 分，"
             f"P0 {len(self.p0)} 条 / 共 {len(self.issues)} 条）"
@@ -241,12 +246,27 @@ def _parse_json(raw: str) -> dict[str, Any]:
     return data
 
 
-def _clamp_score(value: Any) -> int:
-    try:
-        number = int(round(float(value)))
-    except (TypeError, ValueError):
-        return 0
-    return max(0, min(5, number))
+def _validate_result(data: dict[str, Any]) -> dict[str, int]:
+    dimensions = data.get("dimensions")
+    if not isinstance(dimensions, dict) or any(
+        type(dimensions.get(key)) is not int or not 1 <= dimensions[key] <= 5 for key in DIMENSIONS
+    ):
+        raise ReviewError("审稿结果不完整：六项评分必须全部为 1–5 的整数，请重试")
+    if data.get("verdict") not in ("pass", "fail"):
+        raise ReviewError("审稿结论格式错误：verdict 必须为 pass 或 fail，请重试")
+    if not isinstance(data.get("issues"), list):
+        raise ReviewError("审稿问题清单格式错误，请重试")
+    for issue in data["issues"]:
+        if (
+            not isinstance(issue, dict)
+            or issue.get("severity") not in SEVERITIES
+            or issue.get("dimension") not in DIMENSIONS
+            or any(
+                not isinstance(issue.get(key), str) for key in ("quote", "problem", "suggestion")
+            )
+        ):
+            raise ReviewError("审稿问题条目格式错误，请重试")
+    return {key: dimensions[key] for key in DIMENSIONS}
 
 
 def _squash(text: str) -> str:
@@ -310,8 +330,13 @@ def run_review(
     body = str(chapter["body"]).strip()
     if len(_squash(body)) < 200:
         raise ReviewError("本章正文太短（不足 200 字），没有可审的内容")
+    if len(body) > MAX_CHAPTER_CHARS:
+        raise ReviewError(
+            f"本章有 {len(body)} 字符，超过单章审稿上限 {MAX_CHAPTER_CHARS}；"
+            "请分章后重试。本次没有调用模型，也不会用部分正文判定整章通过。"
+        )
 
-    text = body[:MAX_CHAPTER_CHARS]
+    text = body
     context = assemble_review(
         project,
         chapter_title=str(chapter["title"]),
@@ -323,7 +348,7 @@ def run_review(
 
     model = build_chat_model("reviewer")
     try:
-        message = model.invoke(prompt)
+        message = model.invoke(prompt, config={"tags": ["book:internal", "book:metered"]})
     except Exception as exc:  # noqa: BLE001 - 模型侧异常统一转成可读错误
         raise ReviewError(f"审稿模型调用失败：{type(exc).__name__}: {exc}") from exc
 
@@ -345,19 +370,15 @@ def run_review(
         content = "".join(str(item) for item in content)
     data = _parse_json(str(content))
 
-    dimensions: dict[str, int] = {}
-    raw_dimensions = data.get("dimensions") if isinstance(data.get("dimensions"), dict) else {}
-    for key in DIMENSIONS:
-        dimensions[key] = _clamp_score(raw_dimensions.get(key))
-    valid_scores = [value for value in dimensions.values() if value > 0]
-    score = round(sum(valid_scores) / len(valid_scores), 2) if valid_scores else 0.0
+    dimensions = _validate_result(data)
+    score = round(sum(dimensions.values()) / len(DIMENSIONS), 2)
 
     issues, dropped = _verify_issues(body, data.get("issues"))
     p0_count = len([item for item in issues if item.severity == "P0"])
 
     # verdict 由代码复核，不直接采信模型：有 P0 或均分不够就是 fail
     verdict = str(data.get("verdict") or "").strip().lower()
-    passed = p0_count == 0 and score >= PASS_SCORE and verdict != "fail"
+    passed = p0_count == 0 and score >= PASS_SCORE and verdict == "pass"
     status = "pass" if passed else "fail"
 
     previous_round = 0
@@ -380,6 +401,8 @@ def run_review(
         dropped=dropped,
         chapter=str(chapter["relative"]),
         title=str(chapter["title"]),
+        body_hash=body_hash(body),
+        reviewed_chars=len(body),
     )
     save_review(project, chapter, result)
     return result
@@ -397,51 +420,79 @@ def _review_file(project: Path, relative: str) -> Path:
 
 def save_review(project: Path, chapter: dict[str, Any], result: ReviewResult) -> None:
     """结论写 front-matter，明细写 .index/reviews。"""
-    meta = dict(chapter.get("meta") or {})
-    meta["review"] = {
-        "status": result.status,
-        "round": result.round,
-        "score": result.score,
-        "model": result.model,
-        "reviewed_at": result.reviewed_at,
-    }
-    save_text(chapter["file"], dump_note(meta, str(chapter.get("body") or "")))
+    with project_lock(project):
+        file = chapter["file"]
+        current_meta, current_body = parse_note(read_text(file)) if file.exists() else ({}, "")
+        detail = _review_file(project, str(chapter["relative"]))
+        if not file.exists() or body_hash(current_body) != result.body_hash:
+            # 结果属于旧稿：保留报告，但绝不把旧正文或旧元数据写回当前文件。
+            result.status = "stale"
+            history = detail.parent / "history" / detail.stem
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+            save_text(
+                history / f"{stamp}.json",
+                json.dumps(result.to_dict(), ensure_ascii=False, indent=2),
+            )
+            if not detail.exists():
+                save_text(detail, json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+            return
 
-    detail = _review_file(project, str(chapter["relative"]))
-    detail.parent.mkdir(parents=True, exist_ok=True)
-    save_text(detail, json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        meta = dict(current_meta)
+        current_review = meta.get("review") if isinstance(meta.get("review"), dict) else {}
+        try:
+            previous_round = int(current_review.get("round") or 0)
+        except (TypeError, ValueError):
+            previous_round = 0
+        result.round = max(result.round, previous_round + 1)
+        meta["review"] = {
+            "status": result.status,
+            "round": result.round,
+            "score": result.score,
+            "model": result.model,
+            "reviewed_at": result.reviewed_at,
+            "body_hash": result.body_hash,
+            "reviewed_chars": result.reviewed_chars,
+        }
+        write_project_text(project, file, dump_note(meta, current_body), invalidate=False)
+        save_text(detail, json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+        try:
+            book = read_book_meta(project)
+            chapters = dict(book.get("chapters") or {})
+            chapters[str(chapter["relative"])] = dict(meta["review"])
+            book["chapters"] = chapters
+            write_book_meta(project, book)
+        except (OSError, ValueError):
+            pass
 
-    # 同步到 book.json 的章节状态表，文件树和进度条直接读它
-    try:
-        book = read_book_meta(project)
-        chapters = dict(book.get("chapters") or {})
-        key = str(chapter["relative"])
-        entry = dict(chapters.get(key) or {})
-        entry.update(
-            {
-                "status": result.status,
-                "round": result.round,
-                "score": result.score,
-                "reviewed_at": result.reviewed_at,
-            }
-        )
-        chapters[key] = entry
-        book["chapters"] = chapters
-        write_book_meta(project, book)
-    except (OSError, ValueError):
-        # book.json 写不进去不影响审稿结论本身，front-matter 才是事实
-        pass
+
+def _current_review(meta: dict[str, Any], body: str) -> dict[str, Any]:
+    state = meta.get("review")
+    if not isinstance(state, dict):
+        return {}
+    state = dict(state)
+    if state.get("status") in {"pass", "fail"} and state.get("body_hash") != body_hash(body):
+        # 外部编辑器也能改稿；旧版本的无摘要记录同样不能证明它审过当前正文。
+        state["status"] = "stale"
+    return state
 
 
 def load_review(project: Path, target: str) -> dict[str, Any] | None:
     chapter = load_chapter(project, target)
     path = _review_file(project, str(chapter["relative"]))
+    state = _current_review(chapter["meta"], chapter["body"])
     if path.exists():
         try:
-            return json.loads(read_text(path))
+            detail = json.loads(read_text(path))
+            if isinstance(detail, dict):
+                if not state or state.get("status") == "stale":
+                    return {**detail, "status": "stale"}
+                if detail.get("body_hash") == state.get("body_hash") and detail.get(
+                    "round"
+                ) == state.get("round"):
+                    return {**detail, **state}
         except (json.JSONDecodeError, OSError):
             pass
-    review = chapter.get("review") or {}
+    review = state
     if review:
         return {
             "chapter": chapter["relative"],
@@ -456,23 +507,24 @@ def load_review(project: Path, target: str) -> dict[str, Any] | None:
 
 
 def chapter_status(project: Path, target: str) -> str:
-    chapter = load_chapter(project, target)
-    review = chapter.get("review") or {}
+    review = load_review(project, target) or {}
     status = str(review.get("status") or "").strip()
-    if status in {"pass", "fail"}:
+    if status in {"pass", "fail", "stale"}:
         return status
     return "draft"
 
 
 def list_reviews(project: Path) -> list[dict[str, Any]]:
     """章节列表 + 审稿状态，供前端文件树和审稿页使用。"""
-    book = read_book_meta(project)
-    states = book.get("chapters") if isinstance(book.get("chapters"), dict) else {}
     items: list[dict[str, Any]] = []
     for relative, file in chapter_files(project):
         meta, body = parse_note(read_text(file))
-        review = meta.get("review") or {}
-        status = str(review.get("status") or states.get(relative, {}).get("status") or "draft")
+        review = _current_review(meta, body)
+        if not review:
+            detail = load_review(project, relative)
+            if detail:
+                review = detail
+        status = str(review.get("status") or "draft")
         items.append(
             {
                 "chapter": relative,
@@ -480,11 +532,9 @@ def list_reviews(project: Path) -> list[dict[str, Any]]:
                 "number": meta.get("chapter") or 0,
                 "words": len(re.sub(r"\s+", "", body)),
                 "status": status,
-                "round": review.get("round") or states.get(relative, {}).get("round") or 0,
-                "score": review.get("score") or states.get(relative, {}).get("score") or 0,
-                "reviewed_at": review.get("reviewed_at")
-                or states.get(relative, {}).get("reviewed_at")
-                or "",
+                "round": review.get("round") or 0,
+                "score": review.get("score") or 0,
+                "reviewed_at": review.get("reviewed_at") or "",
             }
         )
     return items

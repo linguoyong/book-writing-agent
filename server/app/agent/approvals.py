@@ -12,7 +12,7 @@ from ..workspace import safe_join
 MAX_DIFF_LINES = 160
 ARGS_PREVIEW = 700
 
-GATED_TOOLS = ("kb_write", "manuscript_write")
+GATED_TOOLS = ("kb_write", "manuscript_write", "deconstruct_source")
 
 
 def build_requests(project: Path, value: dict[str, Any]) -> list[dict[str, Any]]:
@@ -49,6 +49,16 @@ def build_requests(project: Path, value: dict[str, Any]) -> list[dict[str, Any]]
 
 
 def describe(project: Path, name: str, args: dict[str, Any]) -> tuple[str, str, str]:
+    if name == "deconstruct_source":
+        return (
+            "",
+            "",
+            (
+                f"拆解 {args.get('path') or '源文件'}，最多 {args.get('groups', 3)} 组；"
+                "将新增或合并知识库与素材卡"
+                + ("，并生成专家与技能" if args.get("create_expert") else "")
+            ),
+        )
     if name == "manuscript_write":
         return _manuscript_diff(project, args)
     if name == "kb_write":

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .kb.repository import dump_note, parse_note, safe_entity_id
-from .text import read_text, save_text
+from .text import read_text
 
 DEFAULT_EXPERTS: list[dict[str, Any]] = [
     {
@@ -129,7 +129,9 @@ def save_expert(
     meta.setdefault("skills", [])
     meta.setdefault("max_turns", 50)
     meta["updated_at"] = datetime.now(UTC).isoformat()
-    save_text(directory / f"{expert_id}.md", dump_note(meta, body))
+    from .fileops import write_project_text
+
+    write_project_text(project, directory / f"{expert_id}.md", dump_note(meta, body))
     saved = get_expert(project, expert_id)
     assert saved is not None
     return saved

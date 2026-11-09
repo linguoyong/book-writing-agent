@@ -7,7 +7,7 @@ from typing import Any
 
 import yaml
 
-from ..text import normalize_newlines, read_text, save_text
+from ..text import normalize_newlines, read_text
 
 KINDS = [
     "characters",
@@ -111,7 +111,9 @@ def save_entity(
     merged_meta.setdefault("type", kind[:-1] if kind.endswith("s") else kind)
     merged_meta["updated_at"] = _now()
 
-    save_text(file, dump_note(merged_meta, body))
+    from ..fileops import write_project_text
+
+    write_project_text(project, file, dump_note(merged_meta, body))
     saved = get_entity(project, kind, entity_id)
     assert saved is not None
     return saved

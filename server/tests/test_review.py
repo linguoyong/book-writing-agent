@@ -31,7 +31,7 @@ class FakeModel:
         self.payload = payload
         self.prompts: list[str] = []
 
-    def invoke(self, prompt: str) -> SimpleNamespace:
+    def invoke(self, prompt: str, **kwargs) -> SimpleNamespace:
         self.prompts.append(prompt)
         return SimpleNamespace(
             content=json.dumps(self.payload, ensure_ascii=False),

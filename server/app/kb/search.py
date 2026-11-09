@@ -248,6 +248,7 @@ class KbIndex:
             stats = self._sync_sources(conn, full=full, progress=progress)
             self._mark_baseline(conn)
             conn.commit()
+            (self.index_dir / "needs-reindex").unlink(missing_ok=True)
             total = conn.execute("SELECT COUNT(*) AS n FROM chunks").fetchone()["n"]
 
         embedded = 0
@@ -270,12 +271,19 @@ class KbIndex:
         否则残留的旧索引会让「chunks > 0」误判为已建库。
         """
         with self.connect() as conn:
-            row = conn.execute("SELECT value FROM index_meta WHERE key = 'baseline'").fetchone()
-        return bool(row and row["value"] == "1")
+            meta = dict(
+                conn.execute(
+                    "SELECT key, value FROM index_meta WHERE key IN ('baseline', 'sources_version')"
+                )
+            )
+        return meta.get("baseline") == "1" and meta.get("sources_version") == "2"
 
     @staticmethod
     def _mark_baseline(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT OR REPLACE INTO index_meta (key, value) VALUES ('baseline', '1')")
+        conn.execute(
+            "INSERT OR REPLACE INTO index_meta (key, value) VALUES ('sources_version', '2')"
+        )
         conn.execute(
             "INSERT OR REPLACE INTO index_meta (key, value) VALUES ('built_at', ?)",
             (datetime.now(UTC).isoformat(),),
@@ -290,6 +298,10 @@ class KbIndex:
             for file in sorted((self.project / "kb" / kind).glob("*.md")):
                 found[file.relative_to(self.project).as_posix()] = file
         for file in sorted((self.project / "chapters").glob("*.md")):
+            found[file.relative_to(self.project).as_posix()] = file
+        from ..export_book import chapter_files
+
+        for _, file in chapter_files(self.project):
             found[file.relative_to(self.project).as_posix()] = file
         return found
 
@@ -319,7 +331,11 @@ class KbIndex:
                 for index, piece in enumerate(_split_entity(title, body))
             ]
 
-        if parts[0] == "chapters":
+        if parts[0] in {"chapters", "manuscript"}:
+            if parts[0] == "manuscript" and any(
+                part.startswith(("_", ".")) or part == "outline" for part in parts[1:]
+            ):
+                return []
             chapter_no = _chapter_number(meta, Path(name).stem)
             title = str(meta.get("title") or Path(name).stem)
             # 导入的章节标题本身就带「第005章」，别再重复加前缀
@@ -327,9 +343,13 @@ class KbIndex:
             return [
                 Chunk(
                     # 标题也算进摘要：改标题要让这一章的向量跟着更新
-                    id=f"chapter:{chapter_no}:{_chunk_digest(f'{label}\n{piece}')}",
+                    id=(
+                        f"manuscript:{source}:{_chunk_digest(f'{label}\n{piece}')}"
+                        if parts[0] == "manuscript"
+                        else f"chapter:{chapter_no}:{_chunk_digest(f'{label}\n{piece}')}"
+                    ),
                     kind="chapters",
-                    ref=str(chapter_no),
+                    ref=source if parts[0] == "manuscript" else str(chapter_no),
                     title=label,
                     text=piece,
                     chapter=chapter_no,
@@ -452,6 +472,35 @@ class KbIndex:
         return len(rows)
 
     # ------------------------------------------------------------ 增量索引
+
+    def reindex_source(self, source: str) -> int:
+        """保存任意参与检索的文件后，立即同步文本切片；不在写盘请求里编码向量。"""
+        from ..workspace import safe_join
+
+        file = safe_join(self.project, source)
+        source = file.relative_to(self.project.resolve()).as_posix()
+        if file.suffix.lower() != ".md" or source.split("/")[0] not in {
+            "kb",
+            "chapters",
+            "manuscript",
+        }:
+            return 0
+        if not self.has_baseline():
+            return 0
+        invalidate_entities(self.project)
+        with self.connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            text = read_text(file) if file.is_file() else ""
+            chunks = self._source_chunks(source, text) if text else []
+            self._drop_source(conn, source, keep={chunk.id for chunk in chunks})
+            for chunk in chunks:
+                _insert_chunk(conn, chunk)
+            if file.is_file():
+                self._save_source(conn, source, file, _file_digest(text), len(chunks))
+        return len(chunks)
+
+    def embed_pending(self) -> int:
+        return self._embed_chunks(None, None)
 
     def reindex_entity(self, kind: str, entity_id: str, *, build_baseline: bool = True) -> int:
         """只重建一个实体的切片，避免每次写入触发全库重扫。"""
@@ -615,9 +664,15 @@ class KbIndex:
                 dim = embedder.dim or (len(vectors[0]) if vectors else 0)
                 if not dim:
                     return written
+                conn.execute("BEGIN IMMEDIATE")
                 _ensure_vec_table(conn, dim, embedder.name, embedder.provider)
                 # strict=True：编码器漏返向量时要立刻炸，不能悄悄少写几条
                 for chunk, vector in zip(batch, vectors, strict=True):
+                    # 编码期间正文可能被改写或删除，不能把旧切片的向量重新插回来。
+                    if not conn.execute(
+                        "SELECT 1 FROM chunks WHERE id = ?", (chunk.id,)
+                    ).fetchone():
+                        continue
                     _delete_vector(conn, chunk.id)
                     conn.execute(
                         "INSERT INTO vec_chunks (chunk_id, kind, chapter, embedding) "
