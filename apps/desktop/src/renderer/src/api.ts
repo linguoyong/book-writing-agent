@@ -43,7 +43,10 @@ import type {
   ModelPrice,
   GraphData,
   TimelineData,
-  MaterialResult
+  MaterialResult,
+  ReviewChapter,
+  ReviewDetail,
+  DeconstructStatus
 } from './types'
 
 let API_BASE = 'http://127.0.0.1:8787/api'
@@ -519,7 +522,28 @@ export const api = {
         model: settings.model,
         local_model: settings.local_model
       })
-    })
+    }),
+
+  reviews: (projectId: string) => http<ReviewChapter[]>(`/projects/${projectId}/reviews`),
+  review: (projectId: string, chapter: string) =>
+    http<ReviewDetail>(`/projects/${projectId}/review?chapter=${encodeURIComponent(chapter)}`),
+  runReview: (projectId: string, chapter: string, note = '') =>
+    http<ReviewDetail>(`/projects/${projectId}/review`, {
+      method: 'POST',
+      body: JSON.stringify({ chapter, note })
+    }),
+  deconstructStart: (
+    projectId: string,
+    body: { source?: string; group_size?: number; max_groups?: number; create_expert?: boolean }
+  ) =>
+    http<{ started: boolean; source: string }>(`/projects/${projectId}/deconstruct`, {
+      method: 'POST',
+      body: JSON.stringify(body)
+    }),
+  deconstructStatus: (projectId: string) =>
+    http<DeconstructStatus>(`/projects/${projectId}/deconstruct/status`),
+  deconstructStop: (projectId: string) =>
+    http<{ stopping: boolean }>(`/projects/${projectId}/deconstruct/stop`, { method: 'POST' })
 }
 
 interface StreamHandlers {

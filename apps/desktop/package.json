@@ -1,9 +1,9 @@
 {
   "name": "desktop",
   "version": "0.1.0",
-  "description": "Book writing agent desktop shell",
+  "description": "Writing agent desktop shell",
   "main": "./out/main/index.js",
-  "author": "墨阑",
+  "author": "写作 Agent",
   "private": true,
   "scripts": {
     "dev": "electron-vite dev",

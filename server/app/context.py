@@ -10,13 +10,13 @@ from typing import Any
 from . import memory, prompts
 from .config import GLOBAL_SKILLS_DIR, load_settings
 from .domains import DomainPack, ToolContext, get_domain
-from .kb.repository import dump_note, get_entity, parse_note, trim_meta
+from .kb.repository import KINDS, dump_note, get_entity, list_entities, parse_note, trim_meta
 from .sandbox import check_path
 from .stats import compute as compute_stats
 from .text import read_text
 from .workspace import read_book_meta, safe_join
 
-IDENTITY = """你是「墨」，一个本地桌面写作 Agent 的内核。
+IDENTITY = """你是「文」，一个本地桌面写作 Agent 的内核。
 你能读写用户工作区的文件、检索书稿知识库、维护长期记忆，并在需要时调用工具真正落地修改。
 回答用中文：先给结论，再展开依据；不确定就先问，不编造事实、设定或文件内容。"""
 
@@ -26,6 +26,52 @@ BUILDER_EXPERT = """你正在与用户一起创建一个写作专家。请通过
 
 BUILDER_SKILL = """你正在创建一个技能。请确认：技能用途、触发场景、执行步骤、输出格式。
 确认后调用 skill_write 保存；slug 用小写英文与连字符（中文名可留空自动生成），说明要具体可执行。"""
+
+REVIEWER = """你是「审稿人」，一个只做评判、不改稿的资深小说编辑。
+你的职责是判断这一章能不能作为「完成稿」交付，而不是替作者重写。
+
+三条铁律：
+1. 每条问题必须引用本章原文（逐字片段）。找不到原文依据的判断，不要写。
+2. 只评判，不代笔。可以指出「这里该收紧」，但不要输出改写后的完整段落。
+3. 分数要能对应到问题：没有 P0 问题不该给低分，有 P0 问题不该给高分。
+
+你看不到作者的写作意图，也不该去猜。你只看已经落在纸面上的文字。"""
+
+RUBRIC = """评分维度（每项 1-5 分，5 最好）：
+
+1. 设定一致性：人名、称谓、能力边界、时间线、地点是否与设定摘要或前文冲突。
+2. 结构完整性：本章是否有明确的场景目标、阻力、转折、结果；有没有半截场景。
+3. 节奏：信息密度是否均匀，有无连续多段没有推进的说明或对话。
+4. 人物声音：对话是否符合该角色的身份、教育程度、当前情绪；有无「所有角色一个腔调」。
+5. 钩子与爽点：章末是否留下继续读的理由；本章的期待 / 兑现 / 加压是否成立。
+6. 文字冗余：重复表述、形容词堆叠、无信息量的过场。
+
+问题分级：
+- P0 必须改：设定冲突、逻辑断裂、关键场景缺失、人物行为没有动机。
+- P1 应该改：节奏拖沓、对话失真、钩子偏弱、信息给得太直。
+- P2 可以改：措辞、重复、标点、可有可无的描写。
+
+判定标准：P0 为零，且六项平均分 >= 3.5，才算 pass。"""
+
+KIND_LABELS = {
+    "characters": "角色",
+    "factions": "势力",
+    "items": "物品",
+    "locations": "地点",
+    "world": "世界观",
+    "outline": "大纲",
+    "materials": "素材",
+    "styles": "风格",
+}
+
+DECONSTRUCT_ANALYST = """你是「拆解人」，把一本小说拆成可复用的结构零件，而不是写书评。
+
+工作原则：
+1. 只看原文证据。每条设定、关系、事件都要能在给定文本里找到依据；找不到就不写。
+2. 区分「作者做了什么」和「我觉得好不好」。前者是结构，后者是评价，只有前者能迁移。
+3. 提炼技法时抹掉专有名词。输出的是「第三章用了一次身份误认制造反转」，
+   而不是「主角张三在青云宗遇见了李四」。
+4. 信息不足就留空，不要用常识补齐。宁缺毋滥。"""
 
 LIMITS = {
     "identity": 1200,
@@ -38,6 +84,16 @@ LIMITS = {
     "references": 6000,
     "skills": 1600,
     "runtime": 1200,
+    # 审稿：只看「这一章写成了什么」，不看「写作意图」——后者会污染判断
+    "reviewer": 3000,
+    "rubric": 2200,
+    "chapter": 16000,
+    "prev_tail": 2000,
+    "kb_digest": 5000,
+    # 拆解：一次喂一组章节，输出结构由 schema 约束
+    "analyst": 2600,
+    "schema": 2000,
+    "source": 24000,
 }
 
 LABELS = {
@@ -51,7 +107,49 @@ LABELS = {
     "references": "本轮引用",
     "skills": "技能索引",
     "runtime": "运行态",
+    "reviewer": "审稿人设",
+    "rubric": "审稿量表",
+    "chapter": "本章正文",
+    "prev_tail": "前情结尾",
+    "kb_digest": "设定摘要",
+    "analyst": "拆解人设",
+    "schema": "输出结构",
+    "source": "待拆解文本",
 }
+
+# 每种任务装哪些层。写稿用满 10 层；审稿刻意不带 persona / user / long /
+# project / skills——审稿人要判断文本本身，而不是替作者找理由。
+PROFILES: dict[str, tuple[str, ...]] = {
+    "write": (
+        "identity",
+        "persona",
+        "domain",
+        "user",
+        "long",
+        "project",
+        "parent",
+        "references",
+        "skills",
+        "runtime",
+    ),
+    "review": (
+        "identity",
+        "reviewer",
+        "rubric",
+        "domain",
+        "kb_digest",
+        "prev_tail",
+        "chapter",
+        "references",
+        "runtime",
+    ),
+    "deconstruct": ("identity", "analyst", "domain", "schema", "source", "runtime"),
+}
+
+
+def layers_for(profile: str) -> tuple[str, ...]:
+    return PROFILES.get(profile, PROFILES["write"])
+
 
 _WS = re.compile(r"\s+")
 
@@ -211,6 +309,138 @@ def assemble(
     digest = hashlib.sha1(bundle.system_prompt.encode("utf-8")).hexdigest()[:12]
     bundle.fingerprint = f"{domain.id}:{bundle.expert_id or '-'}:{digest}"
     return bundle
+
+
+def _make_adder(bundle: ContextBundle, blocks: list[str]):
+    """按层预算裁剪并记账，返回可复用的 add()。审稿/拆解装配共用。"""
+
+    def add(layer: str, title: str, source: str, text: str) -> None:
+        text = (text or "").strip()
+        limit = LIMITS[layer]
+        included = bool(text)
+        clipped = _clip_layer(text, limit, layer).rstrip() if included else ""
+        truncated = included and len(text) > limit
+        if truncated:
+            clipped += "\n…（已按层预算截断）"
+        bundle.items.append(
+            ContextItem(
+                layer=layer,
+                title=title or LABELS[layer],
+                source=source,
+                chars=len(text),
+                limit=limit,
+                truncated=truncated,
+                preview=_preview(clipped),
+                included=included,
+            )
+        )
+        if included:
+            blocks.append(clipped)
+
+    return add
+
+
+def assemble_review(
+    project: Path,
+    *,
+    chapter_title: str,
+    chapter_text: str,
+    prev_tail: str = "",
+    references: list[dict[str, Any]] | None = None,
+    note: str = "",
+) -> ContextBundle:
+    """审稿专用装配：设定摘要 + 前情 + 本章正文 + 量表。
+
+    刻意不注入 persona / user / long / project / skills——写作意图与个人偏好
+    会让审稿人替作者找理由。
+    """
+    domain = get_domain("book")
+    bundle = ContextBundle(system_prompt="", expert_id="reviewer", domain_id=domain.id)
+    blocks: list[str] = []
+    add = _make_adder(bundle, blocks)
+
+    add("identity", LABELS["identity"], "prompts/identity.md", prompts.read_layer("identity"))
+    add("reviewer", LABELS["reviewer"], "builtin:reviewer", REVIEWER)
+    add("rubric", LABELS["rubric"], "builtin:rubric", RUBRIC)
+    add(
+        "domain",
+        f"域包 · {domain.name}",
+        "prompts/domain.md",
+        prompts.read_layer("domain", project, domain.id),
+    )
+    add("kb_digest", LABELS["kb_digest"], "kb/*", _kb_digest(project))
+    if prev_tail.strip():
+        add("prev_tail", LABELS["prev_tail"], "上一章结尾", prev_tail)
+    add("chapter", f"本章 · {chapter_title}", chapter_title, chapter_text)
+    if references:
+        add(
+            "references",
+            LABELS["references"],
+            f"{len(references)} 项",
+            _references_block(project, references),
+        )
+    if note.strip():
+        add("runtime", LABELS["runtime"], "runtime", note)
+
+    bundle.system_prompt = "\n\n".join(blocks)
+    bundle.total_chars = len(bundle.system_prompt)
+    digest = hashlib.sha1(bundle.system_prompt.encode("utf-8")).hexdigest()[:12]
+    bundle.fingerprint = f"review:{digest}"
+    return bundle
+
+
+def assemble_deconstruct(
+    project: Path,
+    *,
+    source_text: str,
+    schema: str,
+    note: str = "",
+) -> ContextBundle:
+    """拆解专用装配：待拆文本 + 输出结构。同样不注入写作人设。"""
+    domain = get_domain("book")
+    bundle = ContextBundle(system_prompt="", expert_id="analyst", domain_id=domain.id)
+    blocks: list[str] = []
+    add = _make_adder(bundle, blocks)
+
+    add("identity", LABELS["identity"], "prompts/identity.md", prompts.read_layer("identity"))
+    add("analyst", LABELS["analyst"], "builtin:analyst", DECONSTRUCT_ANALYST)
+    add(
+        "domain",
+        f"域包 · {domain.name}",
+        "prompts/domain.md",
+        prompts.read_layer("domain", project, domain.id),
+    )
+    add("schema", LABELS["schema"], "builtin:schema", schema)
+    add("source", LABELS["source"], "source", source_text)
+    if note.strip():
+        add("runtime", LABELS["runtime"], "runtime", note)
+
+    bundle.system_prompt = "\n\n".join(blocks)
+    bundle.total_chars = len(bundle.system_prompt)
+    digest = hashlib.sha1(bundle.system_prompt.encode("utf-8")).hexdigest()[:12]
+    bundle.fingerprint = f"deconstruct:{digest}"
+    return bundle
+
+
+def _kb_digest(project: Path, per_kind: int = 12) -> str:
+    """设定摘要：只给名字 + 一句话，不整卡注入——审稿看的是正文，不是设定原文。"""
+    lines: list[str] = []
+    for kind in KINDS:
+        items = list_entities(project, kind)
+        if not items:
+            continue
+        lines.append(f"## {KIND_LABELS.get(kind, kind)}")
+        for item in items[:per_kind]:
+            meta = item.get("meta") or {}
+            summary = str(meta.get("summary") or meta.get("description") or "").strip()
+            summary = _WS.sub(" ", summary)[:60]
+            aliases = meta.get("aliases") or []
+            alias_text = f"（别名：{'、'.join(str(a) for a in aliases)}）" if aliases else ""
+            suffix = f"：{summary}" if summary else ""
+            lines.append(f"- {item['title']}{alias_text}{suffix}")
+        if len(items) > per_kind:
+            lines.append(f"- …另有 {len(items) - per_kind} 条")
+    return "\n".join(lines) or "（知识库还没有设定卡）"
 
 
 def _persona_block(expert: dict[str, Any]) -> str:

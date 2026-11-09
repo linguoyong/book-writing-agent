@@ -50,3 +50,8 @@ ignore = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]
+
+[tool.ruff.lint.per-file-ignores]
+# common.py 是路由包的依赖再导出层：它 import 的很多名字只被其他路由模块使用，
+# 在这里被判定为「未使用」是预期的。
+"app/api/routes/common.py" = ["F401"]

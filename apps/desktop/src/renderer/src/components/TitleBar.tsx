@@ -20,7 +20,7 @@ export default function TitleBar(): React.JSX.Element {
 
       <div className="brand">
         <span className="brand-mark" />
-        墨阑
+        写作 Agent
       </div>
 
       <div className="spacer" />

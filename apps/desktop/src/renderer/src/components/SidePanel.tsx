@@ -232,7 +232,7 @@ export default function SidePanel(): React.JSX.Element {
           if (item.type !== 'assistant') return null
           return (
             <div key={item.id} className="msg assistant side-msg-row">
-              <div className="avatar">墨</div>
+              <div className="avatar">文</div>
               <div className="assistant-body">
                 <div className="content md-content">
                   <Markdown content={item.content} />

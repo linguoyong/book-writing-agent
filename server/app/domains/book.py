@@ -3,6 +3,8 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from langchain_core.tools import tool
@@ -14,6 +16,7 @@ from ..kb.repository import (
     dump_note,
     get_entity,
     list_entities,
+    parse_note,
     save_entity,
     state_at,
     trim_meta,
@@ -228,6 +231,8 @@ def build_tools(ctx: ToolContext) -> list[Any]:
             save_text(target, existing + "\n\n" + content)
         else:
             save_text(target, content)
+        # 正文变了，旧审稿结论就失效了：保留分数供参考，状态降为 stale
+        _mark_stale(target)
         return f"已写入 {target.relative_to(project)}"
 
     @tool
@@ -259,6 +264,83 @@ def build_tools(ctx: ToolContext) -> list[Any]:
         """查看书稿项目当前未提交的改动。"""
         diff = git_diff(project)
         return diff[:12000] if diff.strip() else "当前没有未提交的改动。"
+
+    @tool
+    def chapter_review(chapter: str, note: str = "") -> str:
+        """审阅一章正文，返回问题清单（P0 必改 / P1 应改 / P2 可打磨）与六维评分。
+        chapter 可以是路径（vol-01/ch-003.md）或章号（3）。
+        审稿只评判不改稿；结论写回本章 front-matter，明细存 .index/reviews。
+        写完一章后主动调用它，拿到问题先改 P0，再改 P1，改完再审一次。
+        note 可选：告诉审稿人这次重点关注什么（例如「只看节奏与钩子」）。"""
+        from ..review import ReviewError, run_review
+
+        try:
+            result = run_review(
+                project,
+                chapter,
+                project_id=ctx.project_id,
+                session_id=ctx.session_id,
+                note=note,
+            )
+        except ReviewError as exc:
+            return f"审稿失败：{exc}"
+        return result.brief()
+
+    @tool
+    def review_status() -> str:
+        """查看本书各章的审稿状态（未审 / 未通过 / 已通过）与最近一次分数。"""
+        from ..review import list_reviews
+
+        items = list_reviews(project)
+        if not items:
+            return "这本书还没有正文章节。"
+        labels = {"pass": "已通过", "fail": "未通过", "draft": "未审"}
+        lines = []
+        for item in items:
+            state = labels.get(str(item["status"]), str(item["status"]))
+            score = f"，{item['score']} 分" if item.get("score") else ""
+            round_no = item.get("round") or 0
+            lines.append(
+                f"- {item['chapter']}《{item['title']}》{state}"
+                f"（第 {round_no} 轮{score}，{item['words']} 字）"
+            )
+        return "\n".join(lines)
+
+    @tool
+    def deconstruct_source(path: str, groups: int = 3, create_expert: bool = False) -> str:
+        """拆解一部成品小说（.txt / .md），把设定写进知识库、把技法写成素材卡。
+        path 为源文件路径（绝对路径或项目内相对路径）；groups 是拆几组，每组 3 章，
+        默认只拆 3 组先看效果。create_expert=True 会额外生成一个拆解专家和技能。
+        只在用户明确要求「拆书 / 对标某本作品」时调用，不要自动拆正在写的书。"""
+        from pathlib import Path as SourcePath
+
+        from ..deconstruct import DeconstructError
+        from ..deconstruct import run as run_deconstruct
+
+        source = SourcePath(path).expanduser()
+        if not source.is_absolute():
+            source = project / source
+        try:
+            result = run_deconstruct(
+                project,
+                source,
+                max_groups=max(0, int(groups)),
+                create_expert=create_expert,
+                project_id=ctx.project_id,
+            )
+        except DeconstructError as exc:
+            return f"拆解失败：{exc}"
+        lines = [
+            f"拆解完成：{result['groups']} 组 / {result['chapters']} 章，"
+            f"新增实体 {result['entities']} 个，技法 {result['techniques']} 条"
+        ]
+        if result.get("expert"):
+            lines.append(f"已生成专家：{result['expert']['name']}（可在专家页选中）")
+        if result.get("expert_error"):
+            lines.append(f"专家生成失败：{result['expert_error']}")
+        if result.get("failed"):
+            lines.append(f"{result['failed']} 组失败，可调小 groups 后重试")
+        return "\n".join(lines)
 
     @tool
     def remember(text: str, scope: str = "long") -> str:
@@ -351,10 +433,38 @@ def build_tools(ctx: ToolContext) -> list[Any]:
         lint_consistency,
         git_view_diff,
         recall_conversations,
+        review_status,
     ]
     if ctx.readonly:
         return readonly_tools
-    return [*readonly_tools, kb_write, manuscript_write, remember, expert_write, skill_write]
+    return [
+        *readonly_tools,
+        chapter_review,
+        deconstruct_source,
+        kb_write,
+        manuscript_write,
+        remember,
+        expert_write,
+        skill_write,
+    ]
+
+
+def _mark_stale(target: Path) -> None:
+    """正文被改写后把「已通过」降级为待重审。fail 本来就是待改，不动。"""
+    try:
+        meta, body = parse_note(read_text(target))
+    except OSError:
+        return
+    review = meta.get("review")
+    if not isinstance(review, dict) or review.get("status") != "pass":
+        return
+    review["status"] = "stale"
+    review["stale_at"] = datetime.now().astimezone().isoformat(timespec="seconds")
+    meta["review"] = review
+    try:
+        save_text(target, dump_note(meta, body))
+    except OSError:
+        pass
 
 
 def _slugify(value: str) -> str:

@@ -282,7 +282,7 @@ def git_commit(path: Path, message: str) -> tuple[bool, str]:
     commit = _git(
         path,
         "-c",
-        "user.name=墨阑",
+        "user.name=写作 Agent",
         "-c",
         "user.email=book@local",
         "commit",

@@ -36,7 +36,7 @@ class VersioningTestBase(unittest.TestCase):
         self.root = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
         git(self.root, "init", "-q")
-        git(self.root, "config", "user.name", "墨阑")
+        git(self.root, "config", "user.name", "写作 Agent")
         git(self.root, "config", "user.email", "book@local")
         self.chapter = self.root / "manuscript" / "vol-01" / "ch-001.md"
         self.chapter.parent.mkdir(parents=True)
@@ -57,7 +57,7 @@ class LogTest(VersioningTestBase):
         items = log(self.root)
         self.assertEqual([item["message"] for item in items], ["改写第一节", "初始化"])
         self.assertTrue(all(len(item["short"]) >= 7 for item in items))
-        self.assertEqual(items[0]["author"], "墨阑")
+        self.assertEqual(items[0]["author"], "写作 Agent")
 
     def test_limit(self) -> None:
         for index in range(3):

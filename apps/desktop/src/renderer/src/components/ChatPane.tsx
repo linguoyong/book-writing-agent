@@ -487,7 +487,7 @@ function TurnBlock({
 
       {(turn.process.length > 0 || turn.conclusion) && (
         <div className="msg assistant">
-          <div className="avatar">墨</div>
+          <div className="avatar">文</div>
           <div className="assistant-body">
             {turn.process.length > 0 &&
               (running ? (

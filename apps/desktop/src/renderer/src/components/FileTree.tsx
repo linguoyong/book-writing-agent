@@ -1,20 +1,24 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ChevronDown,
   ChevronRight,
   BookPlus,
+  ClipboardCheck,
   Download,
   FilePlus2,
   FileText,
   Folder,
   FolderOpen,
   Search,
-  ScanSearch
+  ScanSearch,
+  Sparkles
 } from 'lucide-react'
 import { api } from '../api'
 import { useAppStore } from '../store'
 import type { TreeNode } from '../types'
 import ConfirmDialog, { type ConfirmRequest } from './ConfirmDialog'
+import DeconstructModal from './DeconstructModal'
+import ReviewPanel from './ReviewPanel'
 import TextSearchModal from './TextSearchModal'
 
 interface MenuState {
@@ -57,7 +61,26 @@ export default function FileTree(): React.JSX.Element {
   const askPrompt = useAppStore((state) => state.askPrompt)
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
+  const [reviewOpen, setReviewOpen] = useState(false)
+  const [deconstructOpen, setDeconstructOpen] = useState(false)
+  const [reviews, setReviews] = useState<Record<string, string>>({})
   const initialized = useRef(false)
+
+  const loadReviews = useCallback(async () => {
+    if (!project) return
+    try {
+      const list = await api.reviews(project.id)
+      setReviews(
+        Object.fromEntries(list.map((item) => [`manuscript/${item.chapter}`, item.status]))
+      )
+    } catch {
+      // 审稿状态只是辅助标记，读不到不影响文件树本身
+    }
+  }, [project])
+
+  useEffect(() => {
+    void loadReviews()
+  }, [loadReviews])
 
   useEffect(() => {
     if (initialized.current || !tree.length) return
@@ -259,6 +282,12 @@ export default function FileTree(): React.JSX.Element {
         <button className="ft-icon" onClick={() => setSearchOpen(true)} title="查找替换（Ctrl+F）">
           <ScanSearch size={12} />
         </button>
+        <button className="ft-icon" onClick={() => setReviewOpen(true)} title="审稿">
+          <ClipboardCheck size={12} />
+        </button>
+        <button className="ft-icon" onClick={() => setDeconstructOpen(true)} title="拆解一本作品">
+          <Sparkles size={12} />
+        </button>
         <button className="ft-icon" onClick={() => void newChapter()} title="新建章节">
           <BookPlus size={12} />
         </button>
@@ -285,6 +314,7 @@ export default function FileTree(): React.JSX.Element {
               expanded={expanded}
               forceOpen={forceOpen}
               currentPath={currentPath}
+              reviews={reviews}
               onToggle={toggle}
               onOpen={(path) => void openFileByPath(path)}
               onContext={openContext}
@@ -294,6 +324,15 @@ export default function FileTree(): React.JSX.Element {
       </div>
 
       {searchOpen && <TextSearchModal onClose={() => setSearchOpen(false)} />}
+      {reviewOpen && (
+        <ReviewPanel
+          onClose={() => {
+            setReviewOpen(false)
+            void loadReviews()
+          }}
+        />
+      )}
+      {deconstructOpen && <DeconstructModal onClose={() => setDeconstructOpen(false)} />}
 
       {menu && (
         <>
@@ -327,6 +366,7 @@ function TreeNodeRow({
   expanded,
   forceOpen,
   currentPath,
+  reviews,
   onToggle,
   onOpen,
   onContext
@@ -336,12 +376,14 @@ function TreeNodeRow({
   expanded: Set<string>
   forceOpen: boolean
   currentPath?: string
+  reviews?: Record<string, string>
   onToggle: (path: string) => void
   onOpen: (path: string) => void
   onContext: (event: React.MouseEvent, node: TreeNode) => void
 }): React.JSX.Element {
   const isDir = node.type === 'dir'
   const open = isDir && (forceOpen || expanded.has(node.path))
+  const review = !isDir ? reviews?.[node.path] : undefined
 
   return (
     <>
@@ -364,6 +406,14 @@ function TreeNodeRow({
           </>
         )}
         <span className="ft-name">{node.name}</span>
+        {review && review !== 'draft' && (
+          <span
+            className={`ft-review ${review}`}
+            title={
+              review === 'pass' ? '审稿已通过' : review === 'fail' ? '审稿未通过' : '正文改过，待重审'
+            }
+          />
+        )}
         {node.git &&
           (isDir ? (
             <span className="ft-dot" title="目录内有改动" />
@@ -382,6 +432,7 @@ function TreeNodeRow({
             expanded={expanded}
             forceOpen={forceOpen}
             currentPath={currentPath}
+            reviews={reviews}
             onToggle={onToggle}
             onOpen={onOpen}
             onContext={onContext}

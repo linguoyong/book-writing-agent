@@ -1,0 +1,59 @@
+<svg width="100%" viewBox="0 0 680 620" role="img" xmlns="http://www.w3.org/2000/svg" style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Microsoft YaHei',sans-serif">
+<title>写作 Agent 分层架构</title>
+<desc>五层架构：Electron 桌面壳、本地 HTTP 通信、FastAPI 后端、deepagents 运行时、模型与存储。</desc>
+
+<rect x="40" y="48" width="600" height="96" rx="12" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+<text x="56" y="66" font-size="13" font-weight="500" fill="#0C447C" dominant-baseline="central">Electron 45 桌面壳</text>
+<rect x="56" y="80" width="181" height="52" rx="8" fill="#FFFFFF" stroke="#85B7EB" stroke-width="0.5"/>
+<text x="146.5" y="98" text-anchor="middle" font-size="14" font-weight="500" fill="#042C53" dominant-baseline="central">主进程</text>
+<text x="146.5" y="116" text-anchor="middle" font-size="12" fill="#185FA5" dominant-baseline="central">拉起后端 · 注入令牌</text>
+<rect x="249" y="80" width="181" height="52" rx="8" fill="#FFFFFF" stroke="#85B7EB" stroke-width="0.5"/>
+<text x="339.5" y="98" text-anchor="middle" font-size="14" font-weight="500" fill="#042C53" dominant-baseline="central">Preload</text>
+<text x="339.5" y="116" text-anchor="middle" font-size="12" fill="#185FA5" dominant-baseline="central">目录选择 · IPC 桥</text>
+<rect x="442" y="80" width="181" height="52" rx="8" fill="#FFFFFF" stroke="#85B7EB" stroke-width="0.5"/>
+<text x="532.5" y="98" text-anchor="middle" font-size="14" font-weight="500" fill="#042C53" dominant-baseline="central">渲染进程</text>
+<text x="532.5" y="116" text-anchor="middle" font-size="12" fill="#185FA5" dominant-baseline="central">React 19 · Zustand 5</text>
+
+<rect x="40" y="158" width="600" height="38" rx="8" fill="#F1EFE8" stroke="#B4B2A9" stroke-width="0.5"/>
+<text x="340" y="177" text-anchor="middle" font-size="12" fill="#444441" dominant-baseline="central">HTTP REST + SSE　·　仅监听 127.0.0.1　·　每请求校验 X-Book-Agent-Token</text>
+
+<rect x="40" y="208" width="600" height="96" rx="12" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="56" y="226" font-size="13" font-weight="500" fill="#085041" dominant-baseline="central">FastAPI 后端　Python 3.13 · uvicorn</text>
+<rect x="56" y="240" width="181" height="52" rx="8" fill="#FFFFFF" stroke="#5DCAA5" stroke-width="0.5"/>
+<text x="146.5" y="258" text-anchor="middle" font-size="14" font-weight="500" fill="#04342C" dominant-baseline="central">API 路由层</text>
+<text x="146.5" y="276" text-anchor="middle" font-size="12" fill="#0F6E56" dominant-baseline="central">87 路径 · 按域拆 10 模块</text>
+<rect x="249" y="240" width="181" height="52" rx="8" fill="#FFFFFF" stroke="#5DCAA5" stroke-width="0.5"/>
+<text x="339.5" y="258" text-anchor="middle" font-size="14" font-weight="500" fill="#04342C" dominant-baseline="central">业务服务</text>
+<text x="339.5" y="276" text-anchor="middle" font-size="12" fill="#0F6E56" dominant-baseline="central">导入 · 抽取 · 审稿 · 拆解</text>
+<rect x="442" y="240" width="181" height="52" rx="8" fill="#FFFFFF" stroke="#5DCAA5" stroke-width="0.5"/>
+<text x="532.5" y="258" text-anchor="middle" font-size="14" font-weight="500" fill="#04342C" dominant-baseline="central">安全边界</text>
+<text x="532.5" y="276" text-anchor="middle" font-size="12" fill="#0F6E56" dominant-baseline="central">令牌鉴权 · 路径规则</text>
+
+<rect x="40" y="316" width="600" height="136" rx="12" fill="#E1F5EE" stroke="#0F6E56" stroke-width="0.5"/>
+<text x="56" y="334" font-size="13" font-weight="500" fill="#085041" dominant-baseline="central">deepagents / LangGraph 运行时</text>
+<rect x="56" y="348" width="181" height="48" rx="8" fill="#FFFFFF" stroke="#5DCAA5" stroke-width="0.5"/>
+<text x="146.5" y="364" text-anchor="middle" font-size="14" font-weight="500" fill="#04342C" dominant-baseline="central">上下文装配</text>
+<text x="146.5" y="382" text-anchor="middle" font-size="12" fill="#0F6E56" dominant-baseline="central">write / review / deconstruct</text>
+<rect x="249" y="348" width="181" height="48" rx="8" fill="#FFFFFF" stroke="#5DCAA5" stroke-width="0.5"/>
+<text x="339.5" y="364" text-anchor="middle" font-size="14" font-weight="500" fill="#04342C" dominant-baseline="central">写作域工具</text>
+<text x="339.5" y="382" text-anchor="middle" font-size="12" fill="#0F6E56" dominant-baseline="central">17 个工具 · 写审批</text>
+<rect x="442" y="348" width="181" height="48" rx="8" fill="#FFFFFF" stroke="#5DCAA5" stroke-width="0.5"/>
+<text x="532.5" y="364" text-anchor="middle" font-size="14" font-weight="500" fill="#04342C" dominant-baseline="central">中间件</text>
+<text x="532.5" y="382" text-anchor="middle" font-size="12" fill="#0F6E56" dominant-baseline="central">引导注入 · 自动压缩</text>
+<rect x="56" y="406" width="567" height="34" rx="8" fill="#FFFFFF" stroke="#5DCAA5" stroke-width="0.5"/>
+<text x="339.5" y="423" text-anchor="middle" font-size="12" fill="#0F6E56" dominant-baseline="central">create_deep_agent 图装配　·　checkpointer 持久化会话　·　interrupt_on 写操作审批</text>
+
+<rect x="40" y="464" width="600" height="128" rx="12" fill="#E6F1FB" stroke="#185FA5" stroke-width="0.5"/>
+<text x="56" y="482" font-size="13" font-weight="500" fill="#0C447C" dominant-baseline="central">模型与存储　·　Markdown 是唯一事实来源</text>
+<rect x="56" y="496" width="181" height="56" rx="8" fill="#FFFFFF" stroke="#85B7EB" stroke-width="0.5"/>
+<text x="146.5" y="514" text-anchor="middle" font-size="14" font-weight="500" fill="#042C53" dominant-baseline="central">写作模型</text>
+<text x="146.5" y="532" text-anchor="middle" font-size="12" fill="#185FA5" dominant-baseline="central">DeepSeek · effort=max</text>
+<rect x="249" y="496" width="181" height="56" rx="8" fill="#FFFFFF" stroke="#85B7EB" stroke-width="0.5"/>
+<text x="339.5" y="514" text-anchor="middle" font-size="14" font-weight="500" fill="#042C53" dominant-baseline="central">审稿模型</text>
+<text x="339.5" y="532" text-anchor="middle" font-size="12" fill="#185FA5" dominant-baseline="central">GPT-6.1 Sol · effort=xhigh</text>
+<rect x="442" y="496" width="181" height="56" rx="8" fill="#FFFFFF" stroke="#85B7EB" stroke-width="0.5"/>
+<text x="532.5" y="514" text-anchor="middle" font-size="14" font-weight="500" fill="#042C53" dominant-baseline="central">app.db / search.db</text>
+<text x="532.5" y="532" text-anchor="middle" font-size="12" fill="#185FA5" dominant-baseline="central">会话·审批·用量 / FTS5+vec</text>
+<rect x="56" y="558" width="567" height="22" rx="6" fill="#FFFFFF" stroke="#85B7EB" stroke-width="0.5"/>
+<text x="339.5" y="569" text-anchor="middle" font-size="12" fill="#185FA5" dominant-baseline="central">books/　书稿 Markdown + 每本书独立 git（审稿结论写进章节 front-matter）</text>
+</svg>

@@ -27,6 +27,9 @@ class ModelSettings(BaseModel):
     # 模型上下文窗口（token）。只影响上下文装配预算与自动压缩阈值，
     # 不会改变服务端真实上限。
     context_window: int = 1_000_000
+    # OpenAI 兼容端点的推理强度：minimal / low / medium / high / xhigh。
+    # DeepSeek 系端点还接受 max（思考模式拉满）。留空表示不传。
+    reasoning_effort: str = ""
 
 
 class ModelProfile(BaseModel):
@@ -40,6 +43,7 @@ class ModelProfile(BaseModel):
     context_window: int = 1_000_000
     max_output_tokens: int = 64_000
     temperature: float = 0.7
+    reasoning_effort: str = ""
 
     @field_validator("id")
     @classmethod
@@ -99,6 +103,11 @@ class Settings(BaseModel):
     extractor: ModelSettings = Field(
         default_factory=lambda: ModelSettings(model="deepseek-flash", temperature=0.1)
     )
+    # 审稿用独立模型来源：换一家模型审自己家的稿，能明显降低同源偏差。
+    # 留空时回退到 active 模型（见 llm.build_chat_model）。
+    reviewer: ModelSettings = Field(
+        default_factory=lambda: ModelSettings(model="", temperature=0.2)
+    )
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     sandbox: SandboxSettings = Field(default_factory=SandboxSettings)
     mcp: list[McpServerSettings] = Field(default_factory=list)
@@ -120,6 +129,7 @@ def ensure_models(settings: Settings) -> Settings:
                 context_window=writer.context_window or 1_000_000,
                 max_output_tokens=64_000,
                 temperature=writer.temperature,
+                reasoning_effort=writer.reasoning_effort,
             )
         ]
     ids = {item.id for item in settings.models}

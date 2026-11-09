@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from ..kb.repository import dump_note, get_entity
+from ..kb.repository import dump_note, get_entity, parse_note
 from ..text import read_text
 from ..workspace import safe_join
 
@@ -73,7 +73,28 @@ def _manuscript_diff(project: Path, args: dict[str, Any]) -> tuple[str, str, str
     old = read_text(target) if target.exists() else ""
     new = f"{old}\n\n{content}" if mode == "append" and old else content
     label = f"manuscript/{relative}"
-    return label, _diff(old, new, label), "" if target.exists() else "新建文件"
+    return label, _diff(old, new, label), _review_note(old, target.exists())
+
+
+def _review_note(old: str, exists: bool) -> str:
+    """审批卡上顺带说明这一章的审稿状态。
+
+    不做硬拦截：本地写作工具，改个错别字也被拦会让人砸键盘。
+    把状态摆在眼前，让人自己决定。
+    """
+    if not exists:
+        return "新建文件"
+    meta, _ = parse_note(old)
+    review = meta.get("review") if isinstance(meta.get("review"), dict) else {}
+    status = str(review.get("status") or "")
+    if status == "fail":
+        round_no = review.get("round") or 0
+        return f"本章第 {round_no} 轮审稿未通过，建议先处理 P0 问题再覆盖"
+    if status == "stale":
+        return "本章正文改动后尚未重新审稿"
+    if status == "pass":
+        return f"本章已通过审稿（{review.get('score') or '-'} 分）；覆盖后需要重新审稿"
+    return "本章尚未审稿"
 
 
 def _kb_diff(project: Path, args: dict[str, Any]) -> tuple[str, str, str]:

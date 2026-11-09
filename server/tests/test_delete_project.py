@@ -9,7 +9,7 @@ from unittest import mock
 from fastapi.testclient import TestClient
 
 from app import db, security
-from app.api import routes
+from app.api.routes import projects
 from app.main import app
 
 
@@ -35,18 +35,18 @@ class PurgeDirectoryTest(unittest.TestCase):
                 raise PermissionError("被占用")
             return real(path, **kwargs)
 
-        with mock.patch("app.api.routes.shutil.rmtree", side_effect=flaky):
-            routes._purge_directory(self.target)
+        with mock.patch("app.api.routes.common.shutil.rmtree", side_effect=flaky):
+            projects._purge_directory(self.target)
 
         self.assertFalse(self.target.exists())
         self.assertEqual(calls["n"], 3)
 
     def test_gives_up_after_attempts(self) -> None:
         with mock.patch(
-            "app.api.routes.shutil.rmtree", side_effect=PermissionError("被占用")
+            "app.api.routes.common.shutil.rmtree", side_effect=PermissionError("被占用")
         ) as patched:
             with self.assertRaises(OSError):
-                routes._purge_directory(self.target, attempts=2)
+                projects._purge_directory(self.target, attempts=2)
 
         self.assertEqual(patched.call_count, 2)
         self.assertTrue(self.target.exists())
@@ -80,7 +80,7 @@ class DeleteProjectRouteTest(unittest.TestCase):
         return f"/api/projects/{self.project['id']}?purge={'true' if purge else 'false'}"
 
     def test_purge_failure_keeps_records(self) -> None:
-        with mock.patch.object(routes, "_purge_directory", side_effect=PermissionError("被占用")):
+        with mock.patch.object(projects, "_purge_directory", side_effect=PermissionError("被占用")):
             response = self.client.delete(self._url())
 
         self.assertEqual(response.status_code, 409)

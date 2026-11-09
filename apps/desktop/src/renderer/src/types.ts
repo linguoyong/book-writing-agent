@@ -685,3 +685,48 @@ export interface PromptDetail {
   path: string
   overridable: boolean
 }
+
+/** 审稿：章节状态与问题清单。 */
+export type ReviewStatus = 'draft' | 'pass' | 'fail' | 'stale'
+
+export interface ReviewChapter {
+  chapter: string
+  title: string
+  number: number
+  words: number
+  status: ReviewStatus
+  round: number
+  score: number
+  reviewed_at: string
+}
+
+export interface ReviewIssue {
+  severity: 'P0' | 'P1' | 'P2'
+  dimension: string
+  quote: string
+  problem: string
+  suggestion: string
+}
+
+export interface ReviewDetail {
+  chapter?: string
+  title?: string
+  status?: ReviewStatus
+  score?: number
+  round?: number
+  summary?: string
+  dimensions?: Record<string, number>
+  issues?: ReviewIssue[]
+  dropped?: number
+  reviewed_at?: string
+  model?: string
+  error?: string
+}
+
+export interface DeconstructStatus {
+  status: 'idle' | 'running' | 'done' | 'error'
+  source?: string
+  error?: string
+  progress?: Record<string, number>
+  result?: Record<string, unknown>
+}

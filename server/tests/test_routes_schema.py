@@ -23,8 +23,8 @@ class RouteSchemaTest(unittest.TestCase):
 
     def test_route_count_is_stable(self) -> None:
         # 数量掉了通常意味着某个 router 忘了 include
-        self.assertEqual(len(self.paths), 82)
-        self.assertEqual(sum(len(item) for item in self._operations().values()), 96)
+        self.assertEqual(len(self.paths), 87)
+        self.assertEqual(sum(len(item) for item in self._operations().values()), 102)
 
     def test_key_endpoints_exist(self) -> None:
         expected = {

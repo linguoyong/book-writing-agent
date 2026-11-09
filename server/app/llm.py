@@ -115,19 +115,30 @@ def build_chat_model(role: str = "writer", model_id: str | None = None) -> ChatO
     """统一模型入口。
 
     - writer：按 `model_id`（会话级）或全局 active_model_id 取模型配置；
-    - extractor：仍用独立的抽取模型配置（导入/记忆提炼）。
+    - extractor：用独立的抽取模型配置（导入/记忆提炼）；
+    - reviewer：用独立的审稿模型配置，未配置时回退到 active 模型。
     """
     settings = load_settings()
     if role == "extractor":
         source = settings.extractor
         window = normalize_window(source.context_window)
         output = 8192
+    elif role == "reviewer" and settings.reviewer.model:
+        source = settings.reviewer
+        window = normalize_window(source.context_window)
+        output = 16384
     else:
         source = resolve_model(settings, model_id)
         window = normalize_window(source.context_window)
         output = source.max_output_tokens
 
     key = _usage_key(source.base_url or None, source.model)
+    extra: dict[str, Any] = {}
+    effort = str(getattr(source, "reasoning_effort", "") or "").strip()
+    if effort:
+        # 走 extra_body 而不是构造参数：不同 langchain-openai 版本对
+        # reasoning_effort 的字段支持不一致，直接塞进请求体最稳。
+        extra["extra_body"] = {"reasoning_effort": effort}
     model = BookChatModel(
         model=source.model,
         api_key=source.api_key or "not-needed",
@@ -138,6 +149,7 @@ def build_chat_model(role: str = "writer", model_id: str | None = None) -> ChatO
         # 自定义 base_url 时 langchain 默认不请求 usage，用量页会整轮记 0。
         # 主动打开；遇到不支持的端点会在首次 400 后自动降级。
         stream_usage=key not in _NO_STREAM_USAGE,
+        **extra,
     )
     # 窗口与输出预算交给中间件折算压缩阈值；不硬塞 max_tokens，
     # 避免不同服务商对超上限的 max_tokens 直接返回 400。

@@ -12,7 +12,7 @@ from langgraph.types import Command
 
 from .. import db, usage
 from ..workspace import safe_join, turn_changes
-from . import steering
+from . import steering, threads
 from .approvals import build_requests
 from .factory import build_agent, resolve_expert
 from .mcp_manager import manager as mcp_manager
@@ -131,7 +131,7 @@ async def chat_stream(
     tool_calls: list[dict[str, Any]] = []
     write_paths: set[str] = set()
     meter = usage.UsageMeter()
-    thread_id = session.get("thread_id") or session_id
+    thread_id = threads.session_thread(session, session_id)
     config = {"configurable": {"thread_id": thread_id}, "recursion_limit": RECURSION_LIMIT}
     started = time.monotonic()
     request_started = started
@@ -332,7 +332,7 @@ async def approve_stream(session_id: str, decisions: list[dict[str, Any]]) -> As
     tool_calls: list[dict[str, Any]] = []
     write_paths: set[str] = set()
     meter = usage.UsageMeter()
-    thread_id = session.get("thread_id") or session_id
+    thread_id = threads.session_thread(session, session_id)
     config = {"configurable": {"thread_id": thread_id}, "recursion_limit": RECURSION_LIMIT}
     started = time.monotonic()
     request_started = started
