@@ -59,6 +59,8 @@ export default function SettingsModal(): React.JSX.Element | null {
 
   const setExtractor = (patch: Partial<ModelSettings>): void =>
     setDraft({ ...draft, extractor: { ...draft.extractor, ...patch } })
+  const setReviewer = (patch: Partial<ModelSettings>): void =>
+    setDraft({ ...draft, reviewer: { ...draft.reviewer, ...patch } })
   const setEmbedding = (patch: Partial<EmbeddingSettings>): void =>
     setDraft({ ...draft, embedding: { ...draft.embedding, ...patch } })
 
@@ -246,6 +248,13 @@ export default function SettingsModal(): React.JSX.Element | null {
             hint="用于导入时的逐章结构化抽取，建议选便宜且稳定的模型"
             settings={draft.extractor}
             onChange={setExtractor}
+          />
+
+          <ModelSection
+            title="审稿模型"
+            hint="用于章节审稿；模型名留空时使用当前默认模型，也可配置独立来源"
+            settings={draft.reviewer}
+            onChange={setReviewer}
           />
 
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
@@ -540,6 +549,7 @@ function ModelSection({
       <div className="field">
         <label>Base URL</label>
         <input
+          aria-label={`${title} Base URL`}
           value={settings.base_url}
           onChange={(event) => onChange({ base_url: event.target.value })}
           placeholder="https://api.deepseek.com/v1"
@@ -548,6 +558,7 @@ function ModelSection({
       <div className="field" style={{ marginTop: 8 }}>
         <label>API Key</label>
         <input
+          aria-label={`${title} API Key`}
           type="password"
           value={settings.api_key}
           onChange={(event) => onChange({ api_key: event.target.value })}
@@ -560,6 +571,7 @@ function ModelSection({
         <div className="field" style={{ flex: 2 }}>
           <label>模型名</label>
           <input
+            aria-label={`${title} 模型名`}
             value={settings.model}
             onChange={(event) => onChange({ model: event.target.value })}
             placeholder="deepseek-chat"

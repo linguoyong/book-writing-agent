@@ -893,12 +893,16 @@ export const useAppStore = create<AppState>((set, get) => {
     if (!message || !sessionId) return
     try {
       await api.steer(sessionId, message)
+      if (get().activeSessionId !== sessionId) return
       set((state) => ({
         timeline: [
           ...state.timeline,
           { id: uid(), type: 'user', content: message, steering: true }
         ]
       }))
+      // A restored run polls a cached history; refresh it after a new persisted
+      // user message and invalidate any poll that started before the message.
+      if (!streamAbort) get().resumeRun(sessionId)
     } catch (error) {
       set({ error: (error as Error).message })
     }

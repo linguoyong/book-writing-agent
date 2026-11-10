@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from fastapi import HTTPException
+from pydantic import ValidationError
+
 from .common import (
     DEFAULT_LOCAL_MODEL,
     LOCAL_MODELS,
     MASKED_KEY,
     MCP_ENABLED,
+    SECRET_ROLES,
     Any,
     EmbeddingTestRequest,
     PricingRequest,
@@ -42,7 +46,7 @@ def put_config(payload: dict[str, Any]) -> dict[str, Any]:
     settings = load_settings()
     merged = settings.model_dump()
     before_embedding = dict(merged.get("embedding") or {})
-    for key in ("writer", "extractor", "embedding", "sandbox"):
+    for key in (*SECRET_ROLES, "sandbox"):
         if key in payload and isinstance(payload[key], dict):
             patch = dict(payload[key])
             if patch.get("api_key") == MASKED_KEY:
@@ -86,10 +90,18 @@ def put_config(payload: dict[str, Any]) -> dict[str, Any]:
         merged["models"] = models
     if isinstance(payload.get("active_model_id"), str):
         merged["active_model_id"] = payload["active_model_id"]
-    for role in ("writer", "extractor"):
-        if merged.get(role, {}).get("context_window"):
-            merged[role]["context_window"] = normalize_window(merged[role]["context_window"])
-    save_settings(type(settings).model_validate(merged))
+    try:
+        validated = type(settings).model_validate(merged)
+    except ValidationError as exc:
+        error = exc.errors(include_input=False, include_url=False)[0]
+        field = ".".join(str(part) for part in error["loc"])
+        raise HTTPException(
+            status_code=422, detail=f"配置不合法（{field}）：{error['msg']}"
+        ) from exc
+    for role in ("writer", "extractor", "reviewer"):
+        source = getattr(validated, role)
+        source.context_window = normalize_window(source.context_window)
+    save_settings(validated)
     saved = load_settings()
     after_embedding = saved.embedding
     changed = any(

@@ -5,8 +5,9 @@ from pathlib import Path
 from typing import Any
 
 from .export_book import chapter_files
+from .fileops import project_lock, write_project_text
 from .kb.repository import dump_note, parse_note
-from .text import read_text, save_text
+from .text import read_text
 
 
 class ChapterError(RuntimeError):
@@ -42,6 +43,11 @@ def next_position(project: Path) -> tuple[int, int]:
 
 
 def create(project: Path, *, title: str = "", volume: int | None = None) -> dict[str, Any]:
+    with project_lock(project):
+        return _create(project, title=title, volume=volume)
+
+
+def _create(project: Path, *, title: str, volume: int | None) -> dict[str, Any]:
     volume_no, chapter_no = next_position(project)
     if volume is not None:
         volume_no = max(1, int(volume))
@@ -58,7 +64,7 @@ def create(project: Path, *, title: str = "", volume: int | None = None) -> dict
 
     body = f"{label}\n\n"
     content = dump_note({"title": label, "chapter": chapter_no}, body)
-    save_text(file, content)
+    write_project_text(project, file, content)
     return {
         "path": str(file.relative_to(project)).replace("\\", "/"),
         "chapter": chapter_no,

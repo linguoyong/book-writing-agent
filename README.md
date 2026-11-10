@@ -137,8 +137,8 @@ pnpm dev              # 启动桌面端，Electron 会自动拉起 Python 后端
 
 ```bash
 pnpm server           # uvicorn app.main:app --port 8787 --reload
-pnpm test             # 后端单测（unittest，236 个用例）
-pnpm test:web         # 前端单测（vitest，纯函数：diff 解析、格式化）
+pnpm test             # 后端单测与真实应用 HTTP 集成测试（unittest）
+pnpm test:web         # 界面、会话恢复与桌面生命周期回归（vitest）
 pnpm build            # 构建 renderer / main / preload
 ```
 
@@ -153,6 +153,7 @@ pnpm check            # lint + typecheck + 两端单测 + build，一次跑全
 
 想让改动进仓库前就被守住，装一次钩子即可（`git config core.hooksPath .githooks` 被 `pnpm hooks` 封装）。
 钩子只做秒级的静态检查；完整验证走 `pnpm check`。
+全应用验收范围、测试轮次与复现命令见 [功能与集成测试记录](doc/全应用功能与集成测试-2026-11-10.md)。
 CI 配置在 `.github/workflows/ci.yml`（GitHub Actions 语法；仓库托管在 Gitee 时要换成 Gitee Go，执行的就是上面 `pnpm check` 那几条命令）。
 后端依赖锁在 `server/uv.lock`、前端锁在 `pnpm-lock.yaml`，两处都用「锁文件不一致就失败」的方式安装（`--frozen`）。
 

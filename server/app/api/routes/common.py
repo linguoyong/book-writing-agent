@@ -90,7 +90,7 @@ MAX_TREE_NODES = 3000
 # GET /config 不返回明文密钥；PUT 时收到该占位符表示「保留原值」，
 # 收到空串表示「清除」。前端密码框因此可以安全地显示 ***。
 MASKED_KEY = "***"
-SECRET_ROLES = ("writer", "extractor", "embedding")
+SECRET_ROLES = ("writer", "extractor", "reviewer", "embedding")
 
 
 def _mask_secrets(data: dict[str, Any]) -> dict[str, Any]:
@@ -232,6 +232,8 @@ def _run_response(
     这样客户端断开（切会话、切空间）只会取消订阅，生成继续跑完并照常落库；
     切回来用 GET /sessions/{id}/run 拿快照继续看进展。
     """
+    if not db.get_session(session_id):
+        raise HTTPException(status_code=404, detail="会话不存在")
     if runs.is_running(session_id):
         raise HTTPException(status_code=409, detail=conflict)
     previous = db.list_messages(session_id, limit=1)

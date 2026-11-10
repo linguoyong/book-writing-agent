@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from datetime import date, datetime
@@ -33,19 +34,16 @@ def _chapter_number(meta: dict[str, Any], path: Path) -> int:
 
 
 def _signature(project: Path) -> str:
-    """用「文件数 + 总大小 + 最大 mtime」判断缓存是否失效，比逐个读文件便宜得多。"""
-    count = 0
-    total = 0
-    latest = 0.0
-    for _, file in chapter_files(project):
+    """只读文件属性，覆盖快速等长编辑、配置变化与跨天的统计刷新。"""
+    digest = hashlib.sha256(date.today().isoformat().encode())
+    files = [("book.json", project / "book.json"), *chapter_files(project)]
+    for relative, file in files:
         try:
             stat = file.stat()
         except OSError:
             continue
-        count += 1
-        total += stat.st_size
-        latest = max(latest, stat.st_mtime)
-    return f"{count}:{total}:{int(latest)}"
+        digest.update(f"{relative}:{stat.st_size}:{stat.st_mtime_ns}\n".encode())
+    return digest.hexdigest()
 
 
 def _cache_path(project: Path) -> Path:

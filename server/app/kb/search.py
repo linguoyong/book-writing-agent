@@ -846,7 +846,7 @@ class KbIndex:
         offset: int = 0,
         query: str | None = None,
     ) -> dict[str, Any]:
-        sql = ["SELECT * FROM chunks WHERE 1=1"]
+        sql = ["WHERE 1=1"]
         params: list[Any] = []
         if kind:
             sql.append("AND kind = ?")
@@ -856,14 +856,16 @@ class KbIndex:
             escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             like = f"%{escaped}%"
             params.extend([like, like])
-        sql.append("ORDER BY kind ASC, chapter ASC, ord ASC, id ASC LIMIT ? OFFSET ?")
-        params.extend([limit, offset])
-
         with self.connect() as conn:
-            rows = conn.execute(" ".join(sql), params).fetchall()
+            rows = conn.execute(
+                "SELECT * FROM chunks "
+                + " ".join(sql)
+                + " ORDER BY kind ASC, chapter ASC, ord ASC, id ASC LIMIT ? OFFSET ?",
+                [*params, limit, offset],
+            ).fetchall()
             total = conn.execute(
-                "SELECT COUNT(*) AS n FROM chunks" + (" WHERE kind = ?" if kind else ""),
-                ([kind] if kind else []),
+                "SELECT COUNT(*) AS n FROM chunks " + " ".join(sql),
+                params,
             ).fetchone()["n"]
 
         return {
@@ -916,6 +918,14 @@ class KbIndex:
 
         with self.connect() as conn:
             rows = conn.execute(" ".join(sql), params).fetchall()
+            # jieba's HMM can split unknown names differently in context and on
+            # their own. Exact Chinese fallback retains type/chapter filters.
+            if not rows and re.fullmatch(r"[\u4e00-\u9fff]{2,32}", query):
+                rows = conn.execute(
+                    "SELECT c.*, -0.000001 AS rank FROM chunks c "
+                    "WHERE (instr(c.text, ?) > 0 OR instr(c.title, ?) > 0) " + " ".join(sql[3:]),
+                    [query, query, *params[1:]],
+                ).fetchall()
 
         results = []
         for index, row in enumerate(rows):

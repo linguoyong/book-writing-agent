@@ -16,6 +16,18 @@ const turn: TurnView = {
 }
 
 describe.each([false, true])('shared conversation presentation side=%s', (side) => {
+  it('keeps user steering visible outside folded process during generation and in history', () => {
+    const guided: TurnView = { ...turn, process: [
+      { id: 'steer', type: 'user', content: '保留桥上钟声', steering: true }, ...turn.process
+    ] }
+    for (const live of [true, false]) {
+      const html = renderToStaticMarkup(<ConversationTurn turn={guided} side={side} live={live} isLast startedAt={null} />)
+      expect(html.indexOf('保留桥上钟声')).toBeGreaterThan(0)
+      expect(html.indexOf('保留桥上钟声')).toBeLessThan(html.indexOf('<details'))
+      expect(html.match(/保留桥上钟声/g)).toHaveLength(1)
+    }
+  })
+
   it('folds tool steps and hides actions during generation', () => {
     // 审批恢复时同一轮仍带有上一次暂停的摘要，运行状态应以实时流为准。
     for (const meta of [undefined, { elapsed_ms: 1000, changes: { files: [], diff: '' } }]) {

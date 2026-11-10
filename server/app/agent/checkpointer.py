@@ -33,5 +33,14 @@ async def close_checkpointer() -> None:
 
 
 async def drop_thread(session_id: str) -> None:
-    if _saver is not None:
-        await _saver.adelete_thread(session_id)
+    """删除会话及重新生成留下的所有 checkpoint 通道。"""
+    if _saver is not None and _conn is not None:
+        prefix = session_id + "-r"
+        async with _conn.execute(
+            "SELECT DISTINCT thread_id FROM checkpoints "
+            "WHERE thread_id = ? OR substr(thread_id, 1, ?) = ?",
+            (session_id, len(prefix), prefix),
+        ) as cursor:
+            thread_ids = [row[0] for row in await cursor.fetchall()]
+        for thread_id in {session_id, *thread_ids}:
+            await _saver.adelete_thread(thread_id)

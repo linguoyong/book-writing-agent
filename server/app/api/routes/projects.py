@@ -10,16 +10,22 @@ from .common import (
     KbIndex,
     OpenProjectRequest,
     Path,
+    _deconstruct_jobs,
+    _index_jobs,
     _purge_directory,
     _require_project,
     create_book,
     db,
     default_project_path,
+    drop_thread,
+    extract_jobs,
     git_status,
     list_entities,
     load_settings,
     read_book_meta,
     router,
+    runs,
+    steering,
     sync_progress,
     usage_summary,
 )
@@ -47,11 +53,24 @@ def post_project(req: CreateProjectRequest) -> dict[str, Any]:
 
 
 @router.delete("/projects/{project_id}")
-def delete_project(project_id: str, purge: bool = False) -> dict[str, bool]:
+async def delete_project(project_id: str, purge: bool = False) -> dict[str, bool]:
     project = db.get_project(project_id)
     if not project:
         # 幂等：列表刷新慢一拍时重复点删除，不该报成「接口不存在」
         raise HTTPException(status_code=404, detail="空间不存在或已删除")
+    sessions = db.list_sessions(project_id)
+    if any(
+        runs.is_running(session["id"]) or steering.is_running(session["id"]) for session in sessions
+    ):
+        raise HTTPException(status_code=409, detail="空间内有正在生成的会话，请先停止再删除")
+    if (
+        extract_jobs.status(project_id).get("running")
+        or _deconstruct_jobs.get(project_id, {}).get("status") == "running"
+        or _index_jobs.get(project_id, {}).get("running")
+    ):
+        raise HTTPException(
+            status_code=409, detail="空间内有后台任务正在执行，请先停止或等待完成再删除"
+        )
     if purge:
         target = Path(project["path"])
         if target.exists():
@@ -70,7 +89,8 @@ def delete_project(project_id: str, purge: bool = False) -> dict[str, bool]:
                     ),
                 ) from exc
     # 目录已清干净（或本来就不需要清）再删记录
-    for session in db.list_sessions(project_id):
+    for session in sessions:
+        await drop_thread(session["id"])
         db.delete_session(session["id"])
     db.delete_project(project_id)
     return {"ok": True}

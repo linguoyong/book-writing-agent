@@ -1,5 +1,5 @@
 import { memo, useEffect, useState } from 'react'
-import { AlertTriangle, Check, ChevronRight, Copy, CornerUpLeft, Loader2, MessageSquareReply, Pencil, RotateCcw, Wrench } from 'lucide-react'
+import { AlertTriangle, Check, ChevronRight, Copy, CornerUpLeft, Loader2, Pencil, RotateCcw, Wrench } from 'lucide-react'
 import { formatTokens } from '../format'
 import { useAppStore } from '../store'
 import type { TimelineItem } from '../types'
@@ -48,10 +48,12 @@ function TurnBlock({
 
   const running = live
   const elapsed = running && startedAt ? now - startedAt : turn.meta?.elapsed_ms ?? 0
-  const steps = turn.process.filter((item) => item.type === 'tool')
+  const steering = turn.process.filter((item) => item.type === 'user')
+  const process = turn.process.filter((item) => item.type !== 'user')
+  const steps = process.filter((item) => item.type === 'tool')
   // 折叠时也要能看出「现在在干什么」，否则只剩一个计时器像卡住了
   const lastStep = steps[steps.length - 1]
-  const progress = executionProgress(turn.process, Boolean(turn.conclusion))
+  const progress = executionProgress(process, Boolean(turn.conclusion))
 
   return (
     <div className="turn" data-turn-id={turn.id} id={`${side ? "side-" : ""}turn-${turn.id}`}>
@@ -93,7 +95,15 @@ function TurnBlock({
         </div>
       )}
 
-      {(turn.process.length > 0 || turn.conclusion) && (
+      {steering.map((item) => (
+        <div className="msg user" key={item.id}>
+          <div className="user-stack">
+            <div className="bubble"><span className="step-steer-label">执行中补充</span>{item.content}</div>
+          </div>
+        </div>
+      ))}
+
+      {(process.length > 0 || turn.conclusion) && (
         <div className="msg assistant">
           <div className="avatar">文</div>
           <div className="assistant-body">
@@ -103,7 +113,7 @@ function TurnBlock({
                 {progress.recent && <div className="turn-progress-recent">{progress.recent}</div>}
               </div>
             )}
-            {turn.process.length > 0 &&
+            {process.length > 0 &&
               (running ? (
                 <details className="turn-live turn-live-running">
                   <summary>
@@ -126,7 +136,7 @@ function TurnBlock({
                     <ChevronRight size={12} className="turn-chev" />
                   </summary>
                   <div className="turn-live-steps">
-                    {turn.process.map((item) => (
+                    {process.map((item) => (
                       <StepRow key={item.id} item={item} />
                     ))}
                   </div>
@@ -161,7 +171,7 @@ function TurnBlock({
                     <ChevronRight size={12} className="turn-chev" />
                   </summary>
                   <div className="turn-live">
-                    {turn.process.map((item) => (
+                    {process.map((item) => (
                       <StepRow key={item.id} item={item} />
                     ))}
                   </div>
@@ -259,17 +269,6 @@ function StepRow({ item }: { item: TimelineItem }): React.JSX.Element | null {
           {item.output ? `\n\n${item.output}` : ''}
         </div>
       </details>
-    )
-  }
-  if (item.type === 'user') {
-    return (
-      <div className="step-steer">
-        <MessageSquareReply size={12} />
-        <div>
-          <span className="step-steer-label">引导</span>
-          {item.content}
-        </div>
-      </div>
     )
   }
   if (item.type === 'assistant') {

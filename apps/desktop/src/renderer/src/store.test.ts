@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Message, RunSnapshot } from './types'
 
-const mocks = vi.hoisted(() => ({ messages: vi.fn(), sessionRun: vi.fn(), stopRun: vi.fn() }))
+const mocks = vi.hoisted(() => ({ messages: vi.fn(), sessionRun: vi.fn(), stopRun: vi.fn(), steer: vi.fn() }))
 vi.mock('./api', () => ({ api: mocks, ApiError: class extends Error {}, streamChat: vi.fn(), approveChat: vi.fn(), regenerateChat: vi.fn() }))
 import { useAppStore } from './store'
 
@@ -20,6 +20,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.stubGlobal('window', { setInterval, clearInterval })
   mocks.stopRun.mockResolvedValue({ ok: true })
+  mocks.steer.mockResolvedValue({ ok: true, queued: 1 })
   mocks.messages.mockResolvedValue(messages)
   mocks.sessionRun.mockResolvedValue(snapshot)
   useAppStore.setState({ ...initial, activeSessionId: 's',
@@ -35,6 +36,15 @@ afterEach(() => {
 })
 
 describe('returning to an executing conversation', () => {
+  it('keeps a newly sent steering message across subsequent snapshot polls', async () => {
+    useAppStore.getState().resumeRun('s')
+    await vi.advanceTimersByTimeAsync(0)
+    mocks.messages.mockResolvedValue([...messages, { id: 4, session_id: 's', role: 'user', content: 'keep the new direction', created_at: '', meta: { steering: true } }])
+    await useAppStore.getState().steerMessage('keep the new direction')
+    await vi.advanceTimersByTimeAsync(1600)
+    expect(useAppStore.getState().timeline.filter((item) => item.type === 'user' && item.content === 'keep the new direction')).toHaveLength(1)
+  })
+
   it('keeps user messages and history after visiting approvals and across repeated polls', async () => {
     await useAppStore.getState().selectSession('s')
     await vi.advanceTimersByTimeAsync(0)

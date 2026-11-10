@@ -434,6 +434,7 @@ export interface AppConfig {
   active_model_id: string
   writer: ModelSettings
   extractor: ModelSettings
+  reviewer: ModelSettings
   embedding: EmbeddingSettings
   sandbox: SandboxSettings
   mcp: McpServerSettings[]

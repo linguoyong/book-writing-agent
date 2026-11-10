@@ -206,6 +206,8 @@ def project_timeline(project_id: str, kinds: str = "") -> dict[str, Any]:
 def search_kb(project_id: str, req: SearchRequest) -> dict[str, Any]:
     project = _require_project(project_id)
     index = KbIndex(Path(project["path"]), load_settings().embedding)
+    if not index.has_baseline():
+        index.rebuild(embed=False)
     results = index.search(
         req.query,
         kinds=req.kinds,

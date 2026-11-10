@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import tempfile
 import unittest
+from datetime import date, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 from app.stats import compute, count_words, sync_progress
 from app.workspace import read_book_meta
@@ -68,6 +71,29 @@ class ComputeTest(unittest.TestCase):
 
         meta = read_book_meta(self.project)
         self.assertEqual(meta["progress"], {"volume": 1, "chapter": 2})
+
+    def test_today_words_reset_when_day_changes_without_file_edits(self) -> None:
+        self.assertGreater(compute(self.project)["today_words"], 0)
+
+        class NextDay(date):
+            @classmethod
+            def today(cls):
+                return date.today() + timedelta(days=1)
+
+        with patch("app.stats.date", NextDay):
+            self.assertEqual(compute(self.project)["today_words"], 0)
+
+    def test_equal_size_quick_edit_invalidates_word_count(self) -> None:
+        file = self.project / "manuscript/vol-01/ch-001.md"
+        timestamp = 1_700_000_000_100_000_000
+        for chapter in self.project.rglob("*.md"):
+            os.utime(chapter, ns=(timestamp, timestamp))
+        first = compute(self.project)
+        file.write_text(
+            file.read_text(encoding="utf-8").replace("一二三", "abcdefghi"), encoding="utf-8"
+        )
+        os.utime(file, ns=(timestamp + 10_000_000, timestamp + 10_000_000))
+        self.assertEqual(compute(self.project)["words"], first["words"] + 6)
 
     def test_empty_project(self) -> None:
         empty = Path(tempfile.mkdtemp(prefix="stats-empty-"))

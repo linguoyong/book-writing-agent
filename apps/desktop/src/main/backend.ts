@@ -1,7 +1,7 @@
 import { app } from 'electron'
 import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import http from 'node:http'
 import net from 'node:net'
 import { homedir } from 'node:os'
@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path'
 export interface BackendInfo {
   port: number
   ready: boolean
-  /** 本地 API 访问令牌：只经 IPC 下发给渲染进程，不落盘、不暴露给网页 */
+  /** 本地 API 访问令牌：只留在主进程，不落盘、不下发给页面 */
   token: string
   error?: string
 }
@@ -21,8 +21,9 @@ const TOKEN = randomBytes(24).toString('hex')
 let child: ChildProcess | null = null
 let info: BackendInfo = { port: 0, ready: false, token: TOKEN }
 let quitting = false
-let starting = false
+let starting: Promise<BackendInfo> | null = null
 let restarts = 0
+let restartTimer: ReturnType<typeof setTimeout> | undefined
 
 function serverDir(): string | null {
   const candidates = [
@@ -36,6 +37,8 @@ function serverDir(): string | null {
 
 /** 安装包里带的冻结后端（PyInstaller 产物）；没有就回落到本机 Python。 */
 function serverBinary(): string | null {
+  // 开发时使用源码，避免历史打包产物遮蔽刚修改的后端。
+  if (!app.isPackaged && !process.env['BOOK_AGENT_SERVER_BIN']) return null
   const name = process.platform === 'win32' ? 'book-server.exe' : 'book-server'
   const candidates = [
     process.env['BOOK_AGENT_SERVER_BIN'],
@@ -59,16 +62,33 @@ function pythonPath(dir: string): string {
 }
 
 function pidFile(): string {
-  return join(homedir(), '.book-agent', 'backend.pid')
+  return join(process.env['BOOK_AGENT_HOME'] || join(homedir(), '.book-agent'), 'backend.pid')
+}
+
+/** 启动时间 + 命令行用于识别同一个进程，防止 PID 被其它程序复用。 */
+function processIdentity(pid: number): Promise<string> {
+  return new Promise((resolve) => {
+    const windows = process.platform === 'win32'
+    const args = windows
+      ? ['-NoProfile', '-NonInteractive', '-Command',
+          `$targetProcess = Get-CimInstance Win32_Process -Filter 'ProcessId = ${pid}'; ` +
+          'if ($targetProcess) { [ordered]@{Started=$targetProcess.CreationDate.ToUniversalTime().Ticks.ToString();Command=$targetProcess.CommandLine} | ConvertTo-Json -Compress }']
+      : ['-p', String(pid), '-o', 'lstart=', '-o', 'args=']
+    execFile(windows ? 'powershell.exe' : 'ps', args, { windowsHide: true, timeout: 5000 },
+      (error, stdout) => resolve(error ? '' : stdout.trim()))
+  })
 }
 
 async function killStale(): Promise<void> {
   try {
     const file = pidFile()
     if (!existsSync(file)) return
-    const pid = Number(readFileSync(file, 'utf8').trim())
-    if (!pid) return
-    process.kill(pid, 0)
+    const record = JSON.parse(readFileSync(file, 'utf8'))
+    // 旧版的纯数字文件没有可核验的身份，直接清理文件，不结束未知进程。
+    if (!record || !Number.isSafeInteger(record.pid) || record.pid <= 0 ||
+        record.pid === process.pid || typeof record.identity !== 'string' || !record.identity) return
+    const pid: number = record.pid
+    if (await processIdentity(pid) !== record.identity) return
     if (process.platform === 'win32') {
       await new Promise<void>((resolve) => {
         execFile(
@@ -131,10 +151,10 @@ function health(port: number): Promise<boolean> {
   })
 }
 
-async function waitHealthy(port: number, timeoutMs = 40000): Promise<boolean> {
+async function waitHealthy(port: number, current: ChildProcess, timeoutMs = 40000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    if (await health(port)) return true
+  while (!quitting && child === current && Date.now() < deadline) {
+    if (await health(port)) return !quitting && child === current
     await new Promise((resolve) => setTimeout(resolve, 500))
   }
   return false
@@ -144,30 +164,38 @@ export function getBackendInfo(): BackendInfo {
   return info
 }
 
-export async function startBackend(): Promise<BackendInfo> {
-  if (starting) return info
-  starting = true
-  try {
-    await killStale()
-    // 优先用随包冻结的后端（安装包形态），没有才回落到本机 Python（开发态）
-    const binary = serverBinary()
-    const dir = binary ? null : serverDir()
-    if (!binary && !dir) {
-      info = {
-        port: 0,
-        ready: false,
-        token: TOKEN,
-        error: '找不到后端：既没有 resources/server-bin，也没有 server/app/main.py'
-      }
-      return info
+export function startBackend(): Promise<BackendInfo> {
+  if (quitting) return Promise.resolve(info)
+  if (starting) return starting
+  if (child) return Promise.resolve(info)
+  starting = launchBackend().finally(() => { starting = null })
+  return starting
+}
+
+async function launchBackend(): Promise<BackendInfo> {
+  await killStale()
+  if (quitting) return info
+  // 优先用随包冻结的后端（安装包形态），没有才回落到本机 Python（开发态）
+  const binary = serverBinary()
+  const dir = binary ? null : serverDir()
+  if (!binary && !dir) {
+    info = {
+      port: 0,
+      ready: false,
+      token: TOKEN,
+      error: '找不到后端：既没有 resources/server-bin，也没有 server/app/main.py'
     }
+    return info
+  }
+  while (!quitting) {
     const port = (await canListen(PREFERRED_PORT)) ? PREFERRED_PORT : await freePort()
+    if (quitting) return info
     info = { port, ready: false, token: TOKEN }
     const command = binary ?? pythonPath(dir as string)
     const args = binary
       ? []
       : ['-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', String(port)]
-    child = spawn(command, args, {
+    const current = spawn(command, args, {
       cwd: binary ? dirname(binary) : (dir as string),
       env: {
         ...process.env,
@@ -178,19 +206,16 @@ export async function startBackend(): Promise<BackendInfo> {
       windowsHide: true,
       stdio: ['ignore', 'pipe', 'pipe']
     })
-    child.stdout?.on('data', (data) => console.log('[backend]', String(data).trim()))
-    child.stderr?.on('data', (data) => console.error('[backend]', String(data).trim()))
-    if (child.pid) {
-      try {
-        writeFileSync(pidFile(), String(child.pid), 'utf8')
-      } catch {
-        /* 忽略 pid 文件写入失败 */
-      }
-    }
-    child.on('error', (error) => {
+    child = current
+    current.stdout?.on('data', (data) => console.log('[backend]', String(data).trim()))
+    current.stderr?.on('data', (data) => console.error('[backend]', String(data).trim()))
+    current.on('error', (error) => {
+      if (quitting || child !== current) return
+      child = null
       info = { port, ready: false, token: TOKEN, error: `后端启动失败：${error.message}` }
     })
-    child.on('exit', (code) => {
+    current.on('exit', (code) => {
+      if (child !== current) return
       child = null
       try {
         unlinkSync(pidFile())
@@ -198,32 +223,45 @@ export async function startBackend(): Promise<BackendInfo> {
         /* ignore */
       }
       if (quitting) return
-      if (restarts < 3) {
+      info = { port, ready: false, token: TOKEN, error: `后端已退出（code ${code ?? '-'}）` }
+      // 首次健康检查期间由下面的循环重试，正常运行后的退出才安排定时重启。
+      if (!starting && restarts < 3) {
         restarts += 1
-        info = {
-          port,
-          ready: false,
-          token: TOKEN,
-          error: `后端退出，正在重启（${restarts}/3）`
-        }
-        setTimeout(() => void startBackend(), 1000)
-      } else {
-        info = { port, ready: false, token: TOKEN, error: `后端已退出（code ${code ?? '-'}）` }
+        restartTimer = setTimeout(() => { void startBackend() }, 1000)
       }
     })
 
-    const ok = await waitHealthy(port)
+    if (current.pid) {
+      const identity = await processIdentity(current.pid)
+      if (identity && child === current && !quitting) {
+        try {
+          mkdirSync(dirname(pidFile()), { recursive: true })
+          writeFileSync(pidFile(), JSON.stringify({ pid: current.pid, identity }), 'utf8')
+        } catch {
+          /* 忽略 pid 文件写入失败 */
+        }
+      }
+    }
+    const ok = await waitHealthy(port, current)
+    if (quitting) return info
+    if (child !== current) {
+      if (restarts >= 3) return info
+      restarts += 1
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      continue
+    }
     info = ok
       ? { port, ready: true, token: TOKEN }
       : { port, ready: false, token: TOKEN, error: '后端启动超时，请检查 Python 依赖' }
     return info
-  } finally {
-    starting = false
   }
+  return info
 }
 
 export async function stopBackend(): Promise<void> {
   quitting = true
+  clearTimeout(restartTimer)
+  info = { ...info, ready: false }
   const current = child
   child = null
   if (current?.pid) {

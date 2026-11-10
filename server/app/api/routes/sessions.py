@@ -174,6 +174,8 @@ def get_messages(session_id: str) -> list[dict[str, Any]]:
 
 @router.delete("/sessions/{session_id}")
 async def remove_session(session_id: str) -> dict[str, bool]:
+    if runs.is_running(session_id) or steering.is_running(session_id):
+        raise HTTPException(status_code=409, detail="会话正在生成，请先停止再删除")
     db.delete_session(session_id)
     await drop_thread(session_id)
     return {"ok": True}
