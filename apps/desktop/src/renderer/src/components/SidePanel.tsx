@@ -4,7 +4,7 @@ import { api, streamChat } from '../api'
 import { useAppStore } from '../store'
 import type { Message, TimelineItem } from '../types'
 import { ConversationTurn, PendingBubble } from './ConversationTurn'
-import { groupTurns, timelineFromMessages, timelineWithRun } from './conversation'
+import { groupTurns, timelineAfterRetry, timelineFromMessages, timelineWithRun } from './conversation'
 
 let counter = 0
 const nextId = (): string => `s${Date.now()}-${counter++}`
@@ -90,6 +90,7 @@ export default function SidePanel(): React.JSX.Element {
     busy.current = true
     activity.current += 1
     const seq = generation.current
+    const submittedAt = Date.now()
     const live = (): boolean => seq === generation.current && useAppStore.getState().activeProject?.id === project.id
     setStreaming(true)
     setStartedAt(Date.now())
@@ -110,6 +111,11 @@ export default function SidePanel(): React.JSX.Element {
       setItems((prev) => [...prev, { id: nextId(), type: 'user', content: text }])
       let assistantId: string | null = null
       await streamChat(sid, text, 'side', [], {
+        onRetry: (removedChars, message) => {
+          if (!live()) return
+          assistantId = null
+          setItems((prev) => timelineAfterRetry(prev, removedChars, message))
+        },
         onToken: (token) => {
           if (!live()) return
           setItems((prev) => {
@@ -162,6 +168,15 @@ export default function SidePanel(): React.JSX.Element {
           if (live()) setItems(settleItems)
         }
       }, controller.signal, useAppStore.getState().activeSessionId ?? undefined)
+      if (live() && !controller.signal.aborted) {
+        try {
+          const history = await api.messages(sid)
+          // 与主对话对齐：流结束后恢复持久化的用时、错误和重试次数。
+          const last = history.at(-1)
+          if (live() && !controller.signal.aborted && last?.role === 'assistant' &&
+            (last.meta?.turn?.started_at ?? 0) >= submittedAt) setItems(timelineFromMessages(history))
+        } catch { /* 暂时无法读取历史时保留当前已展示的结果。 */ }
+      }
     } catch (error) {
       if (live()) setItems((prev) => [...prev, { id: nextId(), type: 'error', content: (error as Error).message }])
     } finally {

@@ -61,6 +61,7 @@ function mergeMeta(previous: TurnMeta | undefined, next: TurnMeta): TurnMeta {
       ? Math.max(previous.elapsed_ms, next.elapsed_ms)
       : previous.elapsed_ms + next.elapsed_ms,
     started_at: previous.started_at ?? next.started_at,
+    retries: (previous.retries ?? 0) + (next.retries ?? 0),
     changes: { ...next.changes, files: [...new Set([...previous.changes.files, ...next.changes.files])],
       diff: [previous.changes.diff, next.changes.diff].filter(Boolean).join('\n') },
     usage
@@ -76,6 +77,7 @@ export function timelineFromMessages(messages: Message[]): TimelineItem[] {
         const id = `m${message.id}-trace${index}`
         items.push(item.type === 'tool'
           ? { ...item, id, status: item.status === 'done' ? 'done' : 'cancelled' }
+          : item.type === 'notice' ? { id, type: 'notice', content: item.content }
           : { id, type: 'assistant', content: item.content, interrupted: Boolean(meta.interrupted), awaiting: Boolean(meta.awaiting_approval) })
       })
     } else {
@@ -104,5 +106,21 @@ export function timelineWithRun(messages: Message[], snapshot: RunSnapshot): Tim
     : messages.filter((message) => message.id <= boundary || message.role === 'user')
   return [...timelineFromMessages(history), ...snapshot.items.map((item, index): TimelineItem => item.type === 'tool'
     ? { ...item, id: `run-t${index}`, status: item.status === 'done' ? 'done' : snapshot.running ? 'running' : 'cancelled' }
-    : { id: `run-a${index}`, type: 'assistant', content: item.content })]
+    : { id: `run-a${index}`, type: item.type === 'notice' ? 'notice' : 'assistant', content: item.content })]
+}
+
+/** 撤回失败模型的半截输出；Unicode 按码点计数，与后端 Python 保持一致。 */
+export function timelineAfterRetry(items: TimelineItem[], removedChars: number, message: string): TimelineItem[] {
+  let remaining = Math.max(0, removedChars)
+  const next = [...items]
+  for (let i = next.length - 1; i >= 0 && remaining; i -= 1) {
+    const item = next[i]
+    if (item.type !== 'assistant') continue
+    const chars = Array.from(item.content)
+    const removed = Math.min(remaining, chars.length)
+    next[i] = { ...item, content: chars.slice(0, chars.length - removed).join('') }
+    remaining -= removed
+  }
+  return [...next.filter((item) => item.type !== 'assistant' || item.content),
+    { id: `retry-${Date.now()}-${next.length}`, type: 'notice', content: message }]
 }

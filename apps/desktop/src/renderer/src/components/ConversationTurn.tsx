@@ -58,6 +58,7 @@ function TurnBlock({
   // 折叠时也要能看出「现在在干什么」，否则只剩一个计时器像卡住了
   const lastStep = steps[steps.length - 1]
   const progress = executionProgress(process, Boolean(turn.conclusion))
+  const failure = turn.meta?.error?.message ?? [...process].reverse().find((item) => item.type === 'error')?.content
   const status = turn.meta?.status === 'awaiting_approval' ? '等待审批'
     : turn.meta?.status === 'interrupted' || process.some((item) => item.type === 'error') ? '已中断'
     : turn.conclusion ? '已完成' : '执行未完成'
@@ -175,6 +176,7 @@ function TurnBlock({
                         </span>
                       </>
                     )}
+                    {!!turn.meta?.retries && <><span className="turn-dot">·</span><span>已重试 {turn.meta.retries} 次</span></>}
                     <ChevronRight size={12} className="turn-chev" />
                   </summary>
                   <div className="turn-live">
@@ -188,7 +190,7 @@ function TurnBlock({
             {turn.conclusion && (
               <div className={`content md-content ${live ? 'streaming' : ''}`}>
                 <Markdown content={turn.conclusion.content} />
-                {turn.conclusion.interrupted && (
+                {turn.conclusion.interrupted && !failure && (
                   <div className="turn-interrupted">生成已中断，以上为已生成的内容</div>
                 )}
                 {!running && (
@@ -214,6 +216,7 @@ function TurnBlock({
                 )}
               </div>
             )}
+            {!running && failure && <div className="step-error" role="alert"><AlertTriangle size={12} /><span>{failure}</span></div>}
             {!running && !turn.conclusion && (
               <div className="turn-interrupted">
                 <span>{status === '等待审批'
@@ -276,7 +279,7 @@ function StepRow({ item }: { item: TimelineItem }): React.JSX.Element | null {
       </details>
     )
   }
-  if (item.type === 'assistant') {
+  if (item.type === 'assistant' || item.type === 'notice') {
     return <div className="step-text">{item.content}</div>
   }
   if (item.type === 'error') {

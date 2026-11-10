@@ -16,6 +16,15 @@ const turn: TurnView = {
 }
 
 describe.each([false, true])('shared conversation presentation side=%s', (side) => {
+  it('shows the persisted interruption reason outside collapsed process', () => {
+    const html = renderToStaticMarkup(<ConversationTurn turn={{ ...turn, meta: {
+      elapsed_ms: 207903, changes: { files: [], diff: '' }, status: 'interrupted',
+      error: { code: 'StreamChunkTimeoutError', message: '模型连续 120 秒没有返回新数据' }
+    } }} side={side} live={false} startedAt={null} />)
+    expect(html.indexOf('模型连续 120 秒没有返回新数据')).toBeGreaterThan(html.indexOf('</details>'))
+    expect(html).toContain('role="alert"')
+    expect(html).toContain('已中断')
+  })
   it('places a collapsed whole-round duration above the final summary', () => {
     const html = renderToStaticMarkup(<ConversationTurn turn={{ ...turn, meta: {
       elapsed_ms: 288292, changes: { files: [], diff: '' }, status: 'completed'

@@ -36,7 +36,7 @@ export interface RunSnapshot {
   session_id: string
   after_message_id?: number
   running: boolean
-  items: Array<{ type: 'text'; content: string } | { type: 'tool'; name: string; input: string; output: string; status: string }>
+  items: Array<{ type: 'text' | 'notice'; content: string } | { type: 'tool'; name: string; input: string; output: string; status: string }>
   text: string
   error: string
   started_at: number
@@ -67,6 +67,8 @@ export interface TurnMeta {
   elapsed_scope?: 'round'
   started_at?: number
   status?: 'completed' | 'awaiting_approval' | 'interrupted'
+  error?: { message: string; code: string }
+  retries?: number
 }
 
 export interface Message {
@@ -467,6 +469,7 @@ export type TimelineItem =
       status: 'running' | 'done' | 'cancelled'
     }
   | { id: string; type: 'error'; content: string }
+  | { id: string; type: 'notice'; content: string }
   | { id: string; type: 'turn_end'; meta: TurnMeta }
 
 export interface ImportChapter {

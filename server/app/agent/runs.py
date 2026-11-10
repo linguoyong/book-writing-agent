@@ -192,6 +192,18 @@ def _record(state: RunState, chunk: str) -> None:
             )
     elif event == "error":
         state.error = str(payload.get("message") or "未知错误")
+    elif event == "retry":
+        remaining = max(0, int(payload.get("removed_chars") or 0))
+        for item in reversed(state.items):
+            if remaining and item.get("type") == "text":
+                text = item["content"]
+                removed = min(remaining, len(text))
+                item["content"] = text[: len(text) - removed]
+                remaining -= removed
+        state.items[:] = [
+            item for item in state.items if item.get("type") != "text" or item["content"]
+        ]
+        state._push_item({"type": "notice", "content": str(payload.get("message") or "正在重试")})
 
 
 async def tail(state: RunState) -> AsyncIterator[str]:

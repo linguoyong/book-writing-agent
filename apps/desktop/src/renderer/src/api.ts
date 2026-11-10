@@ -554,6 +554,7 @@ interface StreamHandlers {
   onError: (message: string) => void
   /** 用户主动中止：不再当作错误提示 */
   onAborted?: () => void
+  onRetry?: (removedChars: number, message: string) => void
 }
 
 export interface StreamHandlerSet extends StreamHandlers {}
@@ -742,6 +743,9 @@ function dispatchEvent(raw: string, handlers: StreamHandlers): boolean {
     case 'token':
       handlers.onToken(String(payload.text ?? ''))
       break
+    case 'retry':
+      handlers.onRetry?.(Number(payload.removed_chars ?? 0), String(payload.message ?? '正在重试'))
+      break
     case 'tool_start':
       handlers.onToolStart(String(payload.name ?? 'tool'), String(payload.input ?? ''))
       break
@@ -755,7 +759,8 @@ function dispatchEvent(raw: string, handlers: StreamHandlers): boolean {
       return true
     case 'error':
       handlers.onError(String(payload.message ?? '未知错误'))
-      break
+      handlers.onDone()
+      return true
   }
   return false
 }

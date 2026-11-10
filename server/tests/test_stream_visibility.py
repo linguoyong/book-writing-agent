@@ -10,12 +10,50 @@ from unittest.mock import patch
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.runnables import RunnableLambda
 from langchain_core.tools import tool
+from langchain_openai.chat_models._client_utils import StreamChunkTimeoutError
 
 from app.agent.runner import _error_text, _execute, _persist_assistant, _run_events
 from app.usage import UsageMeter
 
 
 class StreamVisibilityTest(unittest.TestCase):
+    def test_tool_timeout_and_user_stop_are_never_retried(self):
+        for stopped in (False, True):
+
+            class Agent:
+                calls = 0
+
+                async def astream_events(self, *args, stopped=stopped, **kwargs):
+                    self.calls += 1
+                    yield {"event": "on_chat_model_start", "metadata": {"langgraph_node": "model"}}
+                    if stopped:
+                        raise asyncio.CancelledError()
+                    yield {"event": "on_chat_model_end", "data": {"output": None}}
+                    yield {
+                        "event": "on_tool_start",
+                        "name": "task",
+                        "run_id": "t",
+                        "data": {"input": {}},
+                    }
+                    raise StreamChunkTimeoutError(120)
+
+                async def aget_state(self, config):
+                    return SimpleNamespace(
+                        next=("tools",), tasks=(SimpleNamespace(name="tools", error="timeout"),)
+                    )
+
+            agent = Agent()
+
+            async def run(agent=agent):
+                async for _ in _execute(
+                    agent, {}, {}, [], [], set(), UsageMeter(), session_id="s", project=Path(".")
+                ):
+                    pass
+
+            with self.assertRaises(asyncio.CancelledError if stopped else StreamChunkTimeoutError):
+                asyncio.run(run())
+            self.assertEqual(agent.calls, 1)
+
     def test_noop_resume_does_not_mark_approval_as_resolved(self):
         class Agent:
             async def astream_events(self, *args, **kwargs):

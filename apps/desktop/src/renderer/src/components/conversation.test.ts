@@ -1,8 +1,21 @@
 import { describe, expect, it } from 'vitest'
 import type { Message, RunSnapshot, TimelineItem, TurnMeta } from '../types'
-import { groupTurns, timelineFromMessages, timelineWithRun } from './conversation'
+import { groupTurns, timelineAfterRetry, timelineFromMessages, timelineWithRun } from './conversation'
 
 describe('shared main and side conversation timeline', () => {
+  it('rolls back only failed model text, preserving completed tools and older rounds', () => {
+    const items: TimelineItem[] = [
+      { id: 'old', type: 'assistant', content: 'older answer' },
+      { id: 'u', type: 'user', content: 'write' },
+      { id: 'plan', type: 'assistant', content: 'plan' },
+      { id: 'tool', type: 'tool', name: 'manuscript_write', input: '{}', status: 'done' },
+      { id: 'partial', type: 'assistant', content: '半截😀' }
+    ]
+    const next = timelineAfterRetry(items, 3, '正在重试')
+    expect(next.map((item) => item.id).slice(0, 4)).toEqual(['old', 'u', 'plan', 'tool'])
+    expect(next.at(-1)).toMatchObject({ type: 'notice', content: '正在重试' })
+    expect(items).toHaveLength(5)
+  })
   it('aggregates legacy approval phases without treating an interim plan as the final answer', () => {
     const [turn] = groupTurns(timelineFromMessages([
       { id: 1, session_id: 's', role: 'user', content: '先写大纲', created_at: '' },
@@ -19,7 +32,7 @@ describe('shared main and side conversation timeline', () => {
 
   it('keeps whole-round time, sums phase usage, and deduplicates replayed phase markers', () => {
     const usage = { input: 100, output: 20, total: 120, cache_read: 0, calls: 1 }
-    const first: TurnMeta = { phase_id: 'a', elapsed_ms: 180000, elapsed_scope: 'round', changes: { files: ['kb/world/a.md'], diff: '' }, usage }
+    const first: TurnMeta = { phase_id: 'a', elapsed_ms: 180000, elapsed_scope: 'round', changes: { files: ['kb/world/a.md'], diff: '' }, usage, retries: 1 }
     const final: TurnMeta = { ...first, phase_id: 'b', elapsed_ms: 300000, status: 'completed', changes: { files: ['kb/outline/main.md'], diff: '' } }
     const [turn] = groupTurns([
       { id: 'u', type: 'user', content: 'outline' },
@@ -30,6 +43,7 @@ describe('shared main and side conversation timeline', () => {
     ])
     expect(turn.meta?.elapsed_ms).toBe(300000)
     expect(turn.meta?.usage?.total).toBe(240)
+    expect(turn.meta?.retries).toBe(2)
     expect(turn.meta?.changes.files).toEqual(['kb/world/a.md', 'kb/outline/main.md'])
     expect(turn.conclusion?.content).toBe('最终总结')
   })

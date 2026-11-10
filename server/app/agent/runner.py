@@ -10,6 +10,7 @@ from typing import Any
 from uuid import uuid4
 
 from langchain_core.messages import AIMessage, HumanMessage
+from langchain_openai.chat_models._client_utils import StreamChunkTimeoutError
 from langgraph.types import Command
 
 from .. import db, usage
@@ -60,12 +61,21 @@ RECURSION_LIMIT = 120
 
 def _error_text(exc: BaseException) -> str:
     """把框架异常翻译成用户能看懂的话。"""
+    if isinstance(exc, StreamChunkTimeoutError):
+        return (
+            f"模型连续 {exc.timeout_s:g} 秒没有返回新数据，生成超时。"
+            "已完成的操作和已生成的内容已保留，可以稍后继续。"
+        )
     if type(exc).__name__ == "GraphRecursionError":
         return (
             f"这一轮工具调用步数到上限了（{RECURSION_LIMIT} 步），先停下。"
             "可以说「继续」让我接着做，或者把任务拆小一点。"
         )
     return f"{type(exc).__name__}: {exc}"
+
+
+def _failure(exc: BaseException) -> dict[str, str]:
+    return {"message": _error_text(exc), "code": type(exc).__name__}
 
 
 def _sse(event: str, data: dict[str, Any]) -> str:
@@ -141,6 +151,8 @@ async def chat_stream(
     round_started = time.time() * 1000
     # 已落库的字符数：正常路径每段落库后更新；finally 据此判断是否还有未落库内容
     committed = -1
+    execution: dict[str, Any] = {"retries": 0}
+    failure: dict[str, str] | None = None
 
     lock = _session_lock(session_id)
     if lock.locked():
@@ -182,7 +194,8 @@ async def chat_stream(
                 extra_tools=mcp_tools,
             )
         except Exception as exc:  # noqa: BLE001
-            yield _sse("error", {"message": f"Agent 初始化失败：{type(exc).__name__}: {exc}"})
+            failure = _failure(exc)
+            yield _sse("error", failure)
             return
 
         yield _sse(
@@ -212,10 +225,12 @@ async def chat_stream(
                 meter,
                 session_id=session_id,
                 project=project,
+                execution=execution,
             ):
                 yield chunk
         except Exception as exc:  # noqa: BLE001
-            yield _sse("error", {"message": _error_text(exc)})
+            failure = _failure(exc)
+            yield _sse("error", failure)
             return
 
         # 引导消息可能晚于最后一次模型调用到达：当轮补一段跟进，避免留到无关的下一轮
@@ -238,10 +253,12 @@ async def chat_stream(
                         meter,
                         session_id=session_id,
                         project=project,
+                        execution=execution,
                     ):
                         yield chunk
                 except Exception as exc:  # noqa: BLE001
-                    yield _sse("error", {"message": _error_text(exc)})
+                    failure = _failure(exc)
+                    yield _sse("error", failure)
                     return
                 approval = await _approval_event(agent, config, session_id, project)
         turn = await asyncio.to_thread(
@@ -254,6 +271,8 @@ async def chat_stream(
             elapsed_ms=int((time.monotonic() - started) * 1000),
             changes=await asyncio.to_thread(turn_changes, project, sorted(write_paths)),
             usage_snapshot=meter.as_dict(),
+            failure=failure,
+            retries=execution["retries"],
         )
         committed = len("".join(buffer))
         if approval:
@@ -273,7 +292,7 @@ async def chat_stream(
         # 否则用户看到的内容刷新后就消失了。
         try:
             text = "".join(buffer)
-            if len(text) > committed and (text.strip() or tool_calls):
+            if len(text) > committed and (text.strip() or tool_calls or failure):
                 await asyncio.to_thread(
                     _persist_assistant,
                     session_id,
@@ -285,6 +304,8 @@ async def chat_stream(
                     interrupted=True,
                     round_started=round_started,
                     usage_snapshot=meter.as_dict(),
+                    failure=failure,
+                    retries=execution["retries"],
                 )
         finally:
             try:
@@ -333,6 +354,8 @@ async def approve_stream(session_id: str, decisions: list[dict[str, Any]]) -> As
             round_started = datetime.fromisoformat(message["created_at"]).timestamp() * 1000
             break
     committed = -1
+    execution: dict[str, Any] = {"retries": 0}
+    failure: dict[str, str] | None = None
     try:
         steering.begin(session_id)
         # 拿到锁之后再读一次：并发的另一个审批可能已经把它消费掉了
@@ -403,7 +426,8 @@ async def approve_stream(session_id: str, decisions: list[dict[str, Any]]) -> As
                 extra_tools=mcp_tools,
             )
         except Exception as exc:  # noqa: BLE001
-            yield _sse("error", {"message": f"Agent 初始化失败：{type(exc).__name__}: {exc}"})
+            failure = _failure(exc)
+            yield _sse("error", failure)
             return
 
         kinds = {item["type"] for item in normalized}
@@ -426,13 +450,15 @@ async def approve_stream(session_id: str, decisions: list[dict[str, Any]]) -> As
                 meter,
                 session_id=session_id,
                 project=project,
+                execution=execution,
                 resolution=(status, normalized),
             ):
                 yield chunk
         except Exception as exc:  # noqa: BLE001
             # resume 失败时审批必须留在 pending：否则界面显示「已通过」，
             # 实际一次都没执行，而会话已经不再拦截下一条消息。
-            yield _sse("error", {"message": _error_text(exc)})
+            failure = _failure(exc)
+            yield _sse("error", failure)
             return
 
         # 恢复成功之后才记账
@@ -448,6 +474,8 @@ async def approve_stream(session_id: str, decisions: list[dict[str, Any]]) -> As
             elapsed_ms=elapsed_ms,
             changes=changes,
             usage_snapshot=meter.as_dict(),
+            failure=failure,
+            retries=execution["retries"],
             round_started=round_started,
         )
         committed = len("".join(buffer))
@@ -467,7 +495,7 @@ async def approve_stream(session_id: str, decisions: list[dict[str, Any]]) -> As
         # 已生成的文本也必须留住。
         try:
             text = "".join(buffer)
-            if len(text) > committed and (text.strip() or tool_calls):
+            if len(text) > committed and (text.strip() or tool_calls or failure):
                 await asyncio.to_thread(
                     _persist_assistant,
                     session_id,
@@ -479,6 +507,8 @@ async def approve_stream(session_id: str, decisions: list[dict[str, Any]]) -> As
                     interrupted=True,
                     round_started=round_started,
                     usage_snapshot=meter.as_dict(),
+                    failure=failure,
+                    retries=execution["retries"],
                 )
         finally:
             try:
@@ -504,14 +534,55 @@ async def _execute(
     session_id: str,
     project: Path,
     resolution: tuple[str, list[dict[str, Any]]] | None = None,
+    execution: dict[str, Any] | None = None,
 ) -> AsyncIterator[str]:
     """保持同一张图，串行恢复完全访问下的每批中断，直到真正生成最终答复。"""
+    execution = execution if execution is not None else {"retries": 0}
     for _ in range(RECURSION_LIMIT):
         before = (len(buffer), len(tool_calls))
-        async for chunk in _run_events(
-            agent, graph_input, config, buffer, tool_calls, write_paths, meter
-        ):
-            yield chunk
+        attempt: dict[str, Any] = {}
+        try:
+            async for chunk in _run_events(
+                agent, graph_input, config, buffer, tool_calls, write_paths, meter, attempt
+            ):
+                yield chunk
+        except StreamChunkTimeoutError:
+            snapshot = await agent.aget_state(config)
+            tasks = getattr(snapshot, "tasks", ()) or ()
+            if (
+                resolution
+                and "offset" in attempt
+                and len(tool_calls) > before[1]
+                and all(call.get("status") == "done" for call in tool_calls[before[1] :])
+            ):
+                # 写入已执行、后续总结超时：这批审批已经消费，不能再展示为待审批。
+                db.resolve_approvals(session_id, *resolution)
+                resolution = None
+            # 仅重跑已 checkpoint 的主模型节点，避免重放工具或子代理的写入。
+            if (
+                execution["retries"] >= 1
+                or "offset" not in attempt
+                or tuple(getattr(snapshot, "next", ())) != ("model",)
+                or len(tasks) != 1
+                or tasks[0].name != "model"
+                or not tasks[0].error
+                or getattr(snapshot, "interrupts", ())
+            ):
+                raise
+            execution["retries"] += 1
+            text = "".join(buffer)
+            offset = attempt["offset"]
+            buffer[:] = [text[:offset]] if offset else []
+            yield _sse(
+                "retry",
+                {
+                    "removed_chars": len(text) - offset,
+                    "attempt": execution["retries"],
+                    "message": "模型响应超时，正在重试（1/1）；已完成的操作已保留。",
+                },
+            )
+            graph_input = None
+            continue
         if resolution:
             if before == (len(buffer), len(tool_calls)):
                 raise RuntimeError("审批恢复未产生执行结果，操作仍待审批，请重试或重新生成。")
@@ -547,6 +618,7 @@ async def _run_events(
     tool_calls: list[dict[str, Any]],
     write_paths: set[str],
     meter: usage.UsageMeter,
+    attempt: dict[str, Any] | None = None,
 ) -> AsyncIterator[str]:
     # 工具内部的审稿/拆解/记忆模型同样会产生模型流事件。
     # 只把主 Agent 的模型文本交给对话，工具和子代理的内部输出留在工具结果里。
@@ -565,7 +637,10 @@ async def _run_events(
             or metadata.get("lc_source") == "summarization"
         )
 
-        if kind == "on_chat_model_stream":
+        if kind == "on_chat_model_start" and not internal:
+            if attempt is not None and metadata.get("langgraph_node") == "model":
+                attempt["offset"] = sum(len(part) for part in buffer)
+        elif kind == "on_chat_model_stream":
             if internal:
                 continue
             text = _as_text(event.get("data", {}).get("chunk", {}).content)
@@ -573,6 +648,8 @@ async def _run_events(
                 buffer.append(text)
                 yield _sse("token", {"text": text})
         elif kind == "on_chat_model_end":
+            if not internal and attempt is not None:
+                attempt.pop("offset", None)
             # 内部模型调用同样计费，单独记账的审稿/拆解在各业务函数中记录。
             if internal and "book:metered" in (event.get("tags") or []):
                 continue
@@ -672,6 +749,8 @@ def _persist_assistant(
     interrupted: bool = False,
     usage_snapshot: dict[str, Any] | None = None,
     round_started: float | None = None,
+    failure: dict[str, str] | None = None,
+    retries: int = 0,
 ) -> dict[str, Any]:
     text = "".join(buffer)
     meta: dict[str, Any] = {}
@@ -713,6 +792,10 @@ def _persist_assistant(
         if interrupted
         else "completed",
     }
+    if failure:
+        meta["turn"]["error"] = failure
+    if retries:
+        meta["turn"]["retries"] = retries
     if round_started is not None:
         meta["turn"].update(
             started_at=round_started,

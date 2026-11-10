@@ -151,6 +151,60 @@ class ApplicationIntegrationTest(unittest.TestCase):
         self.assertTrue((self.root / "kb/outline/main.md").exists(), str(events))
         self.assertTrue((self.root / "kb/outline/vol-01.md").exists(), str(events))
 
+    def test_stream_stall_resumes_model_without_repeating_append(self):
+        sid = self.session(permission_mode="auto")
+        events = self.chat(sid, "TEST_STALL_ONCE " + sid)
+        self.assertNotIn("error", [kind for kind, _ in events], str(events))
+        self.assertEqual(sum(kind == "retry" for kind, _ in events), 1, str(events))
+        self.assertEqual(sum(kind == "tool_start" for kind, _ in events), 1, str(events))
+        self.assertEqual(
+            (self.root / "manuscript/retry.md").read_text(encoding="utf-8").count("唯一写入标记"), 1
+        )
+        messages = self.request("GET", f"/sessions/{sid}/messages")
+        self.assertIn("最终总结", messages[-1]["content"])
+        self.assertNotIn("半截输出", messages[-1]["content"])
+        self.assertEqual(messages[-1]["meta"]["turn"]["retries"], 1)
+        snapshot = self.request("GET", f"/sessions/{sid}/run")
+        self.assertNotIn("半截输出", snapshot["text"])
+
+    def test_repeated_stall_is_bounded_and_reason_survives_history_reload(self):
+        sid = self.session(permission_mode="auto")
+        events = self.chat(sid, "TEST_STALL_ALWAYS " + sid)
+        self.assertEqual(sum(kind == "retry" for kind, _ in events), 1, str(events))
+        error = next(data for kind, data in events if kind == "error")
+        self.assertEqual(error["code"], "StreamChunkTimeoutError")
+        self.assertIn("没有返回新数据", error["message"])
+        messages = self.request("GET", f"/sessions/{sid}/messages")
+        self.assertEqual(messages[-1]["meta"]["turn"]["error"], error)
+        self.assertEqual(messages[-1]["meta"]["turn"]["status"], "interrupted")
+        self.assertEqual(
+            (self.root / "manuscript/retry.md").read_text(encoding="utf-8").count("唯一写入标记"), 1
+        )
+
+    def test_stall_before_any_text_still_persists_failure(self):
+        sid = self.session()
+        events = self.chat(sid, "TEST_STALL_EMPTY_ALWAYS " + sid, mode="side")
+        self.assertEqual(sum(kind == "retry" for kind, _ in events), 1, str(events))
+        messages = self.request("GET", f"/sessions/{sid}/messages")
+        self.assertEqual(len(messages), 2)
+        self.assertEqual(messages[-1]["content"], "")
+        self.assertEqual(messages[-1]["meta"]["turn"]["error"]["code"], "StreamChunkTimeoutError")
+
+    def test_approved_append_is_consumed_even_when_summary_stalls_twice(self):
+        sid = self.session(permission_mode="ask")
+        self.chat(sid, "TEST_STALL_ALWAYS " + sid)
+        events = self.events(
+            self.client.post(
+                "/chat/approve", json={"session_id": sid, "decisions": [{"type": "approve"}]}
+            )
+        )
+        self.assertEqual(sum(kind == "retry" for kind, _ in events), 1, str(events))
+        self.assertIn("error", [kind for kind, _ in events])
+        self.assertIsNone(self.request("GET", f"/sessions/{sid}/pending")["approval"])
+        self.assertEqual(
+            (self.root / "manuscript/retry.md").read_text(encoding="utf-8").count("唯一写入标记"), 1
+        )
+
     def test_manual_approvals_keep_later_stages_paused_until_approved(self):
         sid = self.session(permission_mode="ask")
         self.chat(sid, "TEST_OUTLINE 先写大纲")

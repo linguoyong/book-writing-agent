@@ -20,12 +20,36 @@ from pathlib import Path
 
 TOKEN = "application-integration-test-token"
 BODY = "林昭站在雨中的青石桥上，握紧了手中的旧剑。远处传来一声钟鸣。"
+STALL_ATTEMPTS: dict[str, int] = {}
 
 
 def model_response(payload):
     messages = payload.get("messages", [])
     last_user = max((i for i, m in enumerate(messages) if m["role"] == "user"), default=-1)
     prompt = str(messages[last_user].get("content", "")) if last_user >= 0 else ""
+    if prompt.startswith("TEST_STALL"):
+        if (
+            not any(m["role"] == "tool" for m in messages[last_user + 1 :])
+            and "EMPTY" not in prompt
+        ):
+            return {
+                "role": "assistant",
+                "content": "先保存正文。",
+                "tool_calls": [
+                    {
+                        "id": "call_before_stall",
+                        "type": "function",
+                        "function": {
+                            "name": "manuscript_write",
+                            "arguments": json.dumps(
+                                {"path": "retry.md", "content": "唯一写入标记。", "mode": "append"},
+                                ensure_ascii=False,
+                            ),
+                        },
+                    }
+                ],
+            }
+        return {"role": "assistant", "content": "已完成正文保存，恢复后生成了最终总结。"}
     if prompt.startswith("TEST_OUTLINE"):
         results = [m for m in messages[last_user + 1 :] if m["role"] == "tool"]
         stages = [
@@ -237,6 +261,14 @@ class ModelService(BaseHTTPRequestHandler):
 
         try:
             emit({"role": "assistant"})
+            if prompt.startswith("TEST_STALL") and not message.get("tool_calls"):
+                count = STALL_ATTEMPTS.get(prompt, 0) + 1
+                STALL_ATTEMPTS[prompt] = count
+                if "ALWAYS" in prompt or count == 1:
+                    if "EMPTY" not in prompt:
+                        emit({"content": "应被撤回的半截输出😀"})
+                    time.sleep(1.5)
+                    return
             if message.get("tool_calls"):
                 if message.get("content"):
                     emit({"content": message["content"]})
@@ -269,6 +301,7 @@ class ModelService(BaseHTTPRequestHandler):
 
 
 def serve(port, model_port, home):
+    os.environ["LANGCHAIN_OPENAI_STREAM_CHUNK_TIMEOUT_S"] = "1"
     os.environ["BOOK_AGENT_HOME"] = str(home)
     os.environ["BOOK_AGENT_TOKEN"] = TOKEN
     os.environ.pop("BOOK_AGENT_DISABLE_AUTH", None)

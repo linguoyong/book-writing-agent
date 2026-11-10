@@ -1,4 +1,4 @@
-import { timelineFromMessages, timelineWithRun } from './components/conversation'
+import { timelineAfterRetry, timelineFromMessages, timelineWithRun } from './components/conversation'
 import { create } from 'zustand'
 import { ApiError, api, approveChat, regenerateChat, streamChat } from './api'
 import type { StreamHandlerSet } from './api'
@@ -279,6 +279,11 @@ export const useAppStore = create<AppState>((set, get) => {
           }
           return { timeline: items }
         })
+      },
+      onRetry: (removedChars, message) => {
+        if (!live()) return
+        assistantId = null
+        set((state) => ({ timeline: timelineAfterRetry(state.timeline, removedChars, message) }))
       },
       onToolStart: (name, input) => {
         if (!live()) return

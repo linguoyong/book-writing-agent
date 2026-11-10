@@ -76,7 +76,8 @@ export function executionProgress(items: TimelineItem[], answering: boolean): { 
   const latest = running[running.length - 1]
   const lastDone = completed[completed.length - 1]
   return {
-    current: latest ? toolProgress(latest) : answering ? '正在组织回复' : '正在整理已有资料，准备下一步',
+    current: items.at(-1)?.type === 'notice' ? (items.at(-1) as { content: string }).content
+      : latest ? toolProgress(latest) : answering ? '正在组织回复' : '正在整理已有资料，准备下一步',
     recent: lastDone ? `${toolProgress(lastDone)}${completed.length > 1 ? ` · 已完成 ${completed.length} 步` : ''}` : ''
   }
 }
