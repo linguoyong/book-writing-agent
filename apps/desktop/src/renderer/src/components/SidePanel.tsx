@@ -148,8 +148,10 @@ export default function SidePanel(): React.JSX.Element {
         },
         onDone: (payload) => {
           if (!live()) return
+          if (!payload) return
           setItems((prev) => [...settleItems(prev), {
             id: nextId(), type: 'turn_end', meta: {
+              ...payload,
               elapsed_ms: payload?.elapsed_ms ?? 0,
               changes: payload?.changes ?? { files: [], diff: '' },
               usage: payload?.usage

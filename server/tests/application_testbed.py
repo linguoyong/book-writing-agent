@@ -26,6 +26,41 @@ def model_response(payload):
     messages = payload.get("messages", [])
     last_user = max((i for i, m in enumerate(messages) if m["role"] == "user"), default=-1)
     prompt = str(messages[last_user].get("content", "")) if last_user >= 0 else ""
+    if prompt.startswith("TEST_OUTLINE"):
+        results = [m for m in messages[last_user + 1 :] if m["role"] == "tool"]
+        stages = [
+            ("world", "evolution", "进化机制", "微生物先变异，捕食者通过食物缓慢积累。"),
+            ("outline", "main", "总纲", "群像在灾变中分化、蜕变与崩溃，最终重建协作。"),
+            ("outline", "vol-01", "第一卷大纲", "第一章：停水。第二章：微生物失控。第三章：撤离。"),
+        ]
+        if len(results) < len(stages):
+            kind, entity_id, name, body = stages[len(results)]
+            return {
+                "role": "assistant",
+                "content": "先记录设定，再继续完成大纲。",
+                "tool_calls": [
+                    {
+                        "id": f"call_outline_{len(results)}",
+                        "type": "function",
+                        "function": {
+                            "name": "kb_write",
+                            "arguments": json.dumps(
+                                {
+                                    "kind": kind,
+                                    "entity_id": entity_id,
+                                    "meta_json": json.dumps({"name": name}, ensure_ascii=False),
+                                    "body": body,
+                                },
+                                ensure_ascii=False,
+                            ),
+                        },
+                    }
+                ],
+            }
+        return {
+            "role": "assistant",
+            "content": "已完成总纲和第一卷大纲：群像在气候灾变中分化，第一卷从停水、微生物失控推进到撤离。",
+        }
     if prompt.startswith("TEST_TOOL "):
         spec = json.loads(prompt.removeprefix("TEST_TOOL "))
         if not any(m["role"] == "tool" for m in messages[last_user + 1 :]):
@@ -203,7 +238,15 @@ class ModelService(BaseHTTPRequestHandler):
         try:
             emit({"role": "assistant"})
             if message.get("tool_calls"):
-                emit({"tool_calls": [{"index": 0, **message["tool_calls"][0]}]})
+                if message.get("content"):
+                    emit({"content": message["content"]})
+                emit(
+                    {
+                        "tool_calls": [
+                            {"index": i, **call} for i, call in enumerate(message["tool_calls"])
+                        ]
+                    }
+                )
                 emit({}, "tool_calls")
             else:
                 content = message["content"]

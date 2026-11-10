@@ -107,6 +107,74 @@ class ApplicationIntegrationTest(unittest.TestCase):
             sid, "TEST_TOOL " + json.dumps({"name": name, "args": args}, ensure_ascii=False), mode
         )
 
+    def test_permission_switch_resumes_all_outline_stages(self):
+        sid = self.session(permission_mode="ask")
+        events = self.chat(sid, "TEST_OUTLINE 先写大纲")
+        self.assertIn("approval", [kind for kind, _ in events])
+        first = next(data for kind, data in events if kind == "done")
+        time.sleep(1.1)  # 审批等待也属于这一轮，不能被最后一段的短计时覆盖。
+        self.request("PATCH", f"/sessions/{sid}", {"permission_mode": "auto"})
+        events = self.events(
+            self.client.post(
+                "/chat/approve",
+                json={
+                    "session_id": sid,
+                    "decisions": [{"type": "approve"}],
+                },
+            )
+        )
+        self.assertNotIn("error", [kind for kind, _ in events], str(events))
+        for name in ("main", "vol-01"):
+            path = self.root / "kb" / "outline" / f"{name}.md"
+            self.assertTrue(path.exists(), str(events))
+            self.assertGreater(path.stat().st_size, 30)
+        self.assertIn(
+            "已完成总纲和第一卷大纲",
+            "".join(data.get("text", "") for kind, data in events if kind == "token"),
+        )
+        self.assertIsNone(self.request("GET", f"/sessions/{sid}/pending")["approval"])
+        final = next(data for kind, data in events if kind == "done")
+        self.assertGreaterEqual(final["elapsed_ms"], first["elapsed_ms"] + 1100)
+        self.assertEqual(final["status"], "completed")
+        self.assertEqual(final["started_at"], first["started_at"])
+        overview = self.request("GET", self.url + "/overview")
+        self.assertEqual(overview["kb_counts"]["outline"], 2)
+        self.assertEqual(overview["kb_counts"]["world"], 1)
+        messages = self.request("GET", f"/sessions/{sid}/messages")
+        self.assertIn("已完成总纲", messages[-1]["content"])
+        self.assertEqual(messages[-1]["meta"]["turn"]["phase_id"], final["phase_id"])
+
+    def test_auto_mode_completes_multi_stage_outline(self):
+        sid = self.session(permission_mode="auto")
+        events = self.chat(sid, "TEST_OUTLINE 先写大纲")
+        self.assertNotIn("approval", [kind for kind, _ in events], str(events))
+        self.assertTrue((self.root / "kb/outline/main.md").exists(), str(events))
+        self.assertTrue((self.root / "kb/outline/vol-01.md").exists(), str(events))
+
+    def test_manual_approvals_keep_later_stages_paused_until_approved(self):
+        sid = self.session(permission_mode="ask")
+        self.chat(sid, "TEST_OUTLINE 先写大纲")
+        for stage in range(3):
+            self.assertIsNotNone(self.request("GET", f"/sessions/{sid}/pending")["approval"])
+            events = self.events(
+                self.client.post(
+                    "/chat/approve",
+                    json={
+                        "session_id": sid,
+                        "decisions": [{"type": "approve"}],
+                    },
+                )
+            )
+            self.assertNotIn("error", [kind for kind, _ in events], str(events))
+            if stage < 2:
+                self.assertEqual(
+                    next(data for kind, data in events if kind == "done")["status"],
+                    "awaiting_approval",
+                )
+        self.assertTrue((self.root / "kb/outline/main.md").exists())
+        self.assertTrue((self.root / "kb/outline/vol-01.md").exists())
+        self.assertIsNone(self.request("GET", f"/sessions/{sid}/pending")["approval"])
+
     def wait(self, callback, predicate, timeout=15):
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:

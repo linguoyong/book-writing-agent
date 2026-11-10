@@ -4,13 +4,16 @@ import asyncio
 import json
 import time
 from collections.abc import AsyncIterator
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.types import Command
 
 from .. import db, usage
+from ..config import load_settings
 from ..workspace import safe_join, turn_changes
 from . import steering, threads
 from .approvals import build_requests
@@ -135,8 +138,9 @@ async def chat_stream(
     config = {"configurable": {"thread_id": thread_id}, "recursion_limit": RECURSION_LIMIT}
     started = time.monotonic()
     request_started = started
+    round_started = time.time() * 1000
     # 已落库的字符数：正常路径每段落库后更新；finally 据此判断是否还有未落库内容
-    committed = 0
+    committed = -1
 
     lock = _session_lock(session_id)
     if lock.locked():
@@ -198,7 +202,7 @@ async def chat_stream(
             else {"messages": [HumanMessage(content=user_message)]}
         )
         try:
-            async for chunk in _run_events(
+            async for chunk in _execute(
                 agent,
                 graph_input,
                 config,
@@ -206,6 +210,8 @@ async def chat_stream(
                 tool_calls,
                 write_paths,
                 meter,
+                session_id=session_id,
+                project=project,
             ):
                 yield chunk
         except Exception as exc:  # noqa: BLE001
@@ -214,35 +220,15 @@ async def chat_stream(
 
         # 引导消息可能晚于最后一次模型调用到达：当轮补一段跟进，避免留到无关的下一轮
         approval = await _approval_event(agent, config, session_id, project)
-        elapsed_ms = int((time.monotonic() - started) * 1000)
-        changes = await asyncio.to_thread(turn_changes, project, sorted(write_paths))
-        await asyncio.to_thread(
-            _persist_assistant,
-            session_id,
-            buffer,
-            tool_calls,
-            awaiting=bool(approval),
-            elapsed_ms=elapsed_ms,
-            changes=changes,
-            usage_snapshot=meter.as_dict(),
-        )
-        committed = len("".join(buffer))
-        if approval:
-            yield approval
-        else:
+        if not approval:
             leftover = steering.drain(session_id)
             if leftover:
                 follow = (
                     "[执行中排队、但在上一段生成结束前未被消费的引导。请据此补充或修正结论，"
                     "不要重复已经说过的内容]\n" + "\n".join(f"- {item}" for item in leftover)
                 )
-                buffer.clear()
-                tool_calls.clear()
-                write_paths.clear()
-                committed = 0
-                started = time.monotonic()
                 try:
-                    async for chunk in _run_events(
+                    async for chunk in _execute(
                         agent,
                         {"messages": [HumanMessage(content=follow)]},
                         config,
@@ -250,35 +236,35 @@ async def chat_stream(
                         tool_calls,
                         write_paths,
                         meter,
+                        session_id=session_id,
+                        project=project,
                     ):
                         yield chunk
                 except Exception as exc:  # noqa: BLE001
                     yield _sse("error", {"message": _error_text(exc)})
+                    return
                 approval = await _approval_event(agent, config, session_id, project)
-                elapsed_ms = int((time.monotonic() - started) * 1000)
-                changes = await asyncio.to_thread(turn_changes, project, sorted(write_paths))
-                await asyncio.to_thread(
-                    _persist_assistant,
-                    session_id,
-                    buffer,
-                    tool_calls,
-                    awaiting=bool(approval),
-                    elapsed_ms=elapsed_ms,
-                    changes=changes,
-                    usage_snapshot=meter.as_dict(),
-                )
-                committed = len("".join(buffer))
-                if approval:
-                    yield approval
+        turn = await asyncio.to_thread(
+            _persist_assistant,
+            session_id,
+            buffer,
+            tool_calls,
+            awaiting=bool(approval),
+            round_started=round_started,
+            elapsed_ms=int((time.monotonic() - started) * 1000),
+            changes=await asyncio.to_thread(turn_changes, project, sorted(write_paths)),
+            usage_snapshot=meter.as_dict(),
+        )
+        committed = len("".join(buffer))
+        if approval:
+            yield approval
         yield _sse(
             "done",
             {
                 "chars": len("".join(buffer)),
                 "fingerprint": bundle.fingerprint,
                 "awaiting_approval": bool(approval),
-                "elapsed_ms": elapsed_ms,
-                "changes": changes,
-                "usage": meter.as_dict(),
+                **turn,
                 "steering_pending": steering.pending_count(session_id),
             },
         )
@@ -287,7 +273,7 @@ async def chat_stream(
         # 否则用户看到的内容刷新后就消失了。
         try:
             text = "".join(buffer)
-            if len(text) > committed and text.strip():
+            if len(text) > committed and (text.strip() or tool_calls):
                 await asyncio.to_thread(
                     _persist_assistant,
                     session_id,
@@ -297,6 +283,7 @@ async def chat_stream(
                     elapsed_ms=int((time.monotonic() - started) * 1000),
                     changes=await asyncio.to_thread(turn_changes, project, sorted(write_paths)),
                     interrupted=True,
+                    round_started=round_started,
                     usage_snapshot=meter.as_dict(),
                 )
         finally:
@@ -336,7 +323,16 @@ async def approve_stream(session_id: str, decisions: list[dict[str, Any]]) -> As
     config = {"configurable": {"thread_id": thread_id}, "recursion_limit": RECURSION_LIMIT}
     started = time.monotonic()
     request_started = started
-    committed = 0
+    round_started = time.time() * 1000
+    for message in reversed(db.list_messages(session_id)):
+        meta = message.get("meta") or {}
+        if message["role"] == "assistant" and (meta.get("turn") or {}).get("started_at"):
+            round_started = meta["turn"]["started_at"]
+            break
+        if message["role"] == "user" and not meta.get("steering"):
+            round_started = datetime.fromisoformat(message["created_at"]).timestamp() * 1000
+            break
+    committed = -1
     try:
         steering.begin(session_id)
         # 拿到锁之后再读一次：并发的另一个审批可能已经把它消费掉了
@@ -420,7 +416,7 @@ async def approve_stream(session_id: str, decisions: list[dict[str, Any]]) -> As
             status = "approved"
 
         try:
-            async for chunk in _run_events(
+            async for chunk in _execute(
                 agent,
                 Command(resume={"decisions": normalized}),
                 config,
@@ -428,6 +424,9 @@ async def approve_stream(session_id: str, decisions: list[dict[str, Any]]) -> As
                 tool_calls,
                 write_paths,
                 meter,
+                session_id=session_id,
+                project=project,
+                resolution=(status, normalized),
             ):
                 yield chunk
         except Exception as exc:  # noqa: BLE001
@@ -437,11 +436,10 @@ async def approve_stream(session_id: str, decisions: list[dict[str, Any]]) -> As
             return
 
         # 恢复成功之后才记账
-        db.resolve_approvals(session_id, status, normalized)
         approval = await _approval_event(agent, config, session_id, project)
         elapsed_ms = int((time.monotonic() - started) * 1000)
         changes = await asyncio.to_thread(turn_changes, project, sorted(write_paths))
-        await asyncio.to_thread(
+        turn = await asyncio.to_thread(
             _persist_assistant,
             session_id,
             buffer,
@@ -450,6 +448,7 @@ async def approve_stream(session_id: str, decisions: list[dict[str, Any]]) -> As
             elapsed_ms=elapsed_ms,
             changes=changes,
             usage_snapshot=meter.as_dict(),
+            round_started=round_started,
         )
         committed = len("".join(buffer))
         if approval:
@@ -459,9 +458,7 @@ async def approve_stream(session_id: str, decisions: list[dict[str, Any]]) -> As
             {
                 "chars": len("".join(buffer)),
                 "awaiting_approval": bool(approval),
-                "elapsed_ms": elapsed_ms,
-                "changes": changes,
-                "usage": meter.as_dict(),
+                **turn,
                 "steering_pending": steering.pending_count(session_id),
             },
         )
@@ -470,7 +467,7 @@ async def approve_stream(session_id: str, decisions: list[dict[str, Any]]) -> As
         # 已生成的文本也必须留住。
         try:
             text = "".join(buffer)
-            if len(text) > committed and text.strip():
+            if len(text) > committed and (text.strip() or tool_calls):
                 await asyncio.to_thread(
                     _persist_assistant,
                     session_id,
@@ -480,6 +477,7 @@ async def approve_stream(session_id: str, decisions: list[dict[str, Any]]) -> As
                     elapsed_ms=int((time.monotonic() - started) * 1000),
                     changes=await asyncio.to_thread(turn_changes, project, sorted(write_paths)),
                     interrupted=True,
+                    round_started=round_started,
                     usage_snapshot=meter.as_dict(),
                 )
         finally:
@@ -492,6 +490,53 @@ async def approve_stream(session_id: str, decisions: list[dict[str, Any]]) -> As
             finally:
                 steering.end(session_id)
                 lock.release()
+
+
+async def _execute(
+    agent: Any,
+    graph_input: Any,
+    config: dict[str, Any],
+    buffer: list[str],
+    tool_calls: list[dict[str, Any]],
+    write_paths: set[str],
+    meter: usage.UsageMeter,
+    *,
+    session_id: str,
+    project: Path,
+    resolution: tuple[str, list[dict[str, Any]]] | None = None,
+) -> AsyncIterator[str]:
+    """保持同一张图，串行恢复完全访问下的每批中断，直到真正生成最终答复。"""
+    for _ in range(RECURSION_LIMIT):
+        before = (len(buffer), len(tool_calls))
+        async for chunk in _run_events(
+            agent, graph_input, config, buffer, tool_calls, write_paths, meter
+        ):
+            yield chunk
+        if resolution:
+            if before == (len(buffer), len(tool_calls)):
+                raise RuntimeError("审批恢复未产生执行结果，操作仍待审批，请重试或重新生成。")
+            db.resolve_approvals(session_id, *resolution)
+            resolution = None
+        snapshot = await agent.aget_state(config)
+        interrupts = getattr(snapshot, "interrupts", ()) or ()
+        if not interrupts:
+            final_offset = tool_calls[-1].get("offset", 0) if tool_calls else 0
+            if not "".join(buffer)[final_offset:].strip():
+                raise RuntimeError("本轮未生成最终答复，请继续执行或重试；已执行的工具结果已保留。")
+            return
+        session = db.get_session(session_id) or {}
+        mode = session.get("permission_mode") or load_settings().sandbox.default_mode
+        if mode != "auto":
+            return
+        interrupt = interrupts[0]
+        requests = build_requests(project, interrupt.value)
+        if not requests:
+            raise RuntimeError("无法识别待审批操作，执行已暂停。")
+        db.add_approval(session_id, getattr(interrupt, "id", None), {"requests": requests})
+        decisions = [{"type": "approve"} for _ in requests]
+        resolution = ("approved", decisions)
+        graph_input = Command(resume={"decisions": decisions})
+    raise RuntimeError("连续执行次数达到上限，请检查任务后继续。")
 
 
 async def _run_events(
@@ -626,10 +671,9 @@ def _persist_assistant(
     changes: dict[str, Any] | None = None,
     interrupted: bool = False,
     usage_snapshot: dict[str, Any] | None = None,
-) -> None:
+    round_started: float | None = None,
+) -> dict[str, Any]:
     text = "".join(buffer)
-    if not text.strip() and not tool_calls:
-        return
     meta: dict[str, Any] = {}
     if tool_calls:
         meta["tool_calls"] = tool_calls
@@ -662,11 +706,24 @@ def _persist_assistant(
     meta["turn"] = {
         "elapsed_ms": elapsed_ms,
         "changes": changes or {"files": [], "diff": "", "truncated": False},
+        "phase_id": uuid4().hex,
+        "status": "awaiting_approval"
+        if awaiting
+        else "interrupted"
+        if interrupted
+        else "completed",
     }
+    if round_started is not None:
+        meta["turn"].update(
+            started_at=round_started,
+            elapsed_ms=max(elapsed_ms, int(time.time() * 1000 - round_started)),
+            elapsed_scope="round",
+        )
     # 用量写进消息里，刷新页面后轮次摘要仍能显示 token
     if usage_snapshot and (usage_snapshot.get("total") or usage_snapshot.get("calls")):
         meta["turn"]["usage"] = usage_snapshot
     db.add_message(session_id, "assistant", text, meta=meta)
+    return meta["turn"]
 
 
 def _write_path(name: str, args: dict[str, Any]) -> str | None:

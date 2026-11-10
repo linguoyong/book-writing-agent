@@ -260,16 +260,10 @@ export const useAppStore = create<AppState>((set, get) => {
   const makeHandlers = (sessionId: string, signal: AbortSignal): StreamHandlerSet => {
     const live = (): boolean => get().activeSessionId === sessionId && !signal.aborted
     let assistantId: string | null = null
-    // 完全访问模式下，被中断的操作不弹卡片，等这一轮结束后自动放行
-    let autoApproval: ApprovalBundle | null = null
     return {
       onContext: (bundle) => { if (live()) set({ context: bundle }) },
       onApproval: (approval) => {
         if (!live()) return
-        if (get().permissionMode === 'auto') {
-          autoApproval = approval
-          return
-        }
         set({ approval })
       },
       onToken: (token) => {
@@ -330,6 +324,7 @@ export const useAppStore = create<AppState>((set, get) => {
         const turn =
           payload && (payload.elapsed_ms !== undefined || payload.changes)
             ? {
+                ...payload,
                 elapsed_ms: payload.elapsed_ms ?? 0,
                 changes: payload.changes ?? { files: [], diff: '' },
                 usage: payload.usage
@@ -348,14 +343,11 @@ export const useAppStore = create<AppState>((set, get) => {
         void get().refreshSessions()
         void get().refreshOverview()
         void get().refreshDiff()
-        if (autoApproval) {
-          const bundle = autoApproval
-          autoApproval = null
-          void get().resolveApproval(bundle.requests.map(() => ({ type: 'approve' as const })))
-        }
       }
     }
   }
+
+  const autoApprovalAttempts = new Set<string>()
 
   return {
     ready: false,
@@ -604,7 +596,11 @@ export const useAppStore = create<AppState>((set, get) => {
     if (!project) return
     try {
       const overview = await api.overview(project.id)
+      if (get().activeProject?.id !== project.id) return
       set({ overview, activeProject: { ...project, meta: overview.book } })
+      const kind = get().kbKind
+      const kbItems = await api.entities(project.id, kind)
+      if (get().activeProject?.id === project.id && get().kbKind === kind) set({ kbItems })
     } catch {
       /* 忽略概览刷新失败 */
     }
@@ -772,6 +768,8 @@ export const useAppStore = create<AppState>((set, get) => {
         void get().refreshSessions()
         void get().refreshAllSessions()
         void get().refreshDiff()
+        void get().refreshOverview()
+        void get().refreshTree()
         void get().refreshPending()
       } catch {
         // A transient polling failure must not erase messages or strand a live run.
@@ -882,6 +880,7 @@ export const useAppStore = create<AppState>((set, get) => {
         makeHandlers(sessionId, controller.signal),
         controller.signal
       )
+      if (get().activeSessionId === sessionId && !controller.signal.aborted) get().resumeRun(sessionId)
     } finally {
       if (streamAbort === controller) streamAbort = null
     }
@@ -953,6 +952,7 @@ export const useAppStore = create<AppState>((set, get) => {
     streamAbort = controller
     try {
       await regenerateChat(sessionId, makeHandlers(sessionId, controller.signal), controller.signal)
+      if (get().activeSessionId === sessionId && !controller.signal.aborted) get().resumeRun(sessionId)
     } finally {
       if (streamAbort === controller) streamAbort = null
     }
@@ -1063,8 +1063,10 @@ export const useAppStore = create<AppState>((set, get) => {
   loadKb: async (kind) => {
     const project = get().activeProject
     if (!project) return
+    set({ kbKind: kind, kbActive: null, kbItems: [] })
     try {
-      set({ kbKind: kind, kbItems: await api.entities(project.id, kind), kbActive: null })
+      const kbItems = await api.entities(project.id, kind)
+      if (get().activeProject?.id === project.id && get().kbKind === kind) set({ kbItems })
     } catch (error) {
       set({ error: (error as Error).message })
     }
@@ -1086,6 +1088,7 @@ export const useAppStore = create<AppState>((set, get) => {
       set({ kbActive: entity })
       await get().refreshTree()
       // 服务端已按单条卡片增量索引，不再触发整库重嵌
+      await get().refreshOverview()
     } catch (error) {
       set({ error: (error as Error).message })
     }
@@ -1113,6 +1116,7 @@ export const useAppStore = create<AppState>((set, get) => {
       await get().refreshTree()
       await get().refreshDiff()
       // 服务端已按单条卡片增量索引，不再触发整库重嵌
+      await get().refreshOverview()
     } catch (error) {
       set({ error: (error as Error).message })
     }
@@ -1128,6 +1132,7 @@ export const useAppStore = create<AppState>((set, get) => {
       await get().loadKb(active.kind)
       await get().refreshDiff()
       // 服务端已按单条卡片增量索引，不再触发整库重嵌
+      await get().refreshOverview()
     } catch (error) {
       set({ error: (error as Error).message })
     }
@@ -1228,14 +1233,13 @@ export const useAppStore = create<AppState>((set, get) => {
 
   resolveApproval: async (decisions) => {
     const sessionId = get().activeSessionId
-    if (!sessionId) return
+    if (!sessionId || get().streaming) return
     set({ streaming: true, streamStartedAt: Date.now(), approval: null, error: null })
     const controller = new AbortController()
     streamAbort = controller
     try {
       await approveChat(sessionId, decisions, makeHandlers(sessionId, controller.signal), controller.signal)
-      // 提交失败（400/500）时后端仍保留 pending，重新拉一次把卡片找回来
-      await get().refreshPending()
+      if (get().activeSessionId === sessionId && !controller.signal.aborted) get().resumeRun(sessionId)
     } finally {
       if (streamAbort === controller) streamAbort = null
     }
@@ -1249,7 +1253,14 @@ export const useAppStore = create<AppState>((set, get) => {
     }
     try {
       const result = await api.pending(sessionId)
+      if (get().activeSessionId !== sessionId) return
       set({ approval: result.approval })
+      if (result.approval && get().permissionMode === 'auto' && !get().streaming && !autoApprovalAttempts.has(result.approval.approval_id)) {
+        // 模式可能在服务端暂停后才切换；等旧 SSE 结束后，再串行恢复。
+        // 自动恢复失败时保留审批卡，避免后台反复提交同一批写入。
+        autoApprovalAttempts.add(result.approval.approval_id)
+        await get().resolveApproval(result.approval.requests.map(() => ({ type: 'approve' as const })))
+      }
     } catch {
       /* 忽略待审批读取失败 */
     }
@@ -1405,25 +1416,25 @@ export const useAppStore = create<AppState>((set, get) => {
       .catch((error: Error) => set({ error: error.message }))
   },
   setPermissionMode: (mode) => {
+    const previous = get().permissionMode
     set({ permissionMode: mode })
     const sessionId = get().activeSessionId
-    const pending = get().approval
-    if (mode === 'auto' && pending) {
-      // 已经弹出审批卡片：切到完全访问就直接放行，不用用户再点一次
-      get().showToast('已切换为完全访问：这次写入自动放行')
-      void get().resolveApproval(pending.requests.map(() => ({ type: 'approve' as const })))
-    }
     if (!sessionId) return
     void api
       .updateSession(sessionId, { permission_mode: mode })
-      .then((updated) => {
+      .then(async (updated) => {
         set({
           sessions: get().sessions.map((item) =>
             item.id === sessionId ? { ...item, permission_mode: updated.permission_mode } : item
           )
         })
+        if (get().activeSessionId === sessionId && get().permissionMode === mode && !get().streaming) {
+          await get().refreshPending()
+        }
       })
-      .catch((error: Error) => set({ error: error.message }))
+      .catch((error: Error) => {
+        if (get().activeSessionId === sessionId) set({ permissionMode: previous, error: error.message })
+      })
   },
 
   setWritingStyle: (style) => set({ writingStyle: style }),

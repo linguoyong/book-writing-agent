@@ -63,6 +63,10 @@ export interface TurnMeta {
   elapsed_ms: number
   changes: TurnChanges
   usage?: TokenUsage
+  phase_id?: string
+  elapsed_scope?: 'round'
+  started_at?: number
+  status?: 'completed' | 'awaiting_approval' | 'interrupted'
 }
 
 export interface Message {

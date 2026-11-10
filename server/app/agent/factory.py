@@ -66,9 +66,9 @@ def build_agent(
     backend = _backend(project)
     skills = _skill_sources(project, domain.skills_subdir)
     settings = load_settings()
-    mode = (session or {}).get("permission_mode") or settings.sandbox.default_mode
-    # 审批模式下，写工具与通用文件写入都要人工确认；完全访问模式跳过审批，但规则 deny 仍生效
-    interrupt_on = None if readonly or mode == "auto" else {name: True for name in GATED_TOOLS}
+    # checkpoint 包含 HITL 节点。切换模式不能移除节点，否则 resume 会静默跳过工具。
+    # 完全访问由 runner 在同一执行链里自动批准，保留相同的图和 deny 规则。
+    interrupt_on = None if readonly else {name: True for name in GATED_TOOLS}
     if readonly:
         # 侧问是只读会话：权限栈最前面兜一条全盘写 deny。
         # deepagents 内置的 write_file / edit_file / delete 不受自研工具集约束，
@@ -78,7 +78,7 @@ def build_agent(
             *compile_permissions(settings.sandbox, mode="auto"),
         ]
     else:
-        permissions = compile_permissions(settings.sandbox, mode=mode)
+        permissions = compile_permissions(settings.sandbox, mode="ask")
 
     sync_session = (session or {}).get("id", "")
     model = build_chat_model("writer", (session or {}).get("model_id"))

@@ -18,6 +18,7 @@ const KINDS: KbKind[] = [
 export default function KnowledgePanel(): React.JSX.Element {
   const kbKind = useAppStore((state) => state.kbKind)
   const kbItems = useAppStore((state) => state.kbItems)
+  const counts = useAppStore((state) => state.overview?.kb_counts)
   const kbActive = useAppStore((state) => state.kbActive)
   const kbSearch = useAppStore((state) => state.kbSearch)
   const loadKb = useAppStore((state) => state.loadKb)
@@ -73,7 +74,7 @@ export default function KnowledgePanel(): React.JSX.Element {
             onClick={() => void loadKb(kind)}
           >
             {KB_LABELS[kind]}
-            {kind === kbKind && kbItems.length > 0 ? ` ${kbItems.length}` : ''}
+            {counts ? ` ${counts[kind] ?? 0}` : ''}
           </button>
         ))}
       </div>

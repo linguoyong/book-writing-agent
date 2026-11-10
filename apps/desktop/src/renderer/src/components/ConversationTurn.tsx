@@ -27,6 +27,7 @@ function TurnBlock({
   onBring?: (text: string) => void
 }): React.JSX.Element {
   const regenerate = useAppStore((state) => state.regenerate)
+  const approval = useAppStore((state) => state.approval)
   const retryLastTurn = useAppStore((state) => state.retryLastTurn)
   const setPendingComposer = useAppStore((state) => state.setPendingComposer)
   const showToast = useAppStore((state) => state.showToast)
@@ -47,13 +48,19 @@ function TurnBlock({
   }, [live])
 
   const running = live
-  const elapsed = running && startedAt ? now - startedAt : turn.meta?.elapsed_ms ?? 0
+  const origin = turn.meta?.started_at ?? startedAt
+  const elapsed = running && origin
+    ? Math.max(turn.meta?.elapsed_ms ?? 0, now - origin)
+    : turn.meta?.elapsed_ms ?? 0
   const steering = turn.process.filter((item) => item.type === 'user')
   const process = turn.process.filter((item) => item.type !== 'user')
   const steps = process.filter((item) => item.type === 'tool')
   // 折叠时也要能看出「现在在干什么」，否则只剩一个计时器像卡住了
   const lastStep = steps[steps.length - 1]
   const progress = executionProgress(process, Boolean(turn.conclusion))
+  const status = turn.meta?.status === 'awaiting_approval' ? '等待审批'
+    : turn.meta?.status === 'interrupted' || process.some((item) => item.type === 'error') ? '已中断'
+    : turn.conclusion ? '已完成' : '执行未完成'
 
   return (
     <div className="turn" data-turn-id={turn.id} id={`${side ? "side-" : ""}turn-${turn.id}`}>
@@ -103,7 +110,7 @@ function TurnBlock({
         </div>
       ))}
 
-      {(process.length > 0 || turn.conclusion) && (
+      {(process.length > 0 || turn.conclusion || turn.meta) && (
         <div className="msg assistant">
           <div className="avatar">文</div>
           <div className="assistant-body">
@@ -113,7 +120,7 @@ function TurnBlock({
                 {progress.recent && <div className="turn-progress-recent">{progress.recent}</div>}
               </div>
             )}
-            {process.length > 0 &&
+            {(process.length > 0 || turn.meta) &&
               (running ? (
                 <details className="turn-live turn-live-running">
                   <summary>
@@ -144,9 +151,9 @@ function TurnBlock({
               ) : (
                 <details className="turn-fold">
                   <summary>
-                    <Check size={12} />
-                    <span>已完成</span>
-                    {turn.meta && (
+                    {status === '已完成' ? <Check size={12} /> : <AlertTriangle size={12} />}
+                    <span>{status}</span>
+                    {elapsed > 0 && (
                       <>
                         <span className="turn-dot">·</span>
                         <span>{formatDuration(elapsed)}</span>
@@ -184,18 +191,6 @@ function TurnBlock({
                 {turn.conclusion.interrupted && (
                   <div className="turn-interrupted">生成已中断，以上为已生成的内容</div>
                 )}
-                {turn.conclusion.awaiting && !side && (
-                  <div className="turn-interrupted">
-                    <span>这一轮在等待写入审批时暂停，可重新生成继续</span>
-                    <button
-                      className="link-btn"
-                      onClick={() => void regenerate()}
-                      disabled={streaming}
-                    >
-                      重新生成
-                    </button>
-                  </div>
-                )}
                 {!running && (
                   <div className="msg-actions">
                     <button onClick={() => copy(turn.conclusion?.content ?? '')} title="复制">
@@ -216,6 +211,16 @@ function TurnBlock({
                       </button>
                     )}
                   </div>
+                )}
+              </div>
+            )}
+            {!running && !turn.conclusion && (
+              <div className="turn-interrupted">
+                <span>{status === '等待审批'
+                  ? '本轮等待写入审批，通过后继续执行。'
+                  : '本轮尚未生成最终总结，请继续执行或重试。'}</span>
+                {isLast && !side && !approval && (
+                  <button className="link-btn" disabled={streaming} onClick={() => void regenerate()}>重新生成</button>
                 )}
               </div>
             )}
@@ -255,7 +260,7 @@ function StepRow({ item }: { item: TimelineItem }): React.JSX.Element | null {
       <details className="step-tool">
         <summary>
           <Wrench size={11} />
-          <span className="step-name">{item.name}</span>
+          <span className="step-name" title={item.name}>{toolProgress(item)}</span>
           <span className={`status ${item.status === 'running' ? 'running' : ''}`}>
             {item.status === 'running'
               ? '执行中'

@@ -16,6 +16,31 @@ const turn: TurnView = {
 }
 
 describe.each([false, true])('shared conversation presentation side=%s', (side) => {
+  it('places a collapsed whole-round duration above the final summary', () => {
+    const html = renderToStaticMarkup(<ConversationTurn turn={{ ...turn, meta: {
+      elapsed_ms: 288292, changes: { files: [], diff: '' }, status: 'completed'
+    } }} side={side} live={false} startedAt={null} />)
+    expect(html).toContain('4 分 48 秒')
+    expect(html).not.toContain('<details open')
+    expect(html.indexOf('</details>')).toBeLessThan(html.indexOf('正文回答'))
+  })
+
+  it('shows an approval pause without claiming completion or inventing a short duration', () => {
+    const html = renderToStaticMarkup(<ConversationTurn turn={{ ...turn, conclusion: undefined, meta: {
+      elapsed_ms: 0, changes: { files: [], diff: '' }, status: 'awaiting_approval'
+    } }} side={side} live={false} startedAt={null} />)
+    expect(html).toContain('等待审批')
+    expect(html).not.toContain('已完成')
+    expect(html).not.toContain('1 秒内')
+    expect(html).not.toContain('正文回答')
+  })
+
+  it('offers regeneration for an old incomplete round with no remaining approval', () => {
+    const html = renderToStaticMarkup(<ConversationTurn turn={{ ...turn, conclusion: undefined, meta: {
+      elapsed_ms: 288292, changes: { files: [], diff: '' }, status: 'awaiting_approval'
+    } }} side={side} live={false} isLast startedAt={null} />)
+    expect(html.includes('重新生成')).toBe(!side)
+  })
   it('keeps user steering visible outside folded process during generation and in history', () => {
     const guided: TurnView = { ...turn, process: [
       { id: 'steer', type: 'user', content: '保留桥上钟声', steering: true }, ...turn.process

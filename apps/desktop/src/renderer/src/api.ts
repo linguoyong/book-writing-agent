@@ -37,8 +37,6 @@ import type {
   SessionPermission,
   Skill,
   TreeNode,
-  TurnChanges,
-  TokenUsage,
   UsageSummary,
   ModelPrice,
   GraphData,
@@ -552,7 +550,7 @@ interface StreamHandlers {
   onToken: (text: string) => void
   onToolStart: (name: string, input: string) => void
   onToolEnd: (name: string, output: string) => void
-  onDone: (payload?: { elapsed_ms?: number; changes?: TurnChanges; usage?: TokenUsage }) => void
+  onDone: (payload?: Partial<import('./types').TurnMeta>) => void
   onError: (message: string) => void
   /** 用户主动中止：不再当作错误提示 */
   onAborted?: () => void
@@ -752,7 +750,7 @@ function dispatchEvent(raw: string, handlers: StreamHandlers): boolean {
       break
     case 'done':
       handlers.onDone(
-        payload as { elapsed_ms?: number; changes?: TurnChanges; usage?: TokenUsage }
+        payload as Partial<import('./types').TurnMeta>
       )
       return true
     case 'error':

@@ -14,6 +14,7 @@ export interface TurnView {
 export function groupTurns(items: TimelineItem[]): TurnView[] {
   const turns: TurnView[] = []
   let current: TurnView | null = null
+  const phases = new Set<string>()
 
   for (const item of items) {
     if (item.type === 'user' && !item.steering) {
@@ -26,7 +27,9 @@ export function groupTurns(items: TimelineItem[]): TurnView[] {
       turns.push(current)
     }
     if (item.type === 'turn_end') {
-      current.meta = item.meta
+      const phase = item.meta.phase_id ?? item.id
+      if (!phases.has(phase)) current.meta = mergeMeta(current.meta, item.meta)
+      phases.add(phase)
       continue
     }
     current.process.push(item)
@@ -34,12 +37,34 @@ export function groupTurns(items: TimelineItem[]): TurnView[] {
 
   for (const turn of turns) {
     const last = turn.process[turn.process.length - 1]
-    if (last?.type === 'assistant' && last.content.trim()) {
+    if (last?.type === 'assistant' && last.content.trim() && !last.awaiting && turn.meta?.status !== 'awaiting_approval') {
       turn.conclusion = last
       turn.process.pop()
     }
   }
   return turns
+}
+
+function mergeMeta(previous: TurnMeta | undefined, next: TurnMeta): TurnMeta {
+  if (!previous) return next
+  const usage = previous.usage && next.usage ? {
+    ...next.usage,
+    input: previous.usage.input + next.usage.input,
+    output: previous.usage.output + next.usage.output,
+    total: previous.usage.total + next.usage.total,
+    cache_read: previous.usage.cache_read + next.usage.cache_read,
+    calls: previous.usage.calls + next.usage.calls
+  } : next.usage ?? previous.usage
+  return {
+    ...next,
+    elapsed_ms: next.elapsed_scope === 'round'
+      ? Math.max(previous.elapsed_ms, next.elapsed_ms)
+      : previous.elapsed_ms + next.elapsed_ms,
+    started_at: previous.started_at ?? next.started_at,
+    changes: { ...next.changes, files: [...new Set([...previous.changes.files, ...next.changes.files])],
+      diff: [previous.changes.diff, next.changes.diff].filter(Boolean).join('\n') },
+    usage
+  }
 }
 
 export function timelineFromMessages(messages: Message[]): TimelineItem[] {
@@ -64,7 +89,8 @@ export function timelineFromMessages(messages: Message[]): TimelineItem[] {
       }
     }
     if (message.role === 'assistant' && meta?.turn) {
-      items.push({ id: `t${message.id}`, type: 'turn_end', meta: meta.turn })
+      items.push({ id: `t${message.id}`, type: 'turn_end', meta: { ...meta.turn,
+        status: meta.turn.status ?? (meta.awaiting_approval ? 'awaiting_approval' : meta.interrupted ? 'interrupted' : 'completed') } })
     }
   }
   return items

@@ -571,6 +571,7 @@ def _runtime_block(
         f"进度：第{progress.get('volume', 1)}卷第{progress.get('chapter', 1)}章"
         f"（全书 {_stat_line(project)}）",
         f"项目目录：{project}",
+        "文件工具使用项目内虚拟路径：根目录为 /，例如 /kb/outline/main.md；不要把物理目录传给 ls/read_file/write_file。",
     ]
     if session:
         lines.append(

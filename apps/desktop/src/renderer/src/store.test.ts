@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Message, RunSnapshot } from './types'
 
-const mocks = vi.hoisted(() => ({ messages: vi.fn(), sessionRun: vi.fn(), stopRun: vi.fn(), steer: vi.fn() }))
+const mocks = vi.hoisted(() => ({ messages: vi.fn(), sessionRun: vi.fn(), stopRun: vi.fn(), steer: vi.fn(), overview: vi.fn(), entities: vi.fn(), updateSession: vi.fn(), pending: vi.fn() }))
 vi.mock('./api', () => ({ api: mocks, ApiError: class extends Error {}, streamChat: vi.fn(), approveChat: vi.fn(), regenerateChat: vi.fn() }))
 import { useAppStore } from './store'
 
@@ -36,6 +36,39 @@ afterEach(() => {
 })
 
 describe('returning to an executing conversation', () => {
+  it('persists the permission change before resuming a pending approval', async () => {
+    let finish!: (value: { permission_mode: string }) => void
+    mocks.updateSession.mockImplementation(() => new Promise((resolve) => { finish = resolve }))
+    const refreshPending = vi.fn()
+    useAppStore.setState({ streaming: false, refreshPending })
+    useAppStore.getState().setPermissionMode('auto')
+    expect(refreshPending).not.toHaveBeenCalled()
+    finish({ permission_mode: 'auto' })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(refreshPending).toHaveBeenCalledOnce()
+  })
+
+  it('refreshes all category counts and the current list without losing the selected category', async () => {
+    mocks.overview.mockResolvedValue({ book: {}, kb_counts: { world: 1, factions: 1, outline: 2 } })
+    mocks.entities.mockResolvedValue([{ id: 'main', kind: 'outline', title: '总纲' }])
+    useAppStore.setState({ activeProject: { id: 'p', name: '测试', path: '', created_at: '', updated_at: '' }, kbKind: 'outline' })
+    await useAppStore.getState().refreshOverview()
+    expect(useAppStore.getState().overview?.kb_counts).toEqual({ world: 1, factions: 1, outline: 2 })
+    expect(useAppStore.getState().kbItems[0].id).toBe('main')
+    expect(useAppStore.getState().kbKind).toBe('outline')
+  })
+
+  it('does not show a late category response after switching categories', async () => {
+    let finish!: (items: unknown[]) => void
+    mocks.entities.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve })).mockResolvedValue([{ id: 'world', kind: 'world' }])
+    useAppStore.setState({ activeProject: { id: 'p', name: '测试', path: '', created_at: '', updated_at: '' } })
+    const older = useAppStore.getState().loadKb('outline')
+    await useAppStore.getState().loadKb('world')
+    finish([{ id: 'main', kind: 'outline' }])
+    await older
+    expect(useAppStore.getState().kbKind).toBe('world')
+    expect(useAppStore.getState().kbItems[0].id).toBe('world')
+  })
   it('keeps a newly sent steering message across subsequent snapshot polls', async () => {
     useAppStore.getState().resumeRun('s')
     await vi.advanceTimersByTimeAsync(0)

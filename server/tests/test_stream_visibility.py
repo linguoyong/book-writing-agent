@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -10,11 +11,37 @@ from langchain_core.language_models.fake_chat_models import FakeListChatModel
 from langchain_core.runnables import RunnableLambda
 from langchain_core.tools import tool
 
-from app.agent.runner import _error_text, _persist_assistant, _run_events
+from app.agent.runner import _error_text, _execute, _persist_assistant, _run_events
 from app.usage import UsageMeter
 
 
 class StreamVisibilityTest(unittest.TestCase):
+    def test_noop_resume_does_not_mark_approval_as_resolved(self):
+        class Agent:
+            async def astream_events(self, *args, **kwargs):
+                if False:
+                    yield {}
+
+        async def run():
+            async for _ in _execute(
+                Agent(),
+                {},
+                {},
+                [],
+                [],
+                set(),
+                UsageMeter(),
+                session_id="session",
+                project=Path("."),
+                resolution=("approved", [{"type": "approve"}]),
+            ):
+                pass
+
+        with patch("app.agent.runner.db.resolve_approvals") as resolve:
+            with self.assertRaisesRegex(RuntimeError, "审批恢复未产生执行结果"):
+                asyncio.run(run())
+        resolve.assert_not_called()
+
     def consume(self, agent):
         buffer, calls, paths, events = [], [], set(), []
         meter = UsageMeter()
