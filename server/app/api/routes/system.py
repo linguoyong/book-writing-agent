@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import HTTPException
 from pydantic import ValidationError
 
+from ...model_probe import ModelTestRequest, probe_model
 from .common import (
     DEFAULT_LOCAL_MODEL,
     LOCAL_MODELS,
@@ -112,6 +113,11 @@ def put_config(payload: dict[str, Any]) -> dict[str, Any]:
     # 前端的 AppConfig 不认识这个字段也没关系：只是用来提示「需要重建索引」
     result["embedding_changed"] = changed
     return result
+
+
+@router.post("/models/test")
+async def test_model(req: ModelTestRequest) -> dict[str, Any]:
+    return await probe_model(req, load_settings())
 
 
 @router.get("/embeddings/options")

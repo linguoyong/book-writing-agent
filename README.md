@@ -5,6 +5,14 @@
 
 ![对话写作](docs/screenshots/chat.png)
 
+## 下载
+
+Windows x64 安装包：[GitHub v0.1.0](https://github.com/linguoyong/book-writing-agent/releases/tag/v0.1.0) · [Gitee v0.1.0](https://gitee.com/xymylove/book-writing-agent/releases/tag/v0.1.0)。安装后无需另外安装 Python。
+
+首次配置时，在模型设置中填写 Base URL、API Key 和模型名，点击对应的「测试连接」。
+每个写作模型、抽取模型和审稿模型均可单独测试，显示连接耗时或失败原因；测试通过后点击「保存」。
+审稿模型名留空时，测试当前默认写作模型。详见 [v0.1.0 发布说明](docs/releases/v0.1.0.md)。
+
 ## 这是什么
 
 通用写作工具的通病是「只会聊天」：它读得懂你的问题，但记不住你的角色、分不清第 80 章和第 100 章的状态、改完稿你还得自己比对差异。

@@ -342,6 +342,21 @@ export interface ModelSettings {
   model: string
   temperature: number
   context_window: number
+  reasoning_effort?: string
+}
+
+export interface ModelTestRequest {
+  role: 'writer' | 'extractor' | 'reviewer'
+  settings: ModelSettings
+  model_id?: string
+  fallback_model?: ModelProfile
+}
+
+export interface ModelProbe {
+  ok: boolean
+  error: string
+  model: string
+  ms: number
 }
 
 export interface EmbeddingOption {
@@ -455,6 +470,7 @@ export interface ModelProfile {
   context_window: number
   max_output_tokens: number
   temperature: number
+  reasoning_effort?: string
 }
 
 export type TimelineItem =

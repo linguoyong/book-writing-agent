@@ -1,5 +1,7 @@
 import type {
   AppConfig,
+  ModelProbe,
+  ModelTestRequest,
   ApprovalBundle,
   ApprovalDecision,
   ApprovalRecord,
@@ -369,6 +371,12 @@ export const api = {
     http<{ status: string }>(`/projects/${projectId}/git/status`),
 
   getConfig: () => http<AppConfig>('/config'),
+  testModel: (request: ModelTestRequest, signal?: AbortSignal) =>
+    http<ModelProbe>('/models/test', {
+      method: 'POST',
+      body: JSON.stringify(request),
+      signal
+    }),
   saveConfig: (config: AppConfig) =>
     http<AppConfig>('/config', { method: 'PUT', body: JSON.stringify(config) }),
   searchText: (

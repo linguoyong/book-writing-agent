@@ -3,11 +3,12 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Iterator
 from typing import Any
 
+import httpx
 import openai
 from langchain_core.exceptions import ContextOverflowError
 from langchain_openai import ChatOpenAI
 
-from .config import load_settings, resolve_model
+from .config import ModelProfile, ModelSettings, load_settings, resolve_model
 
 # 模型窗口不再限定两档：默认 1M，允许 8K–4M 的自定义值
 WINDOW_DEFAULT = 1_000_000
@@ -121,17 +122,27 @@ def build_chat_model(role: str = "writer", model_id: str | None = None) -> ChatO
     settings = load_settings()
     if role == "extractor":
         source = settings.extractor
-        window = normalize_window(source.context_window)
         output = 8192
     elif role == "reviewer" and settings.reviewer.model:
         source = settings.reviewer
-        window = normalize_window(source.context_window)
         output = 16384
     else:
         source = resolve_model(settings, model_id)
-        window = normalize_window(source.context_window)
         output = source.max_output_tokens
 
+    return chat_model_from_settings(source, output_tokens=output)
+
+
+def chat_model_from_settings(
+    source: ModelSettings | ModelProfile,
+    *,
+    output_tokens: int = 8192,
+    timeout: float = 180,
+    max_retries: int = 2,
+    http_client: httpx.Client | None = None,
+    http_async_client: httpx.AsyncClient | None = None,
+) -> ChatOpenAI:
+    """用同一套兼容规则构造模型，也供未保存配置的连接测试使用。"""
     key = _usage_key(source.base_url or None, source.model)
     extra: dict[str, Any] = {}
     effort = str(getattr(source, "reasoning_effort", "") or "").strip()
@@ -144,8 +155,10 @@ def build_chat_model(role: str = "writer", model_id: str | None = None) -> ChatO
         api_key=source.api_key or "not-needed",
         base_url=source.base_url or None,
         temperature=source.temperature,
-        timeout=180,
-        max_retries=2,
+        timeout=timeout,
+        max_retries=max_retries,
+        http_client=http_client,
+        http_async_client=http_async_client,
         # 自定义 base_url 时 langchain 默认不请求 usage，用量页会整轮记 0。
         # 主动打开；遇到不支持的端点会在首次 400 后自动降级。
         stream_usage=key not in _NO_STREAM_USAGE,
@@ -153,5 +166,8 @@ def build_chat_model(role: str = "writer", model_id: str | None = None) -> ChatO
     )
     # 窗口与输出预算交给中间件折算压缩阈值；不硬塞 max_tokens，
     # 避免不同服务商对超上限的 max_tokens 直接返回 400。
-    model.profile = {"max_input_tokens": window, "max_output_tokens": output}
+    model.profile = {
+        "max_input_tokens": normalize_window(source.context_window),
+        "max_output_tokens": output_tokens,
+    }
     return model

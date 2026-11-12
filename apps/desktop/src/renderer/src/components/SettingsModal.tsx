@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Plus, RefreshCw, Trash2, X } from 'lucide-react'
 import { api } from '../api'
 import { useAppStore } from '../store'
+import ModelConnectionTest from './ModelConnectionTest'
 import type {
   AppConfig,
   EmbeddingOption,
@@ -9,6 +10,7 @@ import type {
   EmbeddingSettings,
   ModelProfile,
   ModelSettings,
+  ModelTestRequest,
   PathRule,
   RuleMode,
   SessionPermission
@@ -235,6 +237,10 @@ export default function SettingsModal(): React.JSX.Element | null {
                     已配置（显示为 ***），不改动即保留；清空后保存则删除。
                   </div>
                 )}
+                <ModelConnectionTest
+                  label={item.name || `模型 ${index + 1}`}
+                  request={{ role: 'writer', model_id: item.id, settings: item }}
+                />
               </div>
             ))}
             <button className="small-btn" style={{ marginTop: 6 }} onClick={addModel}>
@@ -248,6 +254,7 @@ export default function SettingsModal(): React.JSX.Element | null {
             hint="用于导入时的逐章结构化抽取，建议选便宜且稳定的模型"
             settings={draft.extractor}
             onChange={setExtractor}
+            testRequest={{ role: 'extractor', settings: draft.extractor }}
           />
 
           <ModelSection
@@ -255,6 +262,11 @@ export default function SettingsModal(): React.JSX.Element | null {
             hint="用于章节审稿；模型名留空时使用当前默认模型，也可配置独立来源"
             settings={draft.reviewer}
             onChange={setReviewer}
+            testRequest={{
+              role: 'reviewer',
+              settings: draft.reviewer,
+              fallback_model: draft.models.find((item) => item.id === draft.active_model_id) ?? draft.models[0]
+            }}
           />
 
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
@@ -534,12 +546,14 @@ function ModelSection({
   hint,
   settings,
   onChange,
+  testRequest,
   withCompaction = false
 }: {
   title: string
   hint: string
   settings: ModelSettings
   onChange: (patch: Partial<ModelSettings>) => void
+  testRequest: ModelTestRequest
   withCompaction?: boolean
 }): React.JSX.Element {
   return (
@@ -608,6 +622,7 @@ function ModelSection({
           </div>
         </div>
       )}
+      <ModelConnectionTest label={title} request={testRequest} />
     </div>
   )
 }
